@@ -1150,6 +1150,8 @@ function getStoredRealtimeAuthToken() {
     return getStoredAuthToken();
 }
 
+if (typeof window.__madrasahSessionReady !== 'boolean') window.__madrasahSessionReady = false;
+
 function initRealtimeSync() {
     // Prevent duplicate SSE loops when modules/routes are rendered repeatedly.
     if (window.__madrasahRealtimeStarted) return;
@@ -1160,6 +1162,9 @@ function initRealtimeSync() {
     let authWatchInterval = null;
     let connectedAuthToken = '';
     let rejectedAuthToken = '';
+    let reconnectFailures = 0;
+
+    const browserOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
     const closeSource = () => {
         if (sseSource) {
@@ -1169,49 +1174,53 @@ function initRealtimeSync() {
         connectedAuthToken = '';
     };
 
-    const scheduleReconnect = (delay = 1500) => {
+    const clearReconnectTimer = () => {
         if (reconnectTimeout) clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+    };
+
+    const scheduleReconnect = (delay = 1500, withBackoff = false) => {
+        clearReconnectTimer();
+        if (browserOffline()) return;
+        const wait = withBackoff
+            ? Math.min(30000, Math.max(delay, 1500 * Math.pow(2, Math.min(reconnectFailures, 4))))
+            : Math.max(0, delay);
         reconnectTimeout = setTimeout(() => {
             reconnectTimeout = null;
             connect();
-        }, delay);
+        }, wait);
     };
 
     async function connect() {
         closeSource();
+        if (browserOffline()) return;
 
         const authToken = getStoredRealtimeAuthToken();
         const currentUser = appState && appState.currentUser ? appState.currentUser : null;
         if (!authToken) {
-            // Logged-out/login page: wait locally. Do NOT hit protected endpoints.
             rejectedAuthToken = '';
             scheduleReconnect(1500);
             return;
         }
 
-        // A persisted token can exist before initAppSession has validated it against
-        // /api/auth/me. Wait for both runtime readiness and an authenticated in-memory
-        // user so startup cannot race protected realtime endpoints with a stale token.
-        if (window.__onlineRuntimeReady !== true || !currentUser || !currentUser.role) {
+        // Wait until initAppSession/login has validated both the token and account-scoped data.
+        if (window.__onlineRuntimeReady !== true || window.__madrasahSessionReady !== true || !currentUser || !currentUser.role) {
             rejectedAuthToken = '';
             scheduleReconnect(1500);
             return;
         }
 
-        // If this exact token was already rejected, wait for login/session rotation
-        // instead of spamming /api/realtime-token with repeated 401 responses.
         if (rejectedAuthToken && rejectedAuthToken === authToken) {
-            scheduleReconnect(2000);
             return;
         }
 
         console.log('Connecting to authenticated real-time event stream...');
         let realtimeTicket = '';
+        let requestFailed = false;
         try {
             const ticketResponse = await fetch('/api/realtime-token', { cache: 'no-store' });
             if (ticketResponse.status === 401 || ticketResponse.status === 403) {
                 rejectedAuthToken = authToken;
-                scheduleReconnect(2000);
                 return;
             }
             const ticketData = await ticketResponse.json();
@@ -1219,19 +1228,23 @@ function initRealtimeSync() {
                 realtimeTicket = String(ticketData.token);
             }
         } catch (err) {
-            console.warn('Unable to obtain realtime access ticket:', err);
+            requestFailed = true;
+            reconnectFailures += 1;
+            if (!browserOffline()) console.warn('Unable to obtain realtime access ticket:', err);
         }
 
         if (!realtimeTicket) {
-            scheduleReconnect(5000);
+            scheduleReconnect(5000, requestFailed);
             return;
         }
 
         rejectedAuthToken = '';
+        reconnectFailures = 0;
         connectedAuthToken = authToken;
         sseSource = new EventSource('/api/realtime-stream?rt=' + encodeURIComponent(realtimeTicket));
 
         sseSource.onmessage = function(event) {
+            reconnectFailures = 0;
             try {
                 const payload = JSON.parse(event.data);
                 if (payload && payload.type === 'state-update') {
@@ -1254,22 +1267,42 @@ function initRealtimeSync() {
 
         sseSource.onerror = function() {
             closeSource();
-            scheduleReconnect(5000);
+            if (browserOffline()) return;
+            reconnectFailures += 1;
+            scheduleReconnect(5000, true);
         };
     }
+
+    const handleOffline = () => {
+        closeSource();
+        clearReconnectTimer();
+    };
+    const handleOnline = () => {
+        rejectedAuthToken = '';
+        reconnectFailures = 0;
+        if (!sseSource && !reconnectTimeout) scheduleReconnect(250);
+    };
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', handleOnline);
 
     // Detect login/logout/token rotation without making any protected request
     // until startup readiness and session restoration are both complete.
     authWatchInterval = setInterval(() => {
         const currentToken = getStoredRealtimeAuthToken();
         const currentUser = appState && appState.currentUser ? appState.currentUser : null;
-        if (!currentToken || window.__onlineRuntimeReady !== true || !currentUser || !currentUser.role) {
+        if (browserOffline()) {
+            if (sseSource) closeSource();
+            clearReconnectTimer();
+            return;
+        }
+        if (!currentToken || window.__onlineRuntimeReady !== true || window.__madrasahSessionReady !== true || !currentUser || !currentUser.role) {
             if (sseSource) closeSource();
             return;
         }
         if (connectedAuthToken && currentToken !== connectedAuthToken) {
             closeSource();
             rejectedAuthToken = '';
+            reconnectFailures = 0;
             scheduleReconnect(0);
         } else if (!sseSource && currentToken !== rejectedAuthToken && !reconnectTimeout) {
             scheduleReconnect(0);
@@ -1278,10 +1311,11 @@ function initRealtimeSync() {
 
     window.__stopRealtimeSync = function() {
         closeSource();
-        if (reconnectTimeout) clearTimeout(reconnectTimeout);
-        reconnectTimeout = null;
+        clearReconnectTimer();
         if (authWatchInterval) clearInterval(authWatchInterval);
         authWatchInterval = null;
+        window.removeEventListener('offline', handleOffline);
+        window.removeEventListener('online', handleOnline);
         window.__madrasahRealtimeStarted = false;
     };
 
@@ -1728,6 +1762,7 @@ async function loadInitialRuntimeSettings() {
 }
 
 function showLoggedOutShellImmediately() {
+    window.__madrasahSessionReady = false;
     appState.currentUser = null;
     appState.role = null;
     appState.currentRoute = null;
@@ -2251,6 +2286,20 @@ function startSession(isRefresh = false) {
     const isStudent = role === 'student' || role === 'murid' || role === 'class_leader' || role === 'ketua_kelas';
     const isTeacher = role === 'teacher' || role === 'guru';
 
+    window.__madrasahSessionReady = true;
+
+    // Protected feature queues must only start after the login/session has been
+    // validated and the current account has been installed into appState.
+    try {
+        window.dispatchEvent(new CustomEvent('madrasah:session-ready', {
+            detail: {
+                role,
+                userId: String(appState.currentUser?.id || ''),
+                madrasahId: String(appState.currentUser?.madrasahId || appState.currentUser?.madrasahSlug || 'default')
+            }
+        }));
+    } catch (_) {}
+
     // Hide/Show Hamburger sidebar toggle button
     const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
     if (sidebarToggleBtn) {
@@ -2413,6 +2462,7 @@ function logout() {
         window.__persistentStudentCameraStream = null;
     }
 
+    window.__madrasahSessionReady = false;
     appState.currentUser = null;
     appState.role = null;
     resetAccountScopedRuntimeState();

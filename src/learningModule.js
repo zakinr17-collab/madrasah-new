@@ -4,7 +4,8 @@
 
 const STUDENT_ROLES = new Set(['student', 'siswa', 'class_leader', 'ketua_kelas']);
 const STAFF_ROLES = new Set(['teacher', 'guru', 'admin', 'administrator', 'bos', 'superadmin']);
-const LEARNING_QUEUE_KEY = 'madrasah_learning_progress_queue_v1';
+const LEARNING_QUEUE_KEY = 'madrasah_learning_progress_queue_v2';
+const LEGACY_LEARNING_QUEUE_KEY = 'madrasah_learning_progress_queue_v1';
 const LEARNING_CHECKPOINT_SECONDS = 12;
 
 function learningState() { return window.appState || {}; }
@@ -40,6 +41,37 @@ function featureEnabled(key) {
 function currentStudentId() {
     const state = learningState();
     return String(state.currentUser?.id || '');
+}
+function learningSessionIdentity() {
+    const state = learningState();
+    const user = state.currentUser || {};
+    const role = learningRole();
+    const studentId = String(user.id || '').trim();
+    const tenantId = String(
+        user.madrasahId ||
+        user.madrasahSlug ||
+        window.__activeTenant?.id ||
+        window.__activeTenant?.slug ||
+        'default'
+    ).trim() || 'default';
+    const authToken = typeof window.getStoredAuthToken === 'function'
+        ? String(window.getStoredAuthToken() || '').trim()
+        : String(user.token || '').trim();
+    return {
+        role,
+        studentId,
+        tenantId,
+        authenticatedStudent: Boolean(authToken && studentId && STUDENT_ROLES.has(role))
+    };
+}
+function learningQueueStorageKey() {
+    const identity = learningSessionIdentity();
+    if (!identity.authenticatedStudent) return '';
+    return `${LEARNING_QUEUE_KEY}:${encodeURIComponent(identity.tenantId)}:${encodeURIComponent(identity.studentId)}`;
+}
+function canSyncLearningProgress() {
+    const identity = learningSessionIdentity();
+    return identity.authenticatedStudent && (typeof navigator === 'undefined' || navigator.onLine !== false);
 }
 function progressForMaterial(materialId) {
     const state = learningState();
@@ -279,49 +311,93 @@ function updateEngagementUi(material) {
             (policy.requireAllBlocks ? ` â¢ bagian terlihat ${seenCount}/${required.length || 1}` : '');
     }
 }
-function queueLearningProgress(payload) {
+function readLearningProgressQueue() {
+    const key = learningQueueStorageKey();
+    if (!key) return [];
     try {
-        const queue = JSON.parse(localStorage.getItem(LEARNING_QUEUE_KEY) || '[]');
-        const rows = Array.isArray(queue) ? queue : [];
-        const existingIndex = rows.findIndex(item => String(item?.materialId || '') === String(payload?.materialId || ''));
-        const existing = existingIndex >= 0 ? rows[existingIndex] : null;
-        const merged = {
-            ...mergeLearningProgressSnapshot(existing, payload, true),
-            queuedAt: Date.now()
-        };
-        if (existingIndex >= 0) rows[existingIndex] = merged;
-        else rows.push(merged);
-        localStorage.setItem(LEARNING_QUEUE_KEY, JSON.stringify(rows.slice(-200)));
+        const parsed = JSON.parse(localStorage.getItem(key) || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+    } catch (_) {
+        return [];
+    }
+}
+function writeLearningProgressQueue(rows) {
+    const key = learningQueueStorageKey();
+    if (!key) return;
+    try {
+        localStorage.setItem(key, JSON.stringify((Array.isArray(rows) ? rows : []).slice(-200)));
     } catch (_) {}
+}
+function quarantineLegacyLearningProgressQueue() {
+    // V1 used one global queue for every tenant/account. Never auto-submit it because
+    // the original rows cannot be trusted to belong to the currently authenticated tenant.
+    try {
+        const legacy = localStorage.getItem(LEGACY_LEARNING_QUEUE_KEY);
+        if (!legacy) return;
+        const quarantineKey = LEGACY_LEARNING_QUEUE_KEY + '_quarantined';
+        if (!localStorage.getItem(quarantineKey)) localStorage.setItem(quarantineKey, legacy);
+        localStorage.removeItem(LEGACY_LEARNING_QUEUE_KEY);
+    } catch (_) {}
+}
+function queueLearningProgress(payload) {
+    const identity = learningSessionIdentity();
+    if (!identity.authenticatedStudent) return;
+    const rows = readLearningProgressQueue();
+    const existingIndex = rows.findIndex(item => String(item?.materialId || '') === String(payload?.materialId || ''));
+    const existing = existingIndex >= 0 ? rows[existingIndex] : null;
+    const merged = {
+        ...mergeLearningProgressSnapshot(existing, payload, true),
+        studentId: identity.studentId,
+        tenantId: identity.tenantId,
+        queuedAt: Date.now()
+    };
+    if (existingIndex >= 0) rows[existingIndex] = merged;
+    else rows.push(merged);
+    writeLearningProgressQueue(rows);
 }
 function clearQueuedLearningProgress(materialId) {
-    try {
-        const queue = JSON.parse(localStorage.getItem(LEARNING_QUEUE_KEY) || '[]');
-        if (!Array.isArray(queue)) return;
-        const remaining = queue.filter(item => String(item?.materialId || '') !== String(materialId || ''));
-        localStorage.setItem(LEARNING_QUEUE_KEY, JSON.stringify(remaining.slice(-200)));
-    } catch (_) {}
+    const rows = readLearningProgressQueue();
+    if (!rows.length) return;
+    writeLearningProgressQueue(rows.filter(item => String(item?.materialId || '') !== String(materialId || '')));
 }
 async function flushLearningProgressQueue() {
-    let queue = [];
-    try { queue = JSON.parse(localStorage.getItem(LEARNING_QUEUE_KEY) || '[]'); } catch (_) {}
-    if (!Array.isArray(queue) || queue.length === 0) return;
+    const identity = learningSessionIdentity();
+    if (!identity.authenticatedStudent || !canSyncLearningProgress()) return;
+    const queue = readLearningProgressQueue();
+    if (!queue.length) return;
+
     const remaining = [];
-    for (const item of queue) {
+    for (let index = 0; index < queue.length; index++) {
+        const item = queue[index];
+        // Defensive isolation: even a manually modified queue may never submit another user's progress.
+        if (String(item?.studentId || identity.studentId) !== identity.studentId) continue;
+        if (item?.tenantId && String(item.tenantId) !== identity.tenantId) continue;
         try {
             const response = await fetch('/api/learning/progress', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(item)
+                body: JSON.stringify({
+                    materialId: item.materialId,
+                    status: item.status,
+                    progressPercent: item.progressPercent,
+                    activeSeconds: item.activeSeconds,
+                    viewedBlockIds: item.viewedBlockIds
+                })
             });
             const data = await response.json().catch(() => ({}));
+            if (response.status === 401 || response.status === 403) {
+                // Preserve this and all later rows, but stop retrying until a new valid session/online event.
+                remaining.push(...queue.slice(index));
+                break;
+            }
             if (!response.ok || data.success === false) remaining.push(item);
             else if (data.progress) replaceLearningProgressSnapshot(data.progress);
         } catch (_) {
-            remaining.push(item);
+            remaining.push(...queue.slice(index));
+            break;
         }
     }
-    try { localStorage.setItem(LEARNING_QUEUE_KEY, JSON.stringify(remaining.slice(-200))); } catch (_) {}
+    writeLearningProgressQueue(remaining);
 }
 
 async function loadLearningMaterials() {
@@ -349,6 +425,10 @@ async function loadLearningLinks() {
 }
 async function postLearningProgress(payload, options = {}) {
     const state = learningState();
+    const identity = learningSessionIdentity();
+    if (!identity.authenticatedStudent) {
+        return { rejected: true, message: 'Progress materi hanya disimpan untuk sesi siswa yang sudah tervalidasi.' };
+    }
     const previous = progressForMaterial(payload.materialId);
     const previousCompleted = previous && (previous.status === 'completed' || Number(previous.progressPercent || 0) >= 100);
     if (previousCompleted && payload.status !== 'completed' && Number(payload.progressPercent || 0) < 100) {
@@ -360,6 +440,11 @@ async function postLearningProgress(payload, options = {}) {
         id: previous?.id || `local_${payload.materialId}_${Date.now()}`
     };
     replaceLearningProgressSnapshot(optimistic);
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        queueLearningProgress(payload);
+        return optimistic;
+    }
 
     try {
         const response = await fetch('/api/learning/progress', {
@@ -677,27 +762,40 @@ async function rollbackLearningUploadedAssets(uploadedAssets = []) {
 async function uploadPendingLearningAssets() {
     const assets = learningEditorAssets();
     const uploadedNow = [];
+    const localOfflineMode = learningState().isOfflineMode === true || window.isOfflineMode === true;
+
     for (let i = 0; i < assets.length; i++) {
         const asset = assets[i];
         if (!asset?.pending) continue;
 
+        if (!localOfflineMode && typeof navigator !== 'undefined' && navigator.onLine === false) {
+            throw new Error('Koneksi internet terputus. Lampiran tetap tersimpan di editor; sambungkan internet lalu tekan Simpan/Publikasikan lagi.');
+        }
+
         let response;
-        if (asset.type === 'pdf' && asset.file instanceof Blob) {
-            const endpoint = `/api/learning/assets/pdf?name=${encodeURIComponent(asset.name || 'Materi.pdf')}`;
-            response = await fetch(endpoint, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/pdf',
-                    'Accept': 'application/json'
-                },
-                body: asset.file
-            });
-        } else {
-            response = await fetch('/api/learning/assets', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ name: asset.name, data: asset.data })
-            });
+        try {
+            if (asset.type === 'pdf' && asset.file instanceof Blob) {
+                const endpoint = `/api/learning/assets/pdf?name=${encodeURIComponent(asset.name || 'Materi.pdf')}`;
+                response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/pdf',
+                        'Accept': 'application/json'
+                    },
+                    body: asset.file
+                });
+            } else {
+                response = await fetch('/api/learning/assets', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                    body: JSON.stringify({ name: asset.name, data: asset.data })
+                });
+            }
+        } catch (err) {
+            if (!localOfflineMode && typeof navigator !== 'undefined' && navigator.onLine === false) {
+                throw new Error('Koneksi internet terputus saat mengunggah lampiran. File tetap ada di editor dan dapat dicoba lagi setelah koneksi kembali.');
+            }
+            throw err;
         }
 
         const data = await parseLearningUploadResponse(response, asset.name);
@@ -1287,5 +1385,12 @@ window.setStudentFeatureVisibility = async function(feature, enabled) {
     }
 };
 
-window.addEventListener('online', flushLearningProgressQueue);
-setTimeout(() => { flushLearningProgressQueue(); injectLearningMenus(); }, 0);
+window.addEventListener('madrasah:session-ready', () => {
+    quarantineLegacyLearningProgressQueue();
+    injectLearningMenus();
+    if (STUDENT_ROLES.has(learningRole())) void flushLearningProgressQueue();
+});
+window.addEventListener('online', () => {
+    if (STUDENT_ROLES.has(learningRole())) void flushLearningProgressQueue();
+});
+setTimeout(() => { injectLearningMenus(); }, 0);
