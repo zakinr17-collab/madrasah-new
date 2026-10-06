@@ -14,6 +14,9 @@ function getStoredAuthToken() {
     try {
         const sessionToken = sessionStorage.getItem(AUTH_SESSION_TOKEN_KEY) || '';
         if (sessionToken) return sessionToken;
+        // Keep a fallback for a new tab/window. The server still validates the JWT
+        // on every request; this only prevents the browser from silently dropping
+        // the authenticated session when Materi Ajar is opened separately.
         return localStorage.getItem(AUTH_SESSION_TOKEN_KEY) || '';
     } catch (_) { return ''; }
 }
@@ -36,8 +39,13 @@ function persistCurrentUser(user) {
     const token = String(user.token || getStoredAuthToken() || '');
     const clean = sanitizePersistedUser(user);
     try {
-        if (token) sessionStorage.setItem(AUTH_SESSION_TOKEN_KEY, token);
-        else sessionStorage.removeItem(AUTH_SESSION_TOKEN_KEY);
+        if (token) {
+            sessionStorage.setItem(AUTH_SESSION_TOKEN_KEY, token);
+            localStorage.setItem(AUTH_SESSION_TOKEN_KEY, token);
+        } else {
+            sessionStorage.removeItem(AUTH_SESSION_TOKEN_KEY);
+            localStorage.removeItem(AUTH_SESSION_TOKEN_KEY);
+        }
         localStorage.setItem('madrasah_current_user', JSON.stringify(clean));
     } catch (_) {}
     return token ? { ...clean, token } : clean;
@@ -69,6 +77,7 @@ function readPersistedUser(requireToken = true) {
 
 function clearPersistedAuthSession() {
     try { sessionStorage.removeItem(AUTH_SESSION_TOKEN_KEY); } catch (_) {}
+    try { localStorage.removeItem(AUTH_SESSION_TOKEN_KEY); } catch (_) {}
     try { localStorage.removeItem('madrasah_current_user'); } catch (_) {}
     try { localStorage.removeItem('madrasah_active_account'); } catch (_) {}
 }
@@ -236,6 +245,11 @@ window.getPhotoHtmlSrc = getPhotoHtmlSrc;
         const userRole = (savedUserData && savedUserData.role) || (window.appState && window.appState.role) || 'student';
         options.headers['X-User-Role'] = userRole;
 
+        if (savedUserData && savedUserData.id) {
+            options.headers['X-User-Id'] = String(savedUserData.id);
+        }
+        // Authentication must not depend on the presence of the profile object.
+        // Materi Ajar/PDF requests can run during account hydration or in a new tab.
         const authToken = getStoredAuthToken();
         const isLearningRequest = typeof url === 'string' && (
             url.includes('/api/learning/') ||
@@ -245,9 +259,13 @@ window.getPhotoHtmlSrc = getPhotoHtmlSrc;
         if (authToken) {
             options.headers['Authorization'] = 'Bearer ' + authToken;
             options.headers['X-Auth-Token'] = authToken;
-            if (isLearningRequest && !/[?&]auth=/.test(fetchUrl)) {
+            // Cloud Run/proxy compatibility: also carry the signed token in the
+            // query string for Materi Ajar requests if custom headers are stripped.
+            if (isLearningRequest) {
                 const separator = fetchUrl.includes('?') ? '&' : '?';
-                fetchUrl += separator + 'auth=' + encodeURIComponent(authToken);
+                if (!/[?&]auth=/.test(fetchUrl)) {
+                    fetchUrl += separator + 'auth=' + encodeURIComponent(authToken);
+                }
             }
         }
         
