@@ -5696,11 +5696,44 @@ function teacherCanUseLearningMaterialPayload(req: any, material: any): boolean 
   return Boolean(subjectRef && teacherCanAccessSubjectRef(req, subjectRef));
 }
 
+function learningCloudinaryPdfProxyUrl(value: any): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const url = new URL(raw);
+    if (
+      url.protocol === 'https:' &&
+      url.hostname === 'res.cloudinary.com' &&
+      /^\/(?:raw|image)\/upload\/v\d+\/madrasah_learning_assets\//i.test(url.pathname) &&
+      /\.pdf$/i.test(url.pathname)
+    ) {
+      return '/api/learning-assets/inline-pdf?url=' + encodeURIComponent(raw);
+    }
+  } catch {}
+  return '';
+}
+
+function protectLearningPdfDeliveryBlocks(rawBlocks: any): any[] {
+  return (Array.isArray(rawBlocks) ? rawBlocks : []).map((raw: any) => {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw;
+    if (String(raw.type || '').toLowerCase() !== 'pdf') return raw;
+    if (String(raw.driveFileId || '').trim()) return { ...raw, url: '' };
+    const proxyUrl = learningCloudinaryPdfProxyUrl(raw.url);
+    return proxyUrl ? { ...raw, url: proxyUrl } : raw;
+  });
+}
+
+function protectLearningMaterialAssetDelivery(material: any): any {
+  if (!material || typeof material !== 'object') return material;
+  return { ...material, blocks: protectLearningPdfDeliveryBlocks(material.blocks) };
+}
+
 function learningMaterialsForStaffRequest(req: any): any[] {
   const tenantMaterials = filterLessonPlansForRequest(req).filter(isLearningMaterialRecord);
-  return isTeacherRequest(req)
+  const visible = isTeacherRequest(req)
     ? tenantMaterials.filter((material: any) => teacherCanUseLearningMaterialPayload(req, material))
     : tenantMaterials;
+  return visible.map((material: any) => protectLearningMaterialAssetDelivery(material));
 }
 
 function resolveLearningMaterialForRequest(req: any, materialId: any): { material: any | null; index: number; ambiguous: boolean } {
@@ -5745,6 +5778,9 @@ function sanitizeLearningBlocks(rawBlocks: any): any[] {
           if (parsed.pathname === '/api/learning-assets/drive-pdf') {
             driveFileId = String(parsed.searchParams.get('id') || '').trim();
             if (driveFileId) url = '';
+          } else if (parsed.pathname === '/api/learning-assets/inline-pdf') {
+            const legacyUrl = String(parsed.searchParams.get('url') || '').trim();
+            if (isTrustedLearningAssetUrl(legacyUrl)) url = legacyUrl;
           }
         } catch (_) {}
       }
@@ -5778,7 +5814,7 @@ function sanitizeLearningMaterialForStudent(material: any): any {
     ...safe,
     recordType: 'learning_material',
     status: 'published',
-    blocks: sanitizeLearningBlocks(safe.blocks)
+    blocks: protectLearningPdfDeliveryBlocks(sanitizeLearningBlocks(safe.blocks))
   };
 }
 
@@ -19116,6 +19152,94 @@ async function getGoogleDriveFolderId(accessToken: string): Promise<string> {
   return String(created.id);
 }
 
+async function uploadLearningPdfToGoogleDrive(buffer: Buffer, displayName: string, req: any): Promise<{ fileId: string; name: string }> {
+  const accessToken = await getGoogleDriveAccessToken();
+  const folderId = await getGoogleDriveFolderId(accessToken);
+  const tenantHash = crypto.createHash('sha256')
+    .update(String(getRequestMadrasahId(req) || 'default'))
+    .digest('hex')
+    .slice(0, 12);
+  const suffix = crypto.randomBytes(6).toString('hex');
+  const baseName = sanitizeLearningAssetName(displayName, 'Materi.pdf').replace(/\.pdf$/i, '');
+  const driveName = sanitizeLearningAssetName(`${baseName} - ${suffix}.pdf`, 'Materi.pdf');
+  const metadata = {
+    name: driveName,
+    mimeType: 'application/pdf',
+    parents: [folderId],
+    appProperties: {
+      managedBy: 'madrasah-bisa-learning-pdf',
+      tenantHash
+    }
+  };
+  const boundary = 'madrasah_bisa_' + crypto.randomBytes(12).toString('hex');
+  const prefix = Buffer.from(
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
+    `--${boundary}\r\nContent-Type: application/pdf\r\n\r\n`,
+    'utf8'
+  );
+  const suffixBuffer = Buffer.from(`\r\n--${boundary}--\r\n`, 'utf8');
+  const body = Buffer.concat([prefix, buffer, suffixBuffer]);
+  const response = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,name,mimeType,parents,appProperties',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: 'Bearer ' + accessToken,
+        'Content-Type': 'multipart/related; boundary=' + boundary,
+        'Content-Length': String(body.length)
+      },
+      body
+    }
+  );
+  const payload: any = await response.json().catch(() => ({}));
+  const fileId = String(payload?.id || '').trim();
+  if (!response.ok || !/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) {
+    throw new Error('Google Drive gagal menyimpan PDF (' + response.status + '): ' + String(payload?.error?.message || 'unknown_error'));
+  }
+  return { fileId, name: String(payload?.name || driveName) };
+}
+
+async function deleteManagedLearningPdfFromGoogleDrive(fileIdValue: any, req: any): Promise<'deleted' | 'missing' | 'forbidden' | 'failed'> {
+  const fileId = String(fileIdValue || '').trim();
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) return 'failed';
+  try {
+    const accessToken = await getGoogleDriveAccessToken();
+    const metadataResponse = await fetch(
+      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?supportsAllDrives=true&fields=id,mimeType,trashed,appProperties',
+      { headers: { Authorization: 'Bearer ' + accessToken } }
+    );
+    if (metadataResponse.status === 404) return 'missing';
+    const metadata: any = await metadataResponse.json().catch(() => ({}));
+    if (!metadataResponse.ok) return 'failed';
+
+    const tenantHash = crypto.createHash('sha256')
+      .update(String(getRequestMadrasahId(req) || 'default'))
+      .digest('hex')
+      .slice(0, 12);
+    const props = metadata?.appProperties || {};
+    if (
+      String(metadata?.mimeType || '') !== 'application/pdf' ||
+      String(props?.managedBy || '') !== 'madrasah-bisa-learning-pdf' ||
+      String(props?.tenantHash || '') !== tenantHash
+    ) {
+      return 'forbidden';
+    }
+
+    const response = await fetch(
+      'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?supportsAllDrives=true',
+      {
+        method: 'DELETE',
+        headers: { Authorization: 'Bearer ' + accessToken }
+      }
+    );
+    if (response.status === 404) return 'missing';
+    return response.ok ? 'deleted' : 'failed';
+  } catch (err: any) {
+    console.warn('[Google Drive Learning PDF] Delete failed:', err?.message || err);
+    return 'failed';
+  }
+}
+
 async function streamLearningPdfFromGoogleDrive(fileId: string, res: any): Promise<void> {
   const safeFileId = String(fileId || '').trim();
   if (!/^[A-Za-z0-9_-]{10,200}$/.test(safeFileId)) {
@@ -19211,42 +19335,17 @@ app.post(
         });
       }
 
-      const cloudinaryConfig = cloudinary.config();
-      const cloudName = String(cloudinaryConfig?.cloud_name || '').trim();
-      const cloudApiKey = String(cloudinaryConfig?.api_key || '').trim();
-      const cloudApiSecret = String(cloudinaryConfig?.api_secret || '').trim();
-      if (!cloudName || !cloudApiKey || !cloudApiSecret) {
-        throw new Error('Cloudinary belum terkonfigurasi. Isi CLOUDINARY_URL atau CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, dan CLOUDINARY_API_SECRET pada environment deployment.');
-      }
-
-      const uploadOptions: any = {
-        folder: `madrasah_learning_assets/${tenantHash}`,
-        resource_type: 'raw',
-        public_id: assetId,
-        overwrite: false
-      };
-      const uploaded = await new Promise<any>((resolve, reject) => {
-        const uploadStream = cloudinary.uploader.upload_stream(uploadOptions, (error, result) => {
-          if (error) reject(error);
-          else resolve(result);
-        });
-        uploadStream.end(parsed.buffer);
-      });
-
-      const url = String(uploaded?.secure_url || uploaded?.url || '');
-      if (!url || !isTrustedLearningAssetUrl(url) || !/\.pdf(?:$|[?#])/i.test(url)) {
-        throw new Error('Cloudinary tidak mengembalikan URL PDF materi yang valid.');
-      }
-
+      const uploaded = await uploadLearningPdfToGoogleDrive(parsed.buffer, displayName, req);
       return res.json({
         success: true,
         asset: {
           type: 'pdf',
-          url,
-          driveFileId: '',
+          url: '',
+          driveFileId: uploaded.fileId,
           name: displayName,
           mime: parsed.mime,
-          size: parsed.buffer.length
+          size: parsed.buffer.length,
+          storage: 'google-drive'
         }
       });
     } catch (err: any) {
@@ -19296,8 +19395,23 @@ app.post("/api/learning/assets", requireAuth, requireRole(['teacher', 'guru', 'a
       });
     }
 
-    // Online: all learning assets use the existing Cloudinary configuration.
-    // PDFs are uploaded as RAW files so Cloudinary does not attempt PDF/image transformations.
+    // Online: PDFs are stored in Google Drive. Cloudinary remains only for images/videos.
+    if (isPdf) {
+      const uploaded = await uploadLearningPdfToGoogleDrive(parsed.buffer, displayName, req);
+      return res.json({
+        success: true,
+        asset: {
+          type: 'pdf',
+          url: '',
+          driveFileId: uploaded.fileId,
+          name: displayName,
+          mime: parsed.mime,
+          size: parsed.buffer.length,
+          storage: 'google-drive'
+        }
+      });
+    }
+
     const cloudinaryConfig = cloudinary.config();
     const cloudName = String(cloudinaryConfig?.cloud_name || '').trim();
     const cloudApiKey = String(cloudinaryConfig?.api_key || '').trim();
@@ -19306,12 +19420,10 @@ app.post("/api/learning/assets", requireAuth, requireRole(['teacher', 'guru', 'a
       throw new Error('Cloudinary belum terkonfigurasi. Isi CLOUDINARY_URL atau CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, dan CLOUDINARY_API_SECRET pada environment deployment.');
     }
 
-    // Cloudinary raw assets keep the original extension in public_id.
-    // This matters for PDFs; extensionless raw assets can produce unusable delivery URLs.
-    const publicId = isPdf ? assetId : assetId.replace(/\.[A-Za-z0-9]+$/, '');
+    const publicId = assetId.replace(/\.[A-Za-z0-9]+$/, '');
     const uploadOptions: any = {
       folder: `madrasah_learning_assets/${tenantHash}`,
-      resource_type: isPdf ? 'raw' : (isVideo ? 'video' : 'image'),
+      resource_type: isVideo ? 'video' : 'image',
       public_id: publicId,
       overwrite: false
     };
@@ -19329,7 +19441,7 @@ app.post("/api/learning/assets", requireAuth, requireRole(['teacher', 'guru', 'a
 
     return res.json({
       success: true,
-      asset: { type: isPdf ? 'pdf' : isVideo ? 'video' : 'image', url, driveFileId: '', name: displayName, mime: parsed.mime, size: parsed.buffer.length }
+      asset: { type: isVideo ? 'video' : 'image', url, driveFileId: '', name: displayName, mime: parsed.mime, size: parsed.buffer.length }
     });
   } catch (err: any) {
     const detail = String(err?.message || '');
@@ -19346,7 +19458,16 @@ app.post("/api/learning/assets", requireAuth, requireRole(['teacher', 'guru', 'a
 app.delete("/api/learning/assets", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req: any, res: any) => {
   try {
     const url = String(req.body?.url || '').trim();
-    if (!url) return res.status(400).json({ success: false, message: 'URL aset wajib diisi.' });
+    const driveFileId = String(req.body?.driveFileId || '').trim();
+
+    if (!isOfflineMode && driveFileId) {
+      const outcome = await deleteManagedLearningPdfFromGoogleDrive(driveFileId, req);
+      if (outcome === 'forbidden') return res.status(403).json({ success: false, message: 'PDF Google Drive bukan milik madrasah ini.' });
+      if (outcome === 'failed') return res.status(502).json({ success: false, message: 'PDF Google Drive belum dapat dihapus.' });
+      return res.json({ success: true, deleted: true, storage: 'google-drive' });
+    }
+
+    if (!url) return res.status(400).json({ success: false, message: 'Referensi aset wajib diisi.' });
 
     if (isOfflineMode) {
       const match = url.match(/^\/api\/learning-assets\/([A-Za-z0-9._-]{20,180})$/);
@@ -19895,6 +20016,21 @@ async function destroyCloudinaryLearningAsset(asset: any): Promise<'deleted' | '
     return 'failed';
   }
 }
+function extractLearningDriveFileIds(value: any, out = new Set<string>(), depth = 0): Set<string> {
+  if (depth > 12 || value == null) return out;
+  if (Array.isArray(value)) {
+    for (const item of value) extractLearningDriveFileIds(item, out, depth + 1);
+    return out;
+  }
+  if (typeof value === 'object') {
+    const type = String((value as any).type || '').toLowerCase();
+    const fileId = String((value as any).driveFileId || '').trim();
+    if (type === 'pdf' && /^[A-Za-z0-9_-]{10,200}$/.test(fileId)) out.add(fileId);
+    for (const item of Object.values(value)) extractLearningDriveFileIds(item, out, depth + 1);
+  }
+  return out;
+}
+
 function extractLocalLearningAssetIds(value: any, out = new Set<string>(), depth = 0): Set<string> {
   if (depth > 12 || value == null) return out;
   if (typeof value === 'string') {
@@ -19931,16 +20067,31 @@ function cleanupLocalLearningAssetsForDeletedMaterial(material: any) {
   return { deleted, protected: protectedCount, failed };
 }
 
-async function cleanupLearningAssetsForDeletedMaterial(material: any) {
+async function cleanupLearningAssetsForDeletedMaterial(material: any, req?: any) {
   if (isOfflineMode) return cleanupLocalLearningAssetsForDeletedMaterial(material);
-  if (!process.env.CLOUDINARY_CLOUD_NAME) return { deleted: 0, protected: 0, failed: 0 };
-  const candidates = extractLearningCloudinaryRefs(material);
-  const protectedRefs = collectReferencedLearningCloudinaryAssets();
+
   let deleted = 0, protectedCount = 0, failed = 0;
-  for (const [key, asset] of candidates) {
-    if (protectedRefs.has(key)) { protectedCount++; continue; }
-    const outcome = await destroyCloudinaryLearningAsset(asset);
-    if (outcome === 'deleted' || outcome === 'missing') deleted++; else failed++;
+
+  const driveCandidates = extractLearningDriveFileIds(material);
+  const protectedDriveIds = extractLearningDriveFileIds([lessonPlans || [], lkpdList || [], exams || [], generatedExams || [], eduGames || [], appSettings || {}]);
+  if (req) {
+    for (const fileId of driveCandidates) {
+      if (protectedDriveIds.has(fileId)) { protectedCount++; continue; }
+      const outcome = await deleteManagedLearningPdfFromGoogleDrive(fileId, req);
+      if (outcome === 'deleted' || outcome === 'missing') deleted++;
+      else if (outcome === 'forbidden') protectedCount++;
+      else failed++;
+    }
+  }
+
+  if (process.env.CLOUDINARY_CLOUD_NAME) {
+    const candidates = extractLearningCloudinaryRefs(material);
+    const protectedRefs = collectReferencedLearningCloudinaryAssets();
+    for (const [key, asset] of candidates) {
+      if (protectedRefs.has(key)) { protectedCount++; continue; }
+      const outcome = await destroyCloudinaryLearningAsset(asset);
+      if (outcome === 'deleted' || outcome === 'missing') deleted++; else failed++;
+    }
   }
   return { deleted, protected: protectedCount, failed };
 }
@@ -20041,7 +20192,7 @@ app.delete("/api/learning/materials/:id", requireAuth, requireRole(['teacher', '
     { key: 'lessonPlans', value: lessonPlans },
     { key: 'learningProgress', value: learningProgress }
   ]);
-  const cleanup = await cleanupLearningAssetsForDeletedMaterial(deletedMaterial);
+  const cleanup = await cleanupLearningAssetsForDeletedMaterial(deletedMaterial, req);
   res.json({ success: true, cleanup, materials: learningMaterialsForStaffRequest(req) });
 });
 

@@ -734,7 +734,8 @@ async function parseLearningUploadResponse(response, assetName) {
     if (raw) {
         try { data = JSON.parse(raw); } catch (_) { data = {}; }
     }
-    if (!response.ok || data.success === false || !data.asset?.url) {
+    const hasAssetLocation = Boolean(data?.asset?.url || data?.asset?.driveFileId);
+    if (!response.ok || data.success === false || !hasAssetLocation) {
         let fallback = `Gagal mengunggah ${assetName || 'lampiran'}.`;
         if (response.status === 413) fallback = `${assetName || 'PDF'} terlalu besar. Batas PDF adalah 15 MB.`;
         else if (response.status === 415) fallback = `${assetName || 'File'} bukan PDF yang valid atau formatnya tidak didukung.`;
@@ -748,12 +749,13 @@ async function parseLearningUploadResponse(response, assetName) {
 async function rollbackLearningUploadedAssets(uploadedAssets = []) {
     for (const asset of uploadedAssets) {
         const url = String(asset?.url || '').trim();
-        if (!url) continue;
+        const driveFileId = String(asset?.driveFileId || '').trim();
+        if (!url && !driveFileId) continue;
         try {
             await fetch('/api/learning/assets', {
                 method: 'DELETE',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ url })
+                body: JSON.stringify({ url, driveFileId })
             });
         } catch (_) {
             // Audit/cleanup server tetap dapat menemukan orphan bila jaringan putus.
@@ -810,7 +812,7 @@ async function uploadPendingLearningAssets() {
             pending: false,
             preview: data.asset.type === 'image' ? data.asset.url : ''
         };
-        uploadedNow.push({ url: assets[i].url, type: assets[i].type });
+        uploadedNow.push({ url: assets[i].url, driveFileId: assets[i].driveFileId, type: assets[i].type });
         renderLearningEditorAssets();
     }
     return uploadedNow;
