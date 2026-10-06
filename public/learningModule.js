@@ -728,6 +728,14 @@ window.moveLearningEditorAsset = function(index, delta) {
     assets.splice(target, 0, item);
     renderLearningEditorAssets();
 };
+window.openLearningGoogleDriveOAuth = function(button) {
+    const authorizationUrl = String(button?.dataset?.driveUrl || '').trim();
+    if (!/^https:\/\/accounts\.google\.com\//i.test(authorizationUrl)) {
+        return learningToast('URL koneksi Google Drive tidak valid.', 'error');
+    }
+    window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
+};
+
 function showLearningGoogleDriveConnectPrompt(authorizationUrl, message) {
     const existing = document.getElementById('learning-drive-connect-modal');
     if (existing) existing.remove();
@@ -741,7 +749,7 @@ function showLearningGoogleDriveConnectPrompt(authorizationUrl, message) {
                 <div class="text-sm text-slate-600 mt-2 leading-relaxed">${safeMessage}</div>
                 <div class="text-xs text-slate-500 mt-3">PDF yang dipilih tetap berada di editor. Setelah Drive terhubung, kembali ke halaman ini lalu tekan Simpan/Publikasikan lagi.</div>
                 <div class="mt-5 flex flex-col sm:flex-row gap-2">
-                    ${canConnect ? `<button type="button" onclick="window.open(${JSON.stringify(String(authorizationUrl))}, '_blank', 'noopener,noreferrer')" class="flex-1 px-4 py-3 rounded-2xl bg-emerald-600 text-white text-sm font-black"><i class="fa-brands fa-google-drive mr-2"></i>Hubungkan Google Drive</button>` : ''}
+                    ${canConnect ? `<button type="button" data-drive-url="${learningAttr(String(authorizationUrl))}" onclick="openLearningGoogleDriveOAuth(this)" class="flex-1 px-4 py-3 rounded-2xl bg-emerald-600 text-white text-sm font-black"><i class="fa-brands fa-google-drive mr-2"></i>Hubungkan Google Drive</button>` : ''}
                     <button type="button" onclick="document.getElementById('learning-drive-connect-modal')?.remove()" class="flex-1 px-4 py-3 rounded-2xl bg-slate-100 text-slate-700 text-sm font-bold">Tutup</button>
                 </div>
             </div>
