@@ -962,6 +962,30 @@ function parseSafePdfDataUrl(value: string): { mime: string; buffer: Buffer } | 
   return { mime: 'application/pdf', buffer };
 }
 
+function parseSafePdfBuffer(value: any): { mime: string; buffer: Buffer } | null {
+  if (!Buffer.isBuffer(value)) return null;
+  const buffer = value;
+  if (!buffer.length || buffer.length > MAX_LEARNING_PDF_BYTES) return null;
+  if (buffer.length < 5 || buffer.subarray(0, 5).toString('ascii') !== '%PDF-') return null;
+  return { mime: 'application/pdf', buffer };
+}
+
+const learningPdfRawParser = express.raw({
+  type: ['application/pdf', 'application/octet-stream'],
+  limit: MAX_LEARNING_PDF_BYTES
+});
+
+function parseLearningPdfUploadBody(req: any, res: any, next: any) {
+  learningPdfRawParser(req, res, (err: any) => {
+    if (!err) return next();
+    if (err?.type === 'entity.too.large' || Number(err?.status || 0) === 413) {
+      return res.status(413).json({ success: false, message: 'PDF terlalu besar. Ukuran maksimal 15 MB.' });
+    }
+    console.warn('[Learning PDF Upload] Raw body parse failed:', err?.message || err);
+    return res.status(400).json({ success: false, message: 'Data PDF tidak dapat dibaca.' });
+  });
+}
+
 function parseSafeVideoDataUrl(value: string): { mime: string; buffer: Buffer; extension: string } | null {
   const match = String(value || '').match(/^data:(video\/(?:mp4|webm|ogg));base64,([A-Za-z0-9+/=\r\n]+)$/i);
   if (!match) return null;
@@ -18912,6 +18936,105 @@ async function getGoogleDriveFolderId(accessToken: string): Promise<string> {
   return String(created.id);
 }
 
+app.post(
+  "/api/learning/assets/pdf",
+  requireAuth,
+  requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']),
+  parseLearningPdfUploadBody,
+  async (req: any, res) => {
+    try {
+      const contentType = String(req.headers['content-type'] || '').toLowerCase();
+      if (!contentType.startsWith('application/pdf') && !contentType.startsWith('application/octet-stream')) {
+        return res.status(415).json({ success: false, message: 'Content-Type upload PDF tidak valid.' });
+      }
+
+      const parsed = parseSafePdfBuffer(req.body);
+      if (!parsed) {
+        return res.status(415).json({
+          success: false,
+          message: 'File bukan PDF yang valid atau ukurannya melebihi 15 MB.'
+        });
+      }
+
+      const originalName = String(req.query?.name || 'Materi.pdf');
+      const tenantHash = crypto.createHash('sha256')
+        .update(String(getRequestMadrasahId(req) || 'default'))
+        .digest('hex')
+        .slice(0, 12);
+      const assetId = `la_${tenantHash}_${crypto.randomBytes(18).toString('hex')}.pdf`;
+      const displayName = sanitizeLearningAssetName(originalName, 'Materi.pdf');
+
+      if (isOfflineMode) {
+        if (!fs.existsSync(learningAssetsDir)) fs.mkdirSync(learningAssetsDir, { recursive: true });
+        const targetPath = path.resolve(learningAssetsDir, assetId);
+        const root = path.resolve(learningAssetsDir) + path.sep;
+        if (!targetPath.startsWith(root)) {
+          return res.status(400).json({ success: false, message: 'Nama aset tidak valid.' });
+        }
+        fs.writeFileSync(targetPath, parsed.buffer);
+        return res.json({
+          success: true,
+          asset: {
+            type: 'pdf',
+            url: `/api/learning-assets/${assetId}`,
+            driveFileId: '',
+            name: displayName,
+            mime: parsed.mime,
+            size: parsed.buffer.length
+          }
+        });
+      }
+
+      const cloudinaryConfig = cloudinary.config();
+      const cloudName = String(cloudinaryConfig?.cloud_name || '').trim();
+      const cloudApiKey = String(cloudinaryConfig?.api_key || '').trim();
+      const cloudApiSecret = String(cloudinaryConfig?.api_secret || '').trim();
+      if (!cloudName || !cloudApiKey || !cloudApiSecret) {
+        throw new Error('Cloudinary belum terkonfigurasi. Isi CLOUDINARY_URL atau CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, dan CLOUDINARY_API_SECRET pada environment deployment.');
+      }
+
+      const uploadOptions: any = {
+        folder: `madrasah_learning_assets/${tenantHash}`,
+        resource_type: 'raw',
+        public_id: assetId,
+        overwrite: false
+      };
+      const uploaded = await new Promise<any>((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(uploadOptions, (error, result) => {
+          if (error) reject(error);
+          else resolve(result);
+        });
+        uploadStream.end(parsed.buffer);
+      });
+
+      const url = String(uploaded?.secure_url || uploaded?.url || '');
+      if (!url || !isTrustedLearningAssetUrl(url) || !/\.pdf(?:$|[?#])/i.test(url)) {
+        throw new Error('Cloudinary tidak mengembalikan URL PDF materi yang valid.');
+      }
+
+      return res.json({
+        success: true,
+        asset: {
+          type: 'pdf',
+          url,
+          driveFileId: '',
+          name: displayName,
+          mime: parsed.mime,
+          size: parsed.buffer.length
+        }
+      });
+    } catch (err: any) {
+      const detail = String(err?.message || '');
+      console.warn('[Learning PDF Upload] Failed:', err?.http_code || err?.name || '', detail || err);
+      const actionable =
+        /Cloudinary belum terkonfigurasi/i.test(detail)
+          ? detail.slice(0, 700)
+          : safeServerError(err, 'Upload PDF materi gagal.');
+      return res.status(500).json({ success: false, message: actionable || 'Upload PDF materi gagal.' });
+    }
+  }
+);
+
 app.post("/api/learning/assets", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req: any, res) => {
   try {
     const rawData = String(req.body?.data || '');
@@ -18957,13 +19080,14 @@ app.post("/api/learning/assets", requireAuth, requireRole(['teacher', 'guru', 'a
       throw new Error('Cloudinary belum terkonfigurasi. Isi CLOUDINARY_URL atau CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, dan CLOUDINARY_API_SECRET pada environment deployment.');
     }
 
-    const publicId = assetId.replace(/\.[A-Za-z0-9]+$/, '');
+    // Cloudinary raw assets keep the original extension in public_id.
+    // This matters for PDFs; extensionless raw assets can produce unusable delivery URLs.
+    const publicId = isPdf ? assetId : assetId.replace(/\.[A-Za-z0-9]+$/, '');
     const uploadOptions: any = {
       folder: `madrasah_learning_assets/${tenantHash}`,
       resource_type: isPdf ? 'raw' : (isVideo ? 'video' : 'image'),
       public_id: publicId,
-      overwrite: false,
-      ...(isPdf ? { format: 'pdf' } : {})
+      overwrite: false
     };
     const uploaded = await new Promise<any>((resolve, reject) => {
       // Upload the already-validated binary buffer instead of the Base64 data URI.

@@ -573,23 +573,46 @@ window.handleLearningAssetSelection = async function(input) {
     const assets = learningEditorAssets();
     for (const file of files) {
         const mime = String(file.type || '').toLowerCase();
+        const fileName = String(file.name || '');
         const isImage = ['image/jpeg', 'image/png', 'image/webp'].includes(mime);
-        const isPdf = mime === 'application/pdf';
+        // Sebagian browser/HP mengirim file.type kosong untuk PDF. Ekstensi hanya
+        // dipakai untuk identifikasi di sisi UI; server tetap memverifikasi signature %PDF-.
+        const isPdf = mime === 'application/pdf' || /\.pdf$/i.test(fileName);
         const isVideo = ['video/mp4', 'video/webm', 'video/ogg'].includes(mime);
         if (!isImage && !isPdf && !isVideo) {
             learningToast(`${file.name}: hanya JPG, PNG, WebP, PDF, MP4, WebM, atau OGG yang didukung.`, 'warning');
             continue;
         }
         const limit = isPdf ? 15 * 1024 * 1024 : isVideo ? 18 * 1024 * 1024 : 10 * 1024 * 1024;
+        if (!Number(file.size || 0)) {
+            learningToast(`${file.name}: file kosong atau tidak dapat dibaca.`, 'warning');
+            continue;
+        }
         if (Number(file.size || 0) > limit) {
             learningToast(`${file.name}: ukuran maksimal ${isPdf ? '15 MB' : isVideo ? '18 MB' : '10 MB'}.`, 'warning');
             continue;
         }
         try {
+            if (isPdf) {
+                // PDF tetap berupa File/Blob sampai tombol Simpan ditekan.
+                // Hindari Base64/JSON agar payload tidak membesar.
+                assets.push({
+                    type: 'pdf',
+                    name: file.name || 'Materi.pdf',
+                    mime: 'application/pdf',
+                    file,
+                    data: '',
+                    preview: '',
+                    pending: true,
+                    url: ''
+                });
+                continue;
+            }
+
             const data = await readLearningAssetFile(file);
             assets.push({
-                type: isPdf ? 'pdf' : isVideo ? 'video' : 'image',
-                name: file.name || (isPdf ? 'Materi.pdf' : isVideo ? 'Video materi' : 'Gambar materi'),
+                type: isVideo ? 'video' : 'image',
+                name: file.name || (isVideo ? 'Video materi' : 'Gambar materi'),
                 mime,
                 data,
                 preview: isImage ? data : '',
@@ -618,20 +641,50 @@ window.moveLearningEditorAsset = function(index, delta) {
     assets.splice(target, 0, item);
     renderLearningEditorAssets();
 };
+async function parseLearningUploadResponse(response, assetName) {
+    const raw = await response.text();
+    let data = {};
+    if (raw) {
+        try { data = JSON.parse(raw); } catch (_) { data = {}; }
+    }
+    if (!response.ok || data.success === false || !data.asset?.url) {
+        let fallback = `Gagal mengunggah ${assetName || 'lampiran'}.`;
+        if (response.status === 413) fallback = `${assetName || 'PDF'} terlalu besar. Batas PDF adalah 15 MB.`;
+        else if (response.status === 415) fallback = `${assetName || 'File'} bukan PDF yang valid atau formatnya tidak didukung.`;
+        else if (response.status === 401 || response.status === 403) fallback = 'Sesi login tidak memiliki izin untuk mengunggah materi.';
+        else if (response.status >= 500) fallback = `Server gagal menyimpan ${assetName || 'lampiran'}.`;
+        throw new Error(data.message || fallback);
+    }
+    return data;
+}
+
 async function uploadPendingLearningAssets() {
     const assets = learningEditorAssets();
     for (let i = 0; i < assets.length; i++) {
         const asset = assets[i];
         if (!asset?.pending) continue;
-        const response = await fetch('/api/learning/assets', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: asset.name, data: asset.data })
-        });
-        const data = await response.json();
-        if (!response.ok || data.success === false || !data.asset || !data.asset.url) {
-            throw new Error(data.message || `Gagal mengunggah ${asset.name || 'lampiran'}.`);
+
+        let response;
+        if (asset.type === 'pdf' && asset.file instanceof Blob) {
+            const endpoint = `/api/learning/assets/pdf?name=${encodeURIComponent(asset.name || 'Materi.pdf')}`;
+            response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/pdf',
+                    'Accept': 'application/json'
+                },
+                body: asset.file
+            });
+        } else {
+            // Jalur lama dipertahankan untuk gambar/video dan PDF pending legacy.
+            response = await fetch('/api/learning/assets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ name: asset.name, data: asset.data })
+            });
         }
+
+        const data = await parseLearningUploadResponse(response, asset.name);
         assets[i] = {
             type: data.asset.type,
             name: data.asset.name || asset.name,

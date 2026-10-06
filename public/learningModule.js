@@ -276,7 +276,7 @@ function updateEngagementUi(material) {
     const status = document.getElementById('learning-engagement-status');
     if (status) {
         status.textContent = `Aktif membaca ${Math.min(activeSeconds, policy.minActiveSeconds)}/${policy.minActiveSeconds} detik` +
-            (policy.requireAllBlocks ? ` • bagian terlihat ${seenCount}/${required.length || 1}` : '');
+            (policy.requireAllBlocks ? ` â¢ bagian terlihat ${seenCount}/${required.length || 1}` : '');
     }
 }
 function queueLearningProgress(payload) {
@@ -414,6 +414,44 @@ function learningAssetSrc(url) {
     } catch (_) {}
     return raw;
 }
+async function hydrateProtectedLearningPdfs() {
+    const frames = Array.from(document.querySelectorAll('iframe[data-learning-pdf-src]'));
+    for (const frame of frames) {
+        const source = String(frame.getAttribute('data-learning-pdf-src') || '').trim();
+        if (!source || frame.dataset.loaded === '1') continue;
+        frame.dataset.loaded = '1';
+        try {
+            const authToken = typeof window.getStoredAuthToken === 'function'
+                ? String(window.getStoredAuthToken() || '').trim()
+                : '';
+            const headers = authToken
+                ? { 'Authorization': 'Bearer ' + authToken, 'X-Auth-Token': authToken }
+                : {};
+            let requestSource = source;
+            if (authToken && /^\/api\/learning-assets\/drive-pdf(?:\?|$)/i.test(source)) {
+                const separator = source.includes('?') ? '&' : '?';
+                requestSource = source + separator + 'auth=' + encodeURIComponent(authToken);
+            }
+            const response = await fetch(requestSource, { cache: 'no-store', headers });
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            const blob = await response.blob();
+            if (!blob || !blob.size) throw new Error('PDF kosong.');
+            const objectUrl = URL.createObjectURL(blob);
+            frame.src = objectUrl;
+            frame.addEventListener('load', () => { try { URL.revokeObjectURL(objectUrl); } catch (_) {} }, { once: true });
+        } catch (err) {
+            frame.removeAttribute('src');
+            const parent = frame.parentElement;
+            if (parent) {
+                const notice = document.createElement('div');
+                notice.className = 'p-5 text-center text-sm font-bold text-rose-700 bg-rose-50 border-t border-rose-100';
+                notice.textContent = 'PDF belum dapat ditampilkan. Silakan muat ulang halaman.';
+                parent.appendChild(notice);
+            }
+            console.warn('[Learning PDF] Gagal memuat PDF terlindungi:', err);
+        }
+    }
+}
 function renderMaterialBlocks(blocks = []) {
     return blocks.map((block, index) => {
         const type = String(block.type || 'text').toLowerCase();
@@ -519,7 +557,7 @@ function renderLearningEditorAssets() {
                 ${icon}
                 <div class="min-w-0 flex-1">
                     <div class="text-xs font-bold text-slate-800 truncate">${learningEsc(asset.name || (isPdf ? 'Materi PDF' : 'Gambar materi'))}</div>
-                    <div class="text-[10px] text-slate-400 mt-1">${isPdf ? 'PDF' : isVideo ? 'Video' : 'Gambar'}${asset.pending ? ' • siap diunggah saat disimpan' : ' • tersimpan'}</div>
+                    <div class="text-[10px] text-slate-400 mt-1">${isPdf ? 'PDF' : isVideo ? 'Video' : 'Gambar'}${asset.pending ? ' â¢ siap diunggah saat disimpan' : ' â¢ tersimpan'}</div>
                 </div>
                 <div class="flex items-center gap-1">
                     <button type="button" onclick="moveLearningEditorAsset(${index}, -1)" ${index === 0 ? 'disabled' : ''} class="w-8 h-8 rounded-lg bg-slate-100 text-slate-600 disabled:opacity-30" title="Naik"><i class="fa-solid fa-arrow-up text-[10px]"></i></button>
@@ -535,26 +573,49 @@ window.handleLearningAssetSelection = async function(input) {
     const assets = learningEditorAssets();
     for (const file of files) {
         const mime = String(file.type || '').toLowerCase();
+        const fileName = String(file.name || '');
         const isImage = ['image/jpeg', 'image/png', 'image/webp'].includes(mime);
-        const isPdf = mime === 'application/pdf';
+        // Sebagian browser/HP mengirim file.type kosong untuk PDF. Ekstensi hanya
+        // dipakai untuk identifikasi di sisi UI; server tetap memverifikasi signature %PDF-.
+        const isPdf = mime === 'application/pdf' || /\.pdf$/i.test(fileName);
         const isVideo = ['video/mp4', 'video/webm', 'video/ogg'].includes(mime);
         if (!isImage && !isPdf && !isVideo) {
             learningToast(`${file.name}: hanya JPG, PNG, WebP, PDF, MP4, WebM, atau OGG yang didukung.`, 'warning');
             continue;
         }
         const limit = isPdf ? 15 * 1024 * 1024 : isVideo ? 18 * 1024 * 1024 : 10 * 1024 * 1024;
+        if (!Number(file.size || 0)) {
+            learningToast(`${file.name}: file kosong atau tidak dapat dibaca.`, 'warning');
+            continue;
+        }
         if (Number(file.size || 0) > limit) {
             learningToast(`${file.name}: ukuran maksimal ${isPdf ? '15 MB' : isVideo ? '18 MB' : '10 MB'}.`, 'warning');
             continue;
         }
         try {
+            if (isPdf) {
+                // PDF tetap berupa File/Blob sampai tombol Simpan ditekan.
+                // Hindari Base64/JSON agar payload tidak membesar.
+                assets.push({
+                    type: 'pdf',
+                    name: file.name || 'Materi.pdf',
+                    mime: 'application/pdf',
+                    file,
+                    data: '',
+                    preview: '',
+                    pending: true,
+                    url: ''
+                });
+                continue;
+            }
+
             const data = await readLearningAssetFile(file);
             assets.push({
-                type: isPdf ? 'pdf' : isVideo ? 'video' : 'image',
-                name: file.name || (isPdf ? 'Materi.pdf' : isVideo ? 'Video materi' : 'Gambar materi'),
+                type: isVideo ? 'video' : 'image',
+                name: file.name || (isVideo ? 'Video materi' : 'Gambar materi'),
                 mime,
                 data,
-                preview: '',
+                preview: isImage ? data : '',
                 pending: true,
                 url: ''
             });
@@ -580,20 +641,50 @@ window.moveLearningEditorAsset = function(index, delta) {
     assets.splice(target, 0, item);
     renderLearningEditorAssets();
 };
+async function parseLearningUploadResponse(response, assetName) {
+    const raw = await response.text();
+    let data = {};
+    if (raw) {
+        try { data = JSON.parse(raw); } catch (_) { data = {}; }
+    }
+    if (!response.ok || data.success === false || !data.asset?.url) {
+        let fallback = `Gagal mengunggah ${assetName || 'lampiran'}.`;
+        if (response.status === 413) fallback = `${assetName || 'PDF'} terlalu besar. Batas PDF adalah 15 MB.`;
+        else if (response.status === 415) fallback = `${assetName || 'File'} bukan PDF yang valid atau formatnya tidak didukung.`;
+        else if (response.status === 401 || response.status === 403) fallback = 'Sesi login tidak memiliki izin untuk mengunggah materi.';
+        else if (response.status >= 500) fallback = `Server gagal menyimpan ${assetName || 'lampiran'}.`;
+        throw new Error(data.message || fallback);
+    }
+    return data;
+}
+
 async function uploadPendingLearningAssets() {
     const assets = learningEditorAssets();
     for (let i = 0; i < assets.length; i++) {
         const asset = assets[i];
         if (!asset?.pending) continue;
-        const response = await fetch('/api/learning/assets', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: asset.name, data: asset.data })
-        });
-        const data = await response.json();
-        if (!response.ok || data.success === false || !data.asset || !data.asset.url) {
-            throw new Error(data.message || `Gagal mengunggah ${asset.name || 'lampiran'}.`);
+
+        let response;
+        if (asset.type === 'pdf' && asset.file instanceof Blob) {
+            const endpoint = `/api/learning/assets/pdf?name=${encodeURIComponent(asset.name || 'Materi.pdf')}`;
+            response = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/pdf',
+                    'Accept': 'application/json'
+                },
+                body: asset.file
+            });
+        } else {
+            // Jalur lama dipertahankan untuk gambar/video dan PDF pending legacy.
+            response = await fetch('/api/learning/assets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ name: asset.name, data: asset.data })
+            });
         }
+
+        const data = await parseLearningUploadResponse(response, asset.name);
         assets[i] = {
             type: data.asset.type,
             name: data.asset.name || asset.name,
@@ -741,7 +832,7 @@ window.showLearningEditor = async function(existing = null) {
         '<option value="">Tanpa Jadwal Asesmen</option>',
         '<option value="__CREATE_DRAFT__">+ Buat draft jadwal asesmen otomatis</option>',
         ...links.exams.filter(ex => ex.recordType !== 'EVENT').map(schedule =>
-            `<option value="${learningAttr(schedule.id)}" ${selectedScheduleId === String(schedule.id) ? 'selected' : ''}>${learningEsc(schedule.title || schedule.name || schedule.id)} — ${learningEsc(schedule.date || 'Tanpa tanggal')} ${learningEsc(schedule.startTime || '')}${['inactive', 'draft'].includes(String(schedule.status || '').toLowerCase()) ? ' (Draft)' : ''}</option>`
+            `<option value="${learningAttr(schedule.id)}" ${selectedScheduleId === String(schedule.id) ? 'selected' : ''}>${learningEsc(schedule.title || schedule.name || schedule.id)} â ${learningEsc(schedule.date || 'Tanpa tanggal')} ${learningEsc(schedule.startTime || '')}${['inactive', 'draft'].includes(String(schedule.status || '').toLowerCase()) ? ' (Draft)' : ''}</option>`
         )
     ].join('');
     const textBlock = (material.blocks || []).find(block => block.type === 'text')?.content || material.content || '';
@@ -998,12 +1089,13 @@ window.openLearningMaterial = async function(id, staffPreview = false) {
                 <p class="text-sm text-slate-500 mt-1">${learningEsc(material.topic || '')}</p>
                 <div class="mt-7 space-y-5">${renderMaterialBlocks(material.blocks || [])}</div>
                 ${!staffPreview ? `<div class="mt-8 pt-6 border-t">
-                    ${!completed ? `<div id="learning-engagement-status" class="mb-3 text-center text-xs font-bold text-slate-500">Aktif membaca ${Math.min(Number(currentProgress?.activeSeconds || 0), policy.minActiveSeconds)}/${policy.minActiveSeconds} detik${policy.requireAllBlocks ? ' • bagian terlihat ' + (Array.isArray(currentProgress?.viewedBlockIds) ? currentProgress.viewedBlockIds.length : 0) + '/' + Math.max(1, materialBlockIds(material).length) : ''}</div>` : ''}
+                    ${!completed ? `<div id="learning-engagement-status" class="mb-3 text-center text-xs font-bold text-slate-500">Aktif membaca ${Math.min(Number(currentProgress?.activeSeconds || 0), policy.minActiveSeconds)}/${policy.minActiveSeconds} detik${policy.requireAllBlocks ? ' â¢ bagian terlihat ' + (Array.isArray(currentProgress?.viewedBlockIds) ? currentProgress.viewedBlockIds.length : 0) + '/' + Math.max(1, materialBlockIds(material).length) : ''}</div>` : ''}
                     <button id="learning-complete-button" type="button" ${completed ? 'disabled aria-disabled="true"' : ''} onclick="completeLearningMaterial(${learningInlineArg(material.id)})" class="w-full py-3 rounded-2xl ${completed ? 'bg-emerald-50 text-emerald-700' : 'bg-emerald-600 text-white'} font-black text-sm">${completed ? 'Materi telah dipelajari' : 'Saya Sudah Mempelajari Materi'}</button>
                     <div id="learning-next-actions" class="mt-3">${completed ? learningNextActions(material) : ''}</div>
                 </div>` : ''}
             </article>
         </div>`;
+    void hydrateProtectedLearningPdfs();
     if (!staffPreview && !completed) startLearningTracker(material);
 };
 window.completeLearningMaterial = async function(id) {
