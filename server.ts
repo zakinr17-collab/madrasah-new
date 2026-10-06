@@ -5216,6 +5216,13 @@ function getLearningAuthUser(req: any): AuthSession | null {
 }
 
 function requireAuth(req: any, res: any, next: any) {
+  if (isOfflineMode && !isOfflineLicenseActive()) {
+    return res.status(403).json({
+      success: false,
+      code: 'OFFLINE_LICENSE_REQUIRED',
+      message: 'Lisensi instalasi offline tidak valid atau belum diaktivasi.'
+    });
+  }
   const authUser = req.user || getAuthUser(req);
   if (!authUser) {
     return res.status(401).json({ success: false, message: "Akses ditolak: Silakan login terlebih dahulu." });
@@ -5226,6 +5233,13 @@ function requireAuth(req: any, res: any, next: any) {
 
 function requireRole(allowedRoles: string[]) {
   return (req: any, res: any, next: any) => {
+    if (isOfflineMode && !isOfflineLicenseActive()) {
+      return res.status(403).json({
+        success: false,
+        code: 'OFFLINE_LICENSE_REQUIRED',
+        message: 'Lisensi instalasi offline tidak valid atau belum diaktivasi.'
+      });
+    }
     if (!req.user) {
       const authUser = getAuthUser(req);
       if (!authUser) {
