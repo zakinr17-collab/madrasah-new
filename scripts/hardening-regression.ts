@@ -197,7 +197,7 @@ assert.match(server, /meta\?\.sanSignature === sanSignature/);
   assert.match(server, /linkedActivities:[\s\S]*lkpdReady:[\s\S]*examReady:/);
   assert.match(learningModule, /__CREATE_DRAFT__/);
   assert.match(learningModule, /Buat draft LKPD otomatis/);
-  assert.match(learningModule, /Buat draft asesmen otomatis/);
+  assert.match(learningModule, /Buat draft jadwal asesmen otomatis/);
   assert.match(learningModule, /LKPD sedang disiapkan guru/);
   assert.match(learningModule, /Asesmen sedang disiapkan guru/);
   assert.match(learningModule, /openLearningLinkedActivityEditor/);
