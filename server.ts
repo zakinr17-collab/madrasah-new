@@ -3582,7 +3582,9 @@ app.use((req: any, res, next) => {
     (method === 'GET' && p.startsWith('/api/madrasah-by-slug/')) ||
     (method === 'GET' && p.startsWith('/api/photos/')) ||
     (method === 'GET' && p === '/api/learning-assets/serve') ||
-    (method === 'GET' && p === '/api/google-drive/oauth/callback');
+    (method === 'GET' && p === '/api/google-drive/oauth/callback') ||
+    (method === 'GET' && p === '/api/offline-license/status') ||
+    (method === 'POST' && p === '/api/offline-license/activate');
 
   if (publicApi) {
     if (method === 'POST' && p === '/api/login') {
