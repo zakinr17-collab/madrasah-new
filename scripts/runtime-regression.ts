@@ -732,7 +732,8 @@ await test('Livecam: browser runtime is P2P-only, video-only, bounded and spotli
   assert.match(assessmentSource, /P2P_ONLY_LIVECAM_V5/);
   assert.match(assessmentSource, /MAX_P2P_LIVECAM_STREAMS = 4/);
   assert.match(assessmentSource, /function getOccupiedLivecamSlotIds\(/);
-  assert.match(assessmentSource, /const occupiedSlots = getOccupiedLivecamSlotIds\(\)/);
+  assert.match(assessmentSource, /function activeAdminPeerCount\(/);
+  assert.match(assessmentSource, /return activeAdminPeerCount\(\) < MAX_P2P_LIVECAM_STREAMS/);
   assert.doesNotMatch(assessmentSource, /requested\.size >= MAX_P2P_LIVECAM_STREAMS/);
   assert.match(assessmentSource, /window\._adminRemoteStreams/);
   assert.match(assessmentSource, /focus-livecam-video" autoplay playsinline muted/);
@@ -792,6 +793,7 @@ await test('Assessment: teachers cannot mutate EVENT containers but can still re
   assert.match(serverSource, /TEACHER_EVENT_MUTATION_SCOPE_V3/);
   const context: any = vm.createContext({
     isTeacherRequest: () => true,
+    teacherHasActiveProctorAssignment: () => false,
     teacherCanUseExamPayload: (_req: any, payload: any) => payload?.subject === 'allowed',
   });
   vm.runInContext(serverFunction('teacherCanMutateExamPayload'), context);
