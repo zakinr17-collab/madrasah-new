@@ -19305,7 +19305,7 @@ app.delete("/api/learning/assets", requireAuth, requireRole(['teacher', 'guru', 
     console.warn('[Learning Asset Rollback] Failed:', err?.message || err);
     return res.status(500).json({ success: false, message: safeServerError(err, 'Rollback aset Materi gagal.') });
   }
-}
+});
 
 app.get("/api/learning-assets/drive-pdf", async (req: any, res: any) => {
   try {
@@ -19352,31 +19352,6 @@ app.get("/api/learning-assets/inline-pdf", async (req: any, res: any) => {
       type: 'upload',
       expires_at: Math.floor(Date.now() / 1000) + 300
     });
-    const response = await fetch(signedDownloadUrl, { redirect: 'error' });
-    if (!response.ok) {
-      console.warn(`[Learning PDF] Cloudinary signed download gagal: ${response.status}`);
-      return res.status(response.status).end();
-    }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-    if (!buffer.length || buffer.length > MAX_LEARNING_PDF_BYTES) return res.status(413).end();
-    if (buffer.length < 5 || buffer.subarray(0, 5).toString('ascii') !== '%PDF-') return res.status(415).end();
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Length', String(buffer.length));
-    res.setHeader('Content-Disposition', 'inline');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'private, no-store');
-    return res.send(buffer);
-  } catch (err: any) {
-    console.warn('[Learning PDF inline] Failed:', err?.message || err);
-    if (!res.headersSent) res.status(400).end();
-  }
-}); catch (err: any) {
-    console.warn('[Learning PDF inline] Failed:', err?.message || err);
-    if (!res.headersSent) res.status(400).end();
-  }
-});
-
 app.get("/api/learning-assets/serve", async (req: any, res: any) => {
   const rawUrl = String(req.query?.url || '').trim();
   try {
