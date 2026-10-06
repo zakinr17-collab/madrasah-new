@@ -19472,8 +19472,6 @@ app.get("/api/learning-assets/serve", async (req: any, res: any) => {
   }
 });
 
-);
-
 app.get("/api/learning-assets/:assetId", (req, res) => {
   if (!isOfflineMode) return res.status(404).end();
   const assetId = String(req.params.assetId || '');
