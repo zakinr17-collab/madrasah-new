@@ -66,6 +66,8 @@ const obsoleteRootScripts = [
 
 const checks = [
   ['JWT query bearer removed', !server.includes('req.query.token')],
+  ['Browser JWT remains session scoped', !app.includes('localStorage.setItem(AUTH_SESSION_TOKEN_KEY') && !app.includes('return localStorage.getItem(AUTH_SESSION_TOKEN_KEY')],
+  ['Generic fetch does not append JWT query parameters', !app.includes("auth=' + encodeURIComponent(authToken)") && !app.includes('auth=" + encodeURIComponent(authToken)')],
   ['Realtime ticket endpoint exists', server.includes("/api/realtime-token")],
   ['SSE requires realtime ticket', server.includes('verifyRealtimeToken') && app.includes("/api/realtime-stream?rt=")],
   ['WebSocket register carries JWT', assessment.includes("token: (appState.currentUser && appState.currentUser.token)")],
