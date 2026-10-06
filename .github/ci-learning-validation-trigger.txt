@@ -1,0 +1,2 @@
+Validation trigger for Settings-only Google Drive connection flow.
+Not part of PR #10.
