@@ -1,0 +1,6 @@
+{
+  "name": "Madrasah Bisa",
+  "description": "Aplikasi Madrasah Bisa dengan Manajemen Siswa, Guru, Kelas, Absensi Selfie & GPS, Bank Soal AI, Ujian Online, Nilai, dan Jurnal Mengajar.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

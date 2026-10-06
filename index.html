@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Madrasah Bisa</title>
+    <script>
+        window.addEventListener('unhandledrejection', function(event) {
+            var msg = event && event.reason && (event.reason.message || String(event.reason));
+            if (msg && (msg.includes('WebSocket closed without opened') || msg.includes('failed to connect to websocket'))) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }
+        });
+        window.addEventListener('error', function(event) {
+            var msg = event && event.message || String(event);
+            if (msg && (msg.includes('WebSocket closed without opened') || msg.includes('failed to connect to websocket'))) {
+                event.preventDefault();
+                event.stopImmediatePropagation();
+            }
+        });
+    </script>
+    <!-- FontAwesome CSS is bundled by Vite from the official npm dependency. -->
+    <!-- Local SheetJS for Excel -->
+    <script src="/vendor/xlsx/xlsx.full.min.js"></script>
+    <!-- Local jsPDF for PDF export -->
+    <script src="/vendor/jspdf/jspdf.umd.min.js"></script>
+    <script src="/vendor/jspdf/jspdf.plugin.autotable.min.js"></script>
+    <!-- Local Mammoth.js for Word .docx document import -->
+    <script src="/vendor/mammoth/mammoth.browser.min.js"></script>
+    <!-- Local JSZip for ZIP file import containing HTML & Images -->
+    <script src="/vendor/jszip/jszip.min.js"></script>
+    <!-- Local PDF.js for reading PDF files -->
+    <script src="/vendor/pdfjs/pdf.min.js"></script>
+    <!-- KaTeX CSS is bundled by Vite; runtime JS remains local for window.katex compatibility. -->
+    <script src="/vendor/katex/katex.min.js"></script>
+    <script src="/vendor/katex/contrib/auto-render.min.js"></script>
+    <!-- Typography uses theme-safe system fallbacks; no legacy local WOFF2 files are loaded. -->
+    <style>
+        body { font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .dot-grid-bg {
+            background-image: radial-gradient(#cbd5e1 1.2px, transparent 1.2px);
+            background-size: 24px 24px;
+        }
+        /* Arabic Text & Typography Styling */
+        .font-arabic, [lang="ar"], .arabic-text {
+            font-family: 'Amiri', 'Noto Naskh Arabic', serif, 'Traditional Arabic';
+            direction: rtl;
+            text-align: right;
+            line-height: 2.2;
+            font-size: 1.15rem;
+        }
+
+        /* Anti-FOUC (Flash of Unstyled Content) Preloader */
+        #app-initial-loader {
+            position: fixed;
+            inset: 0;
+            z-index: 99999;
+            background-color: #f8fafc;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            transition: opacity 0.35s ease, visibility 0.35s ease;
+        }
+        #app-initial-loader.loaded {
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+        }
+        .loader-spinner-ring {
+            width: 36px;
+            height: 36px;
+            border: 3.5px solid #e2e8f0;
+            border-top: 3.5px solid #059669;
+            border-radius: 50%;
+            animation: appLoaderSpin 0.75s linear infinite;
+        }
+        @keyframes appLoaderSpin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased min-h-screen flex flex-col">
+
+    <!-- Anti-FOUC Instant Preloader Screen -->
+    <div id="app-initial-loader">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 16px;">
+            <div style="width: 54px; height: 54px; background: linear-gradient(135deg, #059669 0%, #047857 100%); border-radius: 16px; display: flex; align-items: center; justify-content: center; color: white; box-shadow: 0 10px 20px -3px rgba(5, 150, 105, 0.3);">
+                <i class="fa-solid fa-mosque" style="font-size: 24px;"></i>
+            </div>
+            <div class="loader-spinner-ring"></div>
+            <div style="text-align: center;">
+                <div style="font-size: 15px; font-weight: 800; color: #0f172a; letter-spacing: -0.02em;">Madrasah Bisa</div>
+                <div id="app-initial-loader-status" style="font-size: 11px; font-weight: 600; color: #64748b; margin-top: 3px; letter-spacing: 0.02em;">Menyiapkan Portal Akademik...</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container" class="fixed top-5 right-5 z-50 space-y-3 pointer-events-none"></div>
+    <div id="modal-container" class="relative z-[100]"></div>
+
+    <div id="login-container" class="flex-1 flex flex-col lg:flex-row min-h-screen bg-slate-50 relative overflow-hidden transition-all duration-300">
+        <!-- Panel Kiri (Showcase Produk & Informasi Madrasah - Hanya Muncul di Desktop) -->
+        <div id="login-left-panel" class="hidden lg:flex lg:w-7/12 bg-slate-100 border-r border-slate-200/80 dot-grid-bg flex-col justify-between p-12 xl:p-16 relative">
+            <!-- Decorative Subtle Accent Lines -->
+            <div class="absolute inset-x-0 top-0 h-[1px] bg-gradient-to-r from-transparent via-slate-300 to-transparent"></div>
+            <div class="absolute inset-y-0 right-0 w-[1px] bg-slate-200"></div>
+
+            <!-- Top Brand Header -->
+            <div class="flex items-center space-x-3.5 z-10">
+                <div id="login-left-logo-box" class="w-11 h-11 bg-emerald-600 text-white rounded-xl flex items-center justify-center text-xl shadow-md shadow-emerald-600/20 overflow-hidden">
+                    <i id="login-left-logo-icon" class="fa-solid fa-mosque"></i>
+                </div>
+                <div>
+                    <h3 id="login-left-school-name" class="font-extrabold text-slate-800 tracking-tight text-sm uppercase leading-none">Madrasah Aliyah</h3>
+                    <span class="text-[10px] text-slate-500 font-semibold tracking-wider uppercase">Portal Akademik Terpadu</span>
+                </div>
+            </div>
+
+            <!-- Core App Showcase Info (Typography & Design) -->
+            <div class="max-w-xl my-auto py-12 z-10 space-y-4">
+                <span id="login-panel-badge" class="text-[10px] font-bold tracking-widest text-emerald-600 uppercase bg-emerald-100/60 px-3 py-1 rounded-full inline-block">Sistem Manajemen Modern</span>
+                <h2 id="login-panel-title" class="text-3xl xl:text-4xl font-extrabold text-slate-900 tracking-tight leading-tight">
+                    Mengelola Administrasi & Ujian CBT Secara Presisi
+                </h2>
+                <p id="login-panel-desc" class="text-sm text-slate-500 leading-relaxed">
+                    Platform khusus madrasah untuk mengotomatisasi daftar hadir berbasis geolokasi, monitoring ujian waktu nyata (CBT), penyusunan modul ajar berbasis AI, serta pengolahan nilai rapor digital dalam satu ekosistem terpadu yang andal.
+                </p>
+
+                <!-- Clean Feature List -->
+                <div class="grid grid-cols-2 gap-6 pt-4">
+                    <div class="flex items-start space-x-3">
+                        <div class="w-8 h-8 rounded-lg bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0">
+                            <i class="fa-solid fa-camera-retro text-xs"></i>
+                        </div>
+                        <div>
+                            <h4 class="text-xs font-bold text-slate-800">Absensi Selfie & GPS</h4>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Validasi presisi lokasi dan kamera siswa secara real-time.</p>
+                        </div>
+                    </div>
+
+                    <div class="flex items-start space-x-3">
+                        <div class="w-8 h-8 rounded-lg bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+                            <i class="fa-solid fa-laptop-code text-xs"></i>
+                        </div>
+                        <div>
+                            <h4 class="text-xs font-bold text-slate-800">Computer Based Test (CBT)</h4>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Sistem ujian anti-curang dengan proteksi fokus tab terpadu.</p>
+                        </div>
+                    </div>
+
+                    <div class="flex items-start space-x-3">
+                        <div class="w-8 h-8 rounded-lg bg-violet-50 border border-violet-100 flex items-center justify-center text-violet-600 shrink-0">
+                            <i class="fa-solid fa-wand-magic-sparkles text-xs"></i>
+                        </div>
+                        <div>
+                            <h4 class="text-xs font-bold text-slate-800">Modul Ajar AI Terpadu</h4>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Penyusunan modul RPP Kurikulum Merdeka otomatis dibantu AI.</p>
+                        </div>
+                    </div>
+
+                    <div class="flex items-start space-x-3">
+                        <div class="w-8 h-8 rounded-lg bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-600 shrink-0">
+                            <i class="fa-solid fa-chart-line text-xs"></i>
+                        </div>
+                        <div>
+                            <h4 class="text-xs font-bold text-slate-800">Manajemen Nilai Instan</h4>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Analisis kemajuan kompetensi & ekspor rapor excel otomatis.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer / Copyright -->
+            <div class="text-[11px] text-slate-400 font-medium z-10 flex justify-between items-center">
+                <span id="login-left-footer">&copy; <span class="font-bold text-slate-600">zeinsgroup</span> &middot; Portal Administrasi Madrasah</span>
+                <span class="flex items-center space-x-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> <span class="text-slate-500 font-semibold">Sistem Aktif</span></span>
+            </div>
+        </div>
+
+        <!-- Panel Kanan (Formulir Login Keamanan Tinggi) -->
+        <div id="login-right-panel" class="flex-1 flex flex-col justify-center items-center p-6 sm:p-12 lg:p-16 bg-white relative transition-all duration-300">
+            <div id="login-right-bg-pattern" class="absolute inset-0 bg-[radial-gradient(#f1f5f9_1px,transparent_1px)] [background-size:16px_16px] pointer-events-none opacity-40"></div>
+            
+            <div id="login-card-wrapper" class="w-full max-w-md space-y-6 z-10 transition-all duration-300">
+                <!-- Header Branding & Title -->
+                <div id="login-header-box" class="flex flex-col items-center justify-center text-center space-y-3">
+                    <!-- Logo Form Login -->
+                    <div id="login-logo-box" class="w-14 h-14 bg-emerald-600 text-white rounded-2xl flex items-center justify-center text-xl shadow-lg shadow-emerald-600/30 overflow-hidden transition-all duration-200">
+                        <i id="login-logo-icon" class="fa-solid fa-mosque"></i>
+                    </div>
+                    
+                    <h1 id="login-main-title" class="text-2xl font-extrabold text-slate-900 tracking-tight leading-tight">Selamat Datang Kembali</h1>
+                    <p id="login-main-subtitle" class="text-xs text-slate-400">Silakan masukkan username dan password Anda untuk masuk ke sistem.</p>
+                    
+                    <!-- Tenant Banner for custom madrasah link -->
+                    <div id="login-tenant-banner" class="hidden w-full text-xs bg-emerald-500/10 border border-emerald-500/30 text-emerald-800 p-2.5 rounded-2xl font-bold text-center flex items-center justify-center gap-2"></div>
+
+                    <!-- Announcement / Notice Banner -->
+                    <div id="login-notice-banner" class="hidden w-full text-xs bg-amber-500/10 border border-amber-500/20 text-amber-800 p-3 rounded-2xl font-semibold text-center"></div>
+                </div>
+
+                <!-- Formulir Login -->
+                <form id="login-form" onsubmit="handleLogin(event)" class="space-y-4">
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider">Username / NIP</label>
+                        <div class="relative">
+                            <span class="absolute left-4 top-3.5 text-slate-400 text-sm">
+                                <i class="fa-solid fa-user"></i>
+                            </span>
+                            <input type="text" id="login-user" required class="w-full pl-11 pr-4 py-3 bg-slate-50/70 border border-slate-200 rounded-2xl text-xs font-medium text-slate-700 placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all duration-250" placeholder="Masukkan NIP atau username Anda">
+                        </div>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <div class="flex justify-between items-center">
+                            <label class="block text-xs font-bold text-slate-600 uppercase tracking-wider">Password Sistem</label>
+                            <span class="text-[10px] text-emerald-600 font-semibold cursor-pointer hover:underline" onclick="showToast('Silakan hubungi administrator madrasah untuk reset password.', 'info')">Lupa Password?</span>
+                        </div>
+                        <div class="relative">
+                            <span class="absolute left-4 top-3.5 text-slate-400 text-sm">
+                                <i class="fa-solid fa-lock"></i>
+                            </span>
+                            <input type="password" id="login-pass" required class="w-full pl-11 pr-4 py-3 bg-slate-50/70 border border-slate-200 rounded-2xl text-xs font-medium text-slate-700 placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all duration-250" placeholder="Masukkan password Anda">
+                        </div>
+                    </div>
+
+                    <button id="login-submit-btn" type="submit" class="w-full py-3.5 mt-2 bg-emerald-600 hover:bg-emerald-700 active:transform active:scale-[0.99] text-white font-bold rounded-2xl shadow-md shadow-emerald-600/10 text-xs transition-all duration-150 tracking-wider uppercase cursor-pointer flex items-center justify-center gap-2">
+                        <span>Masuk Portal</span> <i class="fa-solid fa-arrow-right text-xs"></i>
+                    </button>
+                </form>
+
+                <div id="madrasah-registration-entry" class="mt-2 hidden">
+                    <button type="button" onclick="openRegisterMadrasahModal()" class="w-full py-3 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold rounded-2xl text-xs transition-all duration-150 flex items-center justify-center gap-2 border border-emerald-200 cursor-pointer shadow-sm">
+                        <i class="fa-solid fa-school-flag text-emerald-600"></i> <span>Daftar Madrasah Baru</span>
+                    </button>
+                </div>
+
+                <!-- Footer Copyright -->
+                <div id="login-right-footer" class="text-center pt-2 text-[10px] text-slate-400 font-medium">
+                    &copy; <span class="font-bold text-slate-600">zeinsgroup</span> &middot; Portal Administrasi Madrasah
+                </div>
+            </div>
+        </div>
+    </div>
+    </div>
+
+    <div id="main-app" class="hidden flex-1 flex flex-col lg:flex-row min-h-screen">
+        <div id="sidebar-backdrop" onclick="window.toggleSidebar && window.toggleSidebar()" class="fixed inset-0 bg-slate-900/50 z-40 hidden"></div>
+
+        <aside id="sidebar" class="fixed inset-y-0 left-0 z-50 w-72 bg-slate-900 text-slate-300 flex flex-col transition-transform duration-300 -translate-x-full shrink-0 shadow-2xl">
+            <div class="p-6 border-b border-slate-800 flex items-center justify-between">
+                <div class="flex items-center space-x-3">
+                    <div id="nav-school-logo-container" class="w-10 h-10 bg-emerald-600 text-white rounded-xl flex items-center justify-center font-bold shadow-md overflow-hidden">
+                        <i id="nav-school-logo-icon" class="fa-solid fa-moon"></i>
+                    </div>
+                    <div>
+                        <h2 id="nav-school-name" class="font-bold text-white text-sm">Madrasah Aliyah</h2>
+                        <span id="user-role-badge" class="text-[10px] text-emerald-400 font-semibold uppercase tracking-wider">Administrator</span>
+                    </div>
+                </div>
+                <button type="button" onclick="window.toggleSidebar && window.toggleSidebar()" class="lg:hidden text-slate-400 hover:text-white p-2"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-4 space-y-1.5" id="sidebar-menu"></div>
+
+            <div class="p-4 border-t border-slate-800">
+                <button type="button" onclick="window.logout && window.logout()" class="w-full py-3 px-4 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-2xl font-semibold text-xs flex items-center justify-center space-x-2 transition">
+                    <i class="fa-solid fa-right-from-bracket"></i>
+                    <span>Keluar Sistem</span>
+                </button>
+            </div>
+        </aside>
+
+        <div class="flex-1 flex flex-col min-w-0">
+            <header class="bg-white border-b border-slate-100 h-20 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30 shadow-sm">
+                <div class="flex items-center space-x-4">
+                    <button type="button" id="sidebar-toggle-btn" onclick="window.toggleSidebar && window.toggleSidebar()" class="p-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 transition cursor-pointer" title="Menu Navigasi">
+                        <i class="fa-solid fa-bars text-base"></i>
+                    </button>
+                    <div>
+                        <h2 class="text-base sm:text-lg font-bold text-slate-800" id="user-display-name" onclick="window.handleTopNameClick && window.handleTopNameClick()">Administrator</h2>
+                        <p class="text-xs text-slate-400">Sistem Informasi Madrasah Terintegrasi</p>
+                    </div>
+                </div>
+                <div id="header-right-area" class="flex items-center space-x-3">
+                    <!-- Token Balance Badge for Admin Madrasah -->
+                    <div id="header-token-badge" class="hidden items-center gap-2 bg-gradient-to-r from-amber-50 to-amber-100/80 border border-amber-200/90 text-amber-900 px-3 py-1.5 rounded-2xl shadow-xs">
+                        <div class="w-6 h-6 rounded-xl bg-amber-500 text-white flex items-center justify-center text-xs font-bold shadow-xs">
+                            <i class="fa-solid fa-coins"></i>
+                        </div>
+                        <div class="text-left leading-tight">
+                            <span class="block text-[9px] uppercase font-extrabold text-amber-700 tracking-wider">Token Ujian</span>
+                            <span id="header-token-amount" class="block text-xs font-black text-amber-950">0 Token</span>
+                        </div>
+                        <button type="button" onclick="openTopUpTokenModal()" class="ml-1 px-2.5 py-1 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white font-bold text-[10px] rounded-xl transition shadow-xs flex items-center gap-1 cursor-pointer" title="Beli / Top-Up Token">
+                            <i class="fa-solid fa-plus text-[9px]"></i> <span>Top-Up</span>
+                        </button>
+                    </div>
+
+                    <div id="header-search-box" class="relative hidden md:block w-64">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-400 text-xs"></i>
+                        <input type="text" id="global-search-input" oninput="handleGlobalSearch(this.value)" placeholder="Cari siswa, guru, kelas..." class="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-2xl text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none">
+                        <div id="global-search-results" class="absolute left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-slate-100 hidden z-50 max-h-60 overflow-y-auto text-xs p-2 space-y-1"></div>
+                    </div>
+                    <button type="button" id="header-chat-btn" onclick="openChatWithAdmin()" class="hidden px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs rounded-2xl border border-blue-200 transition items-center gap-2 cursor-pointer relative">
+                        <i class="fa-regular fa-comment-dots text-sm"></i>
+                        <span>Chat Admin</span>
+                    </button>
+                    <div id="header-logout-box" class="hidden">
+                        <button type="button" onclick="logout()" class="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-2xl shadow-md shadow-rose-600/10 transition flex items-center gap-2 cursor-pointer">
+                            <i class="fa-solid fa-right-from-bracket"></i>
+                            <span>Keluar</span>
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <div id="global-back-bar" class="hidden px-4 sm:px-6 lg:px-8 pt-4 sm:pt-5 bg-white/80 backdrop-blur border-b border-slate-100">
+                <button type="button" onclick="navigateBack()" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition cursor-pointer">
+                    <i class="fa-solid fa-arrow-left"></i>
+                    <span>Kembali</span>
+                </button>
+            </div>
+            <main id="view-container" class="flex-1 p-4 sm:p-6 lg:p-8 overflow-y-auto"></main>
+        </div>
+    </div>
+
+    <!-- Instant Session Check: Prevent flash of login screen during page refresh -->
+    <script>
+        try {
+            if (localStorage.getItem('madrasah_current_user')) {
+                var lc = document.getElementById('login-container');
+                var ma = document.getElementById('main-app');
+                if (lc) lc.classList.add('hidden');
+                if (ma) ma.classList.remove('hidden');
+            }
+        } catch(e) {}
+    </script>
+
+    <!-- Application JavaScript Entry Point -->
+    <script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

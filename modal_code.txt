@@ -1,0 +1,171 @@
+window.openImportModulModal = function(subjectId) {
+    window.currentImportedDocData = null;
+    tempImportModulClasses = ['ALL'];
+    const subject = appState.subjects ? appState.subjects.find(s => String(s.id) === String(subjectId)) : null;
+    const subjectName = subject ? subject.name : 'Mata Pelajaran';
+    const uniqueTingkats = getUniqueTingkatList(appState.classes || []);
+    const activeLevel = appState.selectedModulAjarLevel || 'ALL';
+    const activeSemester = appState.selectedModulAjarSemester || '1';
+
+    const modal = document.getElementById('modal-container');
+    if (!modal) return;
+
+    modal.innerHTML = `
+        <div class="fixed inset-0 z-50 overflow-y-auto bg-slate-900/60 backdrop-blur-sm p-4 sm:p-6" onclick="if(event.target === this) closeModal();">
+            <!-- Hidden File Input placed safely outside dropzone so it is never destroyed on innerHTML update -->
+            <input type="file" id="import-file-input" accept=".docx,.doc,.pdf,.txt" class="hidden" onchange="window.handleModulFileInput(this.files, '\${subjectId}'); this.value = '';">
+
+            <div class="bg-white w-full max-w-2xl mx-auto rounded-3xl shadow-2xl p-6 sm:p-8 space-y-5 my-4 sm:my-8 flex flex-col text-left relative">
+                <!-- Modal Header -->
+                <div class="flex justify-between items-center pb-3 border-b border-slate-100 shrink-0">
+                    <div class="flex items-center space-x-3 text-blue-600">
+                        <div class="w-10 h-10 rounded-2xl bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-lg">
+                            <i class="fa-solid fa-file-arrow-up"></i>
+                        </div>
+                        <div>
+                            <h3 class="font-extrabold text-slate-800 text-base sm:text-lg">Import Modul Ajar (Word / PDF)</h3>
+                            <p class="text-xs text-slate-400 font-medium">${escapeHtml(subjectName)}</p>
+                        </div>
+                    </div>
+                    <button type="button" onclick="closeModal()" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-500 flex items-center justify-center transition cursor-pointer">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+
+                <form id="import-modul-modal-form" onsubmit="event.preventDefault(); window.saveImportedModulDirectly('${subjectId}', '${subjectName.replace(/'/g, "\\'")}');" class="space-y-4">
+                    <div class="p-3.5 bg-blue-50/70 border border-blue-100 rounded-2xl text-xs text-blue-950 space-y-1">
+                        <p class="font-bold flex items-center gap-1.5"><i class="fa-solid fa-circle-info text-blue-600"></i> Sumber Acuan Perangkat Pembelajaran:</p>
+                        <p class="text-[11px] text-slate-600 leading-relaxed">
+                            Upload file <strong>Word (.docx/.doc)</strong> atau <strong>PDF</strong> modul ajar buatan Anda sendiri. Dokumen yang diimpor akan tersimpan di aplikasi dan otomatis dijadikan <strong>acuan kontekstual</strong> untuk menyusun kisi-kisi, soal ujian, RPP, silabus, ATP, hingga PPT Interaktif!
+                        </p>
+                    </div>
+
+                    <!-- File Dropzone -->
+                    <div id="import-dropzone" 
+                         ondragover="event.preventDefault(); this.classList.add('border-blue-500', 'bg-blue-50/40');" 
+                         ondragleave="this.classList.remove('border-blue-500', 'bg-blue-50/40');" 
+                         ondrop="window.handleModulFileDrop(event, '${subjectId}')"
+                         onclick="document.getElementById('import-file-input')?.click()"
+                         class="border-2 border-dashed border-slate-300 hover:border-blue-500 bg-slate-50/50 hover:bg-blue-50/20 rounded-3xl p-5 text-center cursor-pointer transition flex flex-col items-center justify-center space-y-2">
+                        <div class="w-12 h-12 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-center text-blue-600 text-xl">
+                            <i class="fa-solid fa-cloud-arrow-up"></i>
+                        </div>
+                        <div>
+                            <p class="text-xs sm:text-sm font-extrabold text-slate-800">Klik untuk pilih file atau seret & lepas dokumen ke sini</p>
+                            <p class="text-[11px] text-slate-400 font-medium mt-0.5">Mendukung Microsoft Word (.docx, .doc), Dokumen PDF, & Teks (.txt)</p>
+                        </div>
+                    </div>
+
+                    <!-- File Parsed Info Area -->
+                    <div id="import-file-status" class="hidden p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center space-x-3">
+                                <div id="import-status-icon" class="w-10 h-10 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center text-lg">
+                                    <i class="fa-solid fa-file-lines"></i>
+                                </div>
+                                <div>
+                                    <h4 id="import-status-filename" class="text-xs font-bold text-slate-800 truncate max-w-xs sm:max-w-md">Nama File</h4>
+                                    <p id="import-status-meta" class="text-[10px] text-slate-500">0 KB • 0 Kata</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span class="px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-extrabold rounded-lg flex items-center gap-1">
+                                    <i class="fa-solid fa-check"></i> Siap Diolah
+                                </span>
+                                <button type="button" onclick="document.getElementById('import-file-input')?.click()" class="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 text-slate-600 text-[10px] font-bold rounded-lg transition flex items-center gap-1 cursor-pointer">
+                                    <i class="fa-solid fa-rotate"></i> Ganti File
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Extracted text preview snippet -->
+                        <div class="space-y-1">
+                            <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500">Pratinjau Ekstraksi Teks Naskah Dokumen:</label>
+                            <div id="import-text-preview" class="p-3 bg-white border border-slate-200 rounded-xl text-[11px] text-slate-600 max-h-32 overflow-y-auto font-mono whitespace-pre-wrap leading-relaxed">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="import-form-target" class="hidden space-y-3 pt-1">
+                        <!-- Target Configuration Form -->
+                        <div class="space-y-3 pt-1">
+                            <!-- Target Kelas / Penyimpanan Rombel (Top Priority Placement) -->
+                        <div class="space-y-2 bg-blue-50/40 p-4 rounded-2xl border border-blue-200/80">
+                            <div class="flex items-center justify-between">
+                                <label class="block text-xs font-bold uppercase tracking-wider text-blue-900 flex items-center gap-1.5">
+                                    <i class="fa-solid fa-folder-closed text-blue-600 text-sm"></i>
+                                    <span>Pilih Penyimpanan Kelas / Target Rombel <span class="text-rose-500">*</span></span>
+                                </label>
+                                <span class="text-[10px] text-blue-600 font-semibold">Bisa memilih lebih dari satu kelas</span>
+                            </div>
+                            <div class="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+                                <select id="import-class-dropdown" onchange="window.addImportModulClass(this.value)" class="flex-1 px-3.5 py-2.5 bg-white border border-blue-200 rounded-xl text-xs font-bold text-slate-800 cursor-pointer focus:ring-2 focus:ring-blue-500 shadow-xs">
+                                    <option value="">-- Tambah Penyimpanan Kelas --</option>
+                                    <option value="ALL">Semua Kelas (Universal)</option>
+                                    ${(appState.classes || []).map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div id="import-selected-classes-container" class="flex flex-wrap gap-1.5 p-2 bg-white rounded-xl border border-slate-200 min-h-[40px] items-center">
+                            </div>
+                        </div>
+
+                        <div class="space-y-1.5">
+                            <label class="block text-xs font-bold uppercase text-slate-600">Topik / Materi Pokok Modul <span class="text-rose-500">*</span></label>
+                            <input type="text" id="import-modul-topic" required placeholder="Misal: Termodinamika, Ikatan Kimia, Fiqih Muamalah..." class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold focus:bg-white focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div class="space-y-1.5">
+                                <label class="block text-xs font-bold uppercase text-slate-600">Tingkat Target</label>
+                                <select id="import-modul-tingkat" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold cursor-pointer">
+                                    <option value="ALL" ${activeLevel === 'ALL' ? 'selected' : ''}>Semua Tingkat</option>
+                                    ${uniqueTingkats.map(lvl => `<option value="${lvl}" ${activeLevel === lvl ? 'selected' : ''}>Tingkat ${lvl}</option>`).join('')}
+                                </select>
+                            </div>
+
+                            <div class="space-y-1.5">
+                                <label class="block text-xs font-bold uppercase text-slate-600">Semester</label>
+                                <select id="import-modul-semester" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold cursor-pointer">
+                                    <option value="1" ${activeSemester === '1' ? 'selected' : ''}>Semester 1 (Ganjil)</option>
+                                    <option value="2" ${activeSemester === '2' ? 'selected' : ''}>Semester 2 (Genap)</option>
+                                </select>
+                            </div>
+
+                            <div class="space-y-1.5">
+                                <label class="block text-xs font-bold uppercase text-slate-600">Model Pembelajaran</label>
+                                <select id="import-modul-model" class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm font-semibold cursor-pointer">
+                                    <option value="Deep Learning" selected>Deep Learning</option>
+                                    <option value="Problem Based Learning (PBL)">Problem Based Learning (PBL)</option>
+                                    <option value="Project Based Learning (PjBL)">Project Based Learning (PjBL)</option>
+                                    <option value="Discovery Learning">Discovery Learning</option>
+                                    <option value="Inquiry Learning">Inquiry Learning</option>
+                                    <option value="Contextual Teaching and Learning">Contextual Teaching</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Modal Actions Footer -->
+                <div class="flex items-center justify-between pt-3 border-t border-slate-100 shrink-0 flex-wrap sm:flex-nowrap gap-2">
+                    <button type="button" onclick="closeModal()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-bold transition cursor-pointer">
+                        Batal
+                    </button>
+                    <div id="import-form-actions-btns" class="hidden flex items-center space-x-2 flex-wrap gap-y-2">
+                        <button type="button" id="btn-save-import-direct" onclick="window.saveImportedModulDirectly('${subjectId}', '${subjectName.replace(/'/g, "\\'")}')" class="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl text-xs font-bold shadow transition flex items-center space-x-1.5 cursor-pointer">
+                            <i class="fa-solid fa-floppy-disk"></i>
+                            <span>Simpan Sebagai Modul Acuan</span>
+                        </button>
+                        <button type="button" id="btn-structure-import-ai" onclick="window.structureImportedModulWithAI('${subjectId}', '${subjectName.replace(/'/g, "\\'")}')" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-2xl text-xs font-extrabold shadow-md hover:shadow-blue-200 transition flex items-center space-x-1.5 cursor-pointer">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            <span>Strukturkan ke 21 Komponen (AI)</span>
+                        </button>
+                    </div>
+                </div>
+            </form>
+            </div>
+        </div>
+    `;
+
+    window.renderImportModulClassChips();
+};
+

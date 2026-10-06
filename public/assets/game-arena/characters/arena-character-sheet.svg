@@ -1,0 +1,198 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 840 1620">
+  <!-- Self-contained runtime sprite sheet: 6 characters x 4 poses.
+       Columns: idle, action, impact, victory. Rows follow GAME_ARENA_CHARACTER_ORDER. -->
+  <defs>
+    <g id="base-bintang">
+      <defs>
+      <linearGradient id="bintang-shirt" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#fbbf24"/><stop offset=".55" stop-color="#38bdf8"/><stop offset="1" stop-color="#0f172a"/></linearGradient>
+      <radialGradient id="bintang-aura"><stop stop-color="#fbbf24" stop-opacity=".42"/><stop offset=".7" stop-color="#38bdf8" stop-opacity=".12"/><stop offset="1" stop-color="#38bdf8" stop-opacity="0"/></radialGradient>
+      <filter id="bintang-shadow"><feDropShadow dy="10" stdDeviation="5" flood-opacity=".34"/></filter>
+      </defs>
+      <ellipse cx="105" cy="252" rx="65" ry="13" fill="#020617" opacity=".28"/>
+      <ellipse cx="105" cy="165" rx="92" ry="104" fill="url(#bintang-aura)" opacity=".9"/>
+      <g filter="url(#bintang-shadow)">
+      <path d="M69 178 55 238h33l17-63Zm72 0 14 60h-33l-17-63Z" fill="#1e293b"/>
+      <path d="M55 236h39v17H56c-10 0-12-12-1-17Zm100 0h-39v17h38c10 0 12-12 1-17Z" fill="#0b1220"/>
+      <path d="M52 143c8-31 28-48 53-48s45 17 53 48l12 57c-18 18-40 27-65 27s-47-9-65-27Z" fill="url(#bintang-shirt)" stroke="#fff" stroke-opacity=".42" stroke-width="4"/>
+      <path d="M57 149c-24 8-36 27-34 51 1 14 8 23 19 22 13-1 17-13 16-23-2-15 6-28 19-35Z" fill="#f2c7a5"/>
+      <path d="M153 149c24 8 36 27 34 51-1 14-8 23-19 22-13-1-17-13-16-23 2-15-6-28-19-35Z" fill="#f2c7a5"/>
+      <ellipse cx="105" cy="81" rx="45" ry="50" fill="#f2c7a5"/>
+      <path d="M58 72c-2-40 22-64 50-64 33 0 56 24 55 64-17-13-33-19-49-17-15 1-31 7-56 17Z" fill="#0f172a"/>
+      <path d="M67 43c21-17 55-18 80 0-24-7-52-6-80 0Z" fill="#fff" opacity=".12"/>
+      <ellipse cx="88" cy="85" rx="6" ry="7" fill="#111827"/><ellipse cx="123" cy="85" rx="6" ry="7" fill="#111827"/>
+      <circle cx="86" cy="82" r="2" fill="#fff"/><circle cx="121" cy="82" r="2" fill="#fff"/>
+      <path d="M94 105c7 7 16 7 23 0" fill="none" stroke="#9f1239" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="73" cy="104" r="7" fill="#fb7185" opacity=".22"/><circle cx="137" cy="104" r="7" fill="#fb7185" opacity=".22"/>
+      <path d="M81 158h48l-10 34H91Z" fill="#fff" opacity=".16"/>
+      <path d="M87 157h36M105 142v58" stroke="#fff" stroke-opacity=".52" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="105" cy="161" r="25" fill="none" stroke="#fff" stroke-opacity=".42" stroke-width="4"/>
+      </g>
+    </g>
+    <g id="base-roket">
+      <defs>
+      <linearGradient id="roket-shirt" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#60a5fa"/><stop offset=".55" stop-color="#2563eb"/><stop offset="1" stop-color="#0f172a"/></linearGradient>
+      <radialGradient id="roket-aura"><stop stop-color="#60a5fa" stop-opacity=".42"/><stop offset=".7" stop-color="#2563eb" stop-opacity=".12"/><stop offset="1" stop-color="#2563eb" stop-opacity="0"/></radialGradient>
+      <filter id="roket-shadow"><feDropShadow dy="10" stdDeviation="5" flood-opacity=".34"/></filter>
+      </defs>
+      <ellipse cx="105" cy="252" rx="65" ry="13" fill="#020617" opacity=".28"/>
+      <ellipse cx="105" cy="165" rx="92" ry="104" fill="url(#roket-aura)" opacity=".9"/>
+      <g filter="url(#roket-shadow)">
+      <path d="M69 178 55 238h33l17-63Zm72 0 14 60h-33l-17-63Z" fill="#172554"/>
+      <path d="M55 236h39v17H56c-10 0-12-12-1-17Zm100 0h-39v17h38c10 0 12-12 1-17Z" fill="#0b1220"/>
+      <path d="M52 143c8-31 28-48 53-48s45 17 53 48l12 57c-18 18-40 27-65 27s-47-9-65-27Z" fill="url(#roket-shirt)" stroke="#fff" stroke-opacity=".42" stroke-width="4"/>
+      <path d="M57 149c-24 8-36 27-34 51 1 14 8 23 19 22 13-1 17-13 16-23-2-15 6-28 19-35Z" fill="#d9a57f"/>
+      <path d="M153 149c24 8 36 27 34 51-1 14-8 23-19 22-13-1-17-13-16-23 2-15-6-28-19-35Z" fill="#d9a57f"/>
+      <ellipse cx="105" cy="81" rx="45" ry="50" fill="#d9a57f"/>
+      <path d="M58 72c-2-40 22-64 50-64 33 0 56 24 55 64-17-13-33-19-49-17-15 1-31 7-56 17Z" fill="#111827"/>
+      <path d="M67 43c21-17 55-18 80 0-24-7-52-6-80 0Z" fill="#fff" opacity=".12"/>
+      <ellipse cx="88" cy="85" rx="6" ry="7" fill="#111827"/><ellipse cx="123" cy="85" rx="6" ry="7" fill="#111827"/>
+      <circle cx="86" cy="82" r="2" fill="#fff"/><circle cx="121" cy="82" r="2" fill="#fff"/>
+      <path d="M94 105c7 7 16 7 23 0" fill="none" stroke="#9f1239" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="73" cy="104" r="7" fill="#fb7185" opacity=".22"/><circle cx="137" cy="104" r="7" fill="#fb7185" opacity=".22"/>
+      <path d="M81 158h48l-10 34H91Z" fill="#fff" opacity=".16"/>
+      <path d="M87 157h36M105 142v58" stroke="#fff" stroke-opacity=".52" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="105" cy="161" r="25" fill="none" stroke="#fff" stroke-opacity=".42" stroke-width="4"/>
+      </g>
+    </g>
+    <g id="base-buku">
+      <defs>
+      <linearGradient id="buku-shirt" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#86efac"/><stop offset=".55" stop-color="#10b981"/><stop offset="1" stop-color="#0f172a"/></linearGradient>
+      <radialGradient id="buku-aura"><stop stop-color="#86efac" stop-opacity=".42"/><stop offset=".7" stop-color="#10b981" stop-opacity=".12"/><stop offset="1" stop-color="#10b981" stop-opacity="0"/></radialGradient>
+      <filter id="buku-shadow"><feDropShadow dy="10" stdDeviation="5" flood-opacity=".34"/></filter>
+      </defs>
+      <ellipse cx="105" cy="252" rx="65" ry="13" fill="#020617" opacity=".28"/>
+      <ellipse cx="105" cy="165" rx="92" ry="104" fill="url(#buku-aura)" opacity=".9"/>
+      <g filter="url(#buku-shadow)">
+      <path d="M69 178 55 238h33l17-63Zm72 0 14 60h-33l-17-63Z" fill="#064e3b"/>
+      <path d="M55 236h39v17H56c-10 0-12-12-1-17Zm100 0h-39v17h38c10 0 12-12 1-17Z" fill="#0b1220"/>
+      <path d="M52 143c8-31 28-48 53-48s45 17 53 48l12 57c-18 18-40 27-65 27s-47-9-65-27Z" fill="url(#buku-shirt)" stroke="#fff" stroke-opacity=".42" stroke-width="4"/>
+      <path d="M57 149c-24 8-36 27-34 51 1 14 8 23 19 22 13-1 17-13 16-23-2-15 6-28 19-35Z" fill="#efc3a1"/>
+      <path d="M153 149c24 8 36 27 34 51-1 14-8 23-19 22-13-1-17-13-16-23 2-15-6-28-19-35Z" fill="#efc3a1"/>
+      <ellipse cx="105" cy="81" rx="45" ry="50" fill="#efc3a1"/>
+      <path d="M58 72c-2-40 22-64 50-64 33 0 56 24 55 64-17-13-33-19-49-17-15 1-31 7-56 17Z" fill="#422006"/>
+      <path d="M67 43c21-17 55-18 80 0-24-7-52-6-80 0Z" fill="#fff" opacity=".12"/>
+      <ellipse cx="88" cy="85" rx="6" ry="7" fill="#111827"/><ellipse cx="123" cy="85" rx="6" ry="7" fill="#111827"/>
+      <circle cx="86" cy="82" r="2" fill="#fff"/><circle cx="121" cy="82" r="2" fill="#fff"/>
+      <path d="M94 105c7 7 16 7 23 0" fill="none" stroke="#9f1239" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="73" cy="104" r="7" fill="#fb7185" opacity=".22"/><circle cx="137" cy="104" r="7" fill="#fb7185" opacity=".22"/>
+      <path d="M81 158h48l-10 34H91Z" fill="#fff" opacity=".16"/>
+      <path d="M87 157h36M105 142v58" stroke="#fff" stroke-opacity=".52" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="105" cy="161" r="25" fill="none" stroke="#fff" stroke-opacity=".42" stroke-width="4"/>
+      </g>
+    </g>
+    <g id="base-komet">
+      <defs>
+      <linearGradient id="komet-shirt" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#f472b6"/><stop offset=".55" stop-color="#ef4444"/><stop offset="1" stop-color="#0f172a"/></linearGradient>
+      <radialGradient id="komet-aura"><stop stop-color="#f472b6" stop-opacity=".42"/><stop offset=".7" stop-color="#ef4444" stop-opacity=".12"/><stop offset="1" stop-color="#ef4444" stop-opacity="0"/></radialGradient>
+      <filter id="komet-shadow"><feDropShadow dy="10" stdDeviation="5" flood-opacity=".34"/></filter>
+      </defs>
+      <ellipse cx="105" cy="252" rx="65" ry="13" fill="#020617" opacity=".28"/>
+      <ellipse cx="105" cy="165" rx="92" ry="104" fill="url(#komet-aura)" opacity=".9"/>
+      <g filter="url(#komet-shadow)">
+      <path d="M69 178 55 238h33l17-63Zm72 0 14 60h-33l-17-63Z" fill="#3b0764"/>
+      <path d="M55 236h39v17H56c-10 0-12-12-1-17Zm100 0h-39v17h38c10 0 12-12 1-17Z" fill="#0b1220"/>
+      <path d="M52 143c8-31 28-48 53-48s45 17 53 48l12 57c-18 18-40 27-65 27s-47-9-65-27Z" fill="url(#komet-shirt)" stroke="#fff" stroke-opacity=".42" stroke-width="4"/>
+      <path d="M57 149c-24 8-36 27-34 51 1 14 8 23 19 22 13-1 17-13 16-23-2-15 6-28 19-35Z" fill="#c98f6a"/>
+      <path d="M153 149c24 8 36 27 34 51-1 14-8 23-19 22-13-1-17-13-16-23 2-15-6-28-19-35Z" fill="#c98f6a"/>
+      <ellipse cx="105" cy="81" rx="45" ry="50" fill="#c98f6a"/>
+      <path d="M58 72c-2-40 22-64 50-64 33 0 56 24 55 64-17-13-33-19-49-17-15 1-31 7-56 17Z" fill="#2e1065"/>
+      <path d="M67 43c21-17 55-18 80 0-24-7-52-6-80 0Z" fill="#fff" opacity=".12"/>
+      <ellipse cx="88" cy="85" rx="6" ry="7" fill="#111827"/><ellipse cx="123" cy="85" rx="6" ry="7" fill="#111827"/>
+      <circle cx="86" cy="82" r="2" fill="#fff"/><circle cx="121" cy="82" r="2" fill="#fff"/>
+      <path d="M94 105c7 7 16 7 23 0" fill="none" stroke="#9f1239" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="73" cy="104" r="7" fill="#fb7185" opacity=".22"/><circle cx="137" cy="104" r="7" fill="#fb7185" opacity=".22"/>
+      <path d="M81 158h48l-10 34H91Z" fill="#fff" opacity=".16"/>
+      <path d="M87 157h36M105 142v58" stroke="#fff" stroke-opacity=".52" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="105" cy="161" r="25" fill="none" stroke="#fff" stroke-opacity=".42" stroke-width="4"/>
+      </g>
+    </g>
+    <g id="base-bulan">
+      <defs>
+      <linearGradient id="bulan-shirt" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#cbd5e1"/><stop offset=".55" stop-color="#64748b"/><stop offset="1" stop-color="#0f172a"/></linearGradient>
+      <radialGradient id="bulan-aura"><stop stop-color="#cbd5e1" stop-opacity=".42"/><stop offset=".7" stop-color="#64748b" stop-opacity=".12"/><stop offset="1" stop-color="#64748b" stop-opacity="0"/></radialGradient>
+      <filter id="bulan-shadow"><feDropShadow dy="10" stdDeviation="5" flood-opacity=".34"/></filter>
+      </defs>
+      <ellipse cx="105" cy="252" rx="65" ry="13" fill="#020617" opacity=".28"/>
+      <ellipse cx="105" cy="165" rx="92" ry="104" fill="url(#bulan-aura)" opacity=".9"/>
+      <g filter="url(#bulan-shadow)">
+      <path d="M69 178 55 238h33l17-63Zm72 0 14 60h-33l-17-63Z" fill="#0f172a"/>
+      <path d="M55 236h39v17H56c-10 0-12-12-1-17Zm100 0h-39v17h38c10 0 12-12 1-17Z" fill="#0b1220"/>
+      <path d="M52 143c8-31 28-48 53-48s45 17 53 48l12 57c-18 18-40 27-65 27s-47-9-65-27Z" fill="url(#bulan-shirt)" stroke="#fff" stroke-opacity=".42" stroke-width="4"/>
+      <path d="M57 149c-24 8-36 27-34 51 1 14 8 23 19 22 13-1 17-13 16-23-2-15 6-28 19-35Z" fill="#e7b98f"/>
+      <path d="M153 149c24 8 36 27 34 51-1 14-8 23-19 22-13-1-17-13-16-23 2-15-6-28-19-35Z" fill="#e7b98f"/>
+      <ellipse cx="105" cy="81" rx="45" ry="50" fill="#e7b98f"/>
+      <path d="M58 72c-2-40 22-64 50-64 33 0 56 24 55 64-17-13-33-19-49-17-15 1-31 7-56 17Z" fill="#111827"/>
+      <path d="M67 43c21-17 55-18 80 0-24-7-52-6-80 0Z" fill="#fff" opacity=".12"/>
+      <ellipse cx="88" cy="85" rx="6" ry="7" fill="#111827"/><ellipse cx="123" cy="85" rx="6" ry="7" fill="#111827"/>
+      <circle cx="86" cy="82" r="2" fill="#fff"/><circle cx="121" cy="82" r="2" fill="#fff"/>
+      <path d="M94 105c7 7 16 7 23 0" fill="none" stroke="#9f1239" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="73" cy="104" r="7" fill="#fb7185" opacity=".22"/><circle cx="137" cy="104" r="7" fill="#fb7185" opacity=".22"/>
+      <path d="M81 158h48l-10 34H91Z" fill="#fff" opacity=".16"/>
+      <path d="M87 157h36M105 142v58" stroke="#fff" stroke-opacity=".52" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="105" cy="161" r="25" fill="none" stroke="#fff" stroke-opacity=".42" stroke-width="4"/>
+      </g>
+    </g>
+    <g id="base-petir">
+      <defs>
+      <linearGradient id="petir-shirt" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#fde047"/><stop offset=".55" stop-color="#eab308"/><stop offset="1" stop-color="#0f172a"/></linearGradient>
+      <radialGradient id="petir-aura"><stop stop-color="#fde047" stop-opacity=".42"/><stop offset=".7" stop-color="#eab308" stop-opacity=".12"/><stop offset="1" stop-color="#eab308" stop-opacity="0"/></radialGradient>
+      <filter id="petir-shadow"><feDropShadow dy="10" stdDeviation="5" flood-opacity=".34"/></filter>
+      </defs>
+      <ellipse cx="105" cy="252" rx="65" ry="13" fill="#020617" opacity=".28"/>
+      <ellipse cx="105" cy="165" rx="92" ry="104" fill="url(#petir-aura)" opacity=".9"/>
+      <g filter="url(#petir-shadow)">
+      <path d="M69 178 55 238h33l17-63Zm72 0 14 60h-33l-17-63Z" fill="#713f12"/>
+      <path d="M55 236h39v17H56c-10 0-12-12-1-17Zm100 0h-39v17h38c10 0 12-12 1-17Z" fill="#0b1220"/>
+      <path d="M52 143c8-31 28-48 53-48s45 17 53 48l12 57c-18 18-40 27-65 27s-47-9-65-27Z" fill="url(#petir-shirt)" stroke="#fff" stroke-opacity=".42" stroke-width="4"/>
+      <path d="M57 149c-24 8-36 27-34 51 1 14 8 23 19 22 13-1 17-13 16-23-2-15 6-28 19-35Z" fill="#b97852"/>
+      <path d="M153 149c24 8 36 27 34 51-1 14-8 23-19 22-13-1-17-13-16-23 2-15-6-28-19-35Z" fill="#b97852"/>
+      <ellipse cx="105" cy="81" rx="45" ry="50" fill="#b97852"/>
+      <path d="M58 72c-2-40 22-64 50-64 33 0 56 24 55 64-17-13-33-19-49-17-15 1-31 7-56 17Z" fill="#451a03"/>
+      <path d="M67 43c21-17 55-18 80 0-24-7-52-6-80 0Z" fill="#fff" opacity=".12"/>
+      <ellipse cx="88" cy="85" rx="6" ry="7" fill="#111827"/><ellipse cx="123" cy="85" rx="6" ry="7" fill="#111827"/>
+      <circle cx="86" cy="82" r="2" fill="#fff"/><circle cx="121" cy="82" r="2" fill="#fff"/>
+      <path d="M94 105c7 7 16 7 23 0" fill="none" stroke="#9f1239" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="73" cy="104" r="7" fill="#fb7185" opacity=".22"/><circle cx="137" cy="104" r="7" fill="#fb7185" opacity=".22"/>
+      <path d="M81 158h48l-10 34H91Z" fill="#fff" opacity=".16"/>
+      <path d="M87 157h36M105 142v58" stroke="#fff" stroke-opacity=".52" stroke-width="5" stroke-linecap="round"/>
+      <circle cx="105" cy="161" r="25" fill="none" stroke="#fff" stroke-opacity=".42" stroke-width="4"/>
+      </g>
+    </g>
+  </defs>
+  <g id="row-bintang" transform="translate(0 0)">
+    <g transform="translate(0 0)"><use href="#base-bintang"/></g>
+    <g transform="translate(210 0)"><g transform="rotate(-7 105 145) translate(0 -5)"><use href="#base-bintang"/></g></g>
+    <g transform="translate(420 0)"><g transform="translate(8 10) scale(.92 .90) rotate(6 105 145)"><use href="#base-bintang"/></g></g>
+    <g transform="translate(630 0)"><g transform="translate(-3 -9) scale(1.03)"><use href="#base-bintang"/></g></g>
+  </g>
+  <g id="row-roket" transform="translate(0 270)">
+    <g transform="translate(0 0)"><use href="#base-roket"/></g>
+    <g transform="translate(210 0)"><g transform="rotate(-7 105 145) translate(0 -5)"><use href="#base-roket"/></g></g>
+    <g transform="translate(420 0)"><g transform="translate(8 10) scale(.92 .90) rotate(6 105 145)"><use href="#base-roket"/></g></g>
+    <g transform="translate(630 0)"><g transform="translate(-3 -9) scale(1.03)"><use href="#base-roket"/></g></g>
+  </g>
+  <g id="row-buku" transform="translate(0 540)">
+    <g transform="translate(0 0)"><use href="#base-buku"/></g>
+    <g transform="translate(210 0)"><g transform="rotate(-7 105 145) translate(0 -5)"><use href="#base-buku"/></g></g>
+    <g transform="translate(420 0)"><g transform="translate(8 10) scale(.92 .90) rotate(6 105 145)"><use href="#base-buku"/></g></g>
+    <g transform="translate(630 0)"><g transform="translate(-3 -9) scale(1.03)"><use href="#base-buku"/></g></g>
+  </g>
+  <g id="row-komet" transform="translate(0 810)">
+    <g transform="translate(0 0)"><use href="#base-komet"/></g>
+    <g transform="translate(210 0)"><g transform="rotate(-7 105 145) translate(0 -5)"><use href="#base-komet"/></g></g>
+    <g transform="translate(420 0)"><g transform="translate(8 10) scale(.92 .90) rotate(6 105 145)"><use href="#base-komet"/></g></g>
+    <g transform="translate(630 0)"><g transform="translate(-3 -9) scale(1.03)"><use href="#base-komet"/></g></g>
+  </g>
+  <g id="row-bulan" transform="translate(0 1080)">
+    <g transform="translate(0 0)"><use href="#base-bulan"/></g>
+    <g transform="translate(210 0)"><g transform="rotate(-7 105 145) translate(0 -5)"><use href="#base-bulan"/></g></g>
+    <g transform="translate(420 0)"><g transform="translate(8 10) scale(.92 .90) rotate(6 105 145)"><use href="#base-bulan"/></g></g>
+    <g transform="translate(630 0)"><g transform="translate(-3 -9) scale(1.03)"><use href="#base-bulan"/></g></g>
+  </g>
+  <g id="row-petir" transform="translate(0 1350)">
+    <g transform="translate(0 0)"><use href="#base-petir"/></g>
+    <g transform="translate(210 0)"><g transform="rotate(-7 105 145) translate(0 -5)"><use href="#base-petir"/></g></g>
+    <g transform="translate(420 0)"><g transform="translate(8 10) scale(.92 .90) rotate(6 105 145)"><use href="#base-petir"/></g></g>
+    <g transform="translate(630 0)"><g transform="translate(-3 -9) scale(1.03)"><use href="#base-petir"/></g></g>
+  </g>
+</svg>

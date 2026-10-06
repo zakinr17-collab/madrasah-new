@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Audit Cloudinary — Madrasah Bisa</title>
+<style>
+body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;margin:0;padding:32px;background:#f5f7fb;color:#172033}
+main{max-width:900px;margin:auto;background:#fff;border-radius:16px;padding:28px;box-shadow:0 8px 30px #0001}
+h1{margin-top:0}button{padding:11px 16px;border:0;border-radius:10px;cursor:pointer;font-weight:700}
+#status{margin:16px 0;padding:12px;border-radius:10px;background:#f0f3f8}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.card{padding:16px;border:1px solid #e5e9f0;border-radius:12px}.num{font-size:28px;font-weight:800}
+pre{white-space:pre-wrap;word-break:break-word;background:#101522;color:#eef;padding:16px;border-radius:12px;overflow:auto}
+@media(max-width:700px){.grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body><main>
+<h1>Audit Cloudinary Materi Ajar</h1>
+<p>Audit ini hanya membaca data. Tidak ada asset yang dihapus.</p>
+<button id="run">Jalankan Audit</button><div id="status">Memeriksa sesi login…</div><div id="result"></div>
+</main>
+<script>
+const statusEl=document.getElementById('status'),resultEl=document.getElementById('result');
+function esc(s){return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function getAuditAuthHeaders(){
+ const h={'Accept':'application/json'};
+ try{
+  const token=sessionStorage.getItem('madrasah_auth_token')||'';
+  const raw=localStorage.getItem('madrasah_current_user');
+  const user=raw?JSON.parse(raw):null;
+  if(token){h['Authorization']='Bearer '+token;h['X-Auth-Token']=token}
+  if(user?.id)h['X-User-Id']=String(user.id);
+  if(user?.role)h['X-User-Role']=String(user.role);
+  const tenant=user?.madrasahId||user?.madrasahSlug||'';
+  if(tenant&&tenant!=='BOSS')h['X-Madrasah-Id']=String(tenant);
+ }catch(e){}
+ return h;
+}
+async function run(){
+ statusEl.textContent='Menjalankan audit Cloudinary…';resultEl.innerHTML='';
+ try{
+  const headers=getAuditAuthHeaders();
+  if(!headers.Authorization){statusEl.textContent='Sesi login tidak ditemukan. Silakan login sebagai admin/BOS/superadmin, lalu buka halaman ini lagi.';return}
+  const r=await fetch('/api/cloudinary/learning-assets-audit',{method:'GET',credentials:'same-origin',headers});
+  const data=await r.json().catch(()=>({success:false,message:'Respons server bukan JSON.'}));
+  if(!r.ok||!data.success){statusEl.textContent=data.message||('Audit gagal (HTTP '+r.status+').');return}
+  const a=data.audit||{};
+  statusEl.textContent='Audit selesai. Tidak ada asset yang dihapus.';
+  resultEl.innerHTML='<div class="grid">'+
+   '<div class="card">Cloudinary<div class="num">'+esc(a.remoteTotal)+'</div></div>'+
+   '<div class="card">Masih dipakai<div class="num">'+esc(a.referencedTotal)+'</div></div>'+
+   '<div class="card">Orphan<div class="num">'+esc(a.orphanedCount)+'</div></div>'+
+   '<div class="card">Referensi hilang<div class="num">'+esc(a.missingReferencedCount)+'</div></div>'+
+   '</div><h3>Detail asset orphan</h3><pre>'+esc(JSON.stringify(a.orphanedSample||[],null,2))+'</pre>'+
+   '<h3>Detail referensi yang hilang</h3><pre>'+esc(JSON.stringify(a.missingReferencedSample||[],null,2))+'</pre>';
+ }catch(e){statusEl.textContent='Gagal menghubungi server: '+e.message}
+}
+document.getElementById('run').addEventListener('click',run);run();
+</script></body></html>

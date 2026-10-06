@@ -1,0 +1,83 @@
+name: Redeploy Gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: redeploy-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Block high or critical dependency vulnerabilities
+        run: npm audit --audit-level=high
+
+      - name: Application security audit
+        run: npm run security:audit
+
+      - name: Hardening behavior regression
+        run: npm run hardening:regression
+
+      - name: Frontend inline-handler audit
+        run: npm run frontend:handler-audit
+
+      - name: Runtime behavior regression (includes HTTP smoke)
+        run: npm run runtime:regression
+
+      - name: Verify sensitive runtime history is clean
+        shell: bash
+        run: |
+          leaked_paths="$(git log --all --name-only --format= | sed '/^$/d' | sort -u | grep -E '^(local_store\.json(\.backup)?|uploads/.+)$' | grep -v -E '^uploads/(attendance_photos/)?\.gitkeep$' || true)"
+          if [ -n "$leaked_paths" ]; then
+            echo "Sensitive runtime files are still reachable in Git history."
+            printf '%s\n' "$leaked_paths"
+            exit 1
+          fi
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Clean production build
+        shell: bash
+        run: |
+          rm -rf dist
+          npm run build
+          test -f dist/server.cjs
+          git check-ignore -q dist/server.cjs
+          git diff --check
+
+      - name: Font asset audit
+        run: npm run font:asset-audit
+
+      - name: Verify source/build parity
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+            echo "Build changed tracked source files."
+            git status --short --untracked-files=no
+            exit 1
+          fi

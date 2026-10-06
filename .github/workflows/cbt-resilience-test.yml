@@ -1,0 +1,245 @@
+name: CBT Resilience Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Test mode"
+        required: true
+        type: choice
+        options:
+          - startup
+          - load
+          - soak
+        default: startup
+      vus:
+        description: "Virtual students (startup/load <= 800; soak <= 300)"
+        required: true
+        default: "20"
+      ramp_seconds:
+        description: "Ramp seconds (0 = safe automatic value)"
+        required: true
+        default: "0"
+      soak_minutes:
+        description: "Soak duration in minutes (used only for soak, max 30)"
+        required: true
+        default: "15"
+      confirmation:
+        description: "Type RUN_CBT_LOADTEST"
+        required: true
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cbt-resilience-production
+  cancel-in-progress: false
+
+jobs:
+  resilience:
+    name: CBT resilience / ${{ inputs.mode }} / ${{ inputs.vus }} VUs
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    env:
+      BASE_URL: https://madrasahku.ai.studio
+      TENANT: ${{ vars.LOADTEST_TENANT || 'default' }}
+      EXAM_ID: ${{ vars.LOADTEST_EXAM_ID }}
+      LOADTEST_STUDENT_PASSWORD: ${{ secrets.LOADTEST_STUDENT_PASSWORD }}
+      ACCOUNTS_FILE: ./accounts.local.json
+      FINISH: "0"
+      VIOLATION_RATE: "0"
+      RECOVERY_RATE: "0.10"
+      ANSWERS_PER_STUDENT: "3"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Safety preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ inputs.confirmation }}" != "RUN_CBT_LOADTEST" ]]; then
+            echo "::error::Confirmation text must be RUN_CBT_LOADTEST."
+            exit 1
+          fi
+
+          if [[ -z "${EXAM_ID}" ]]; then
+            echo "::error::Repository variable LOADTEST_EXAM_ID is not configured."
+            exit 1
+          fi
+
+          if [[ -z "${LOADTEST_STUDENT_PASSWORD}" ]]; then
+            echo "::error::Repository secret LOADTEST_STUDENT_PASSWORD is not configured."
+            exit 1
+          fi
+
+          VUS="${{ inputs.vus }}"
+          if ! [[ "${VUS}" =~ ^[0-9]+$ ]]; then
+            echo "::error::vus must be an integer."
+            exit 1
+          fi
+          if (( VUS < 1 || VUS > 800 )); then
+            echo "::error::vus must be between 1 and 800."
+            exit 1
+          fi
+
+          MODE="${{ inputs.mode }}"
+          if [[ "${MODE}" == "soak" && "${VUS}" -gt 300 ]]; then
+            echo "::error::Soak test is capped at 300 VUs."
+            exit 1
+          fi
+
+          SOAK_MINUTES="${{ inputs.soak_minutes }}"
+          if ! [[ "${SOAK_MINUTES}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+            echo "::error::soak_minutes must be numeric."
+            exit 1
+          fi
+          awk -v n="${SOAK_MINUTES}" 'BEGIN { if (n < 1 || n > 30) exit 1 }' || {
+            echo "::error::soak_minutes must be between 1 and 30."
+            exit 1
+          }
+
+          if [[ "${BASE_URL}" != "https://madrasahku.ai.studio" ]]; then
+            echo "::error::Production resilience workflow is locked to the owned Madrasahku target."
+            exit 1
+          fi
+
+          echo "Safety preflight passed."
+          echo "Mode: ${MODE}"
+          echo "VUs: ${VUS}"
+          echo "Tenant: ${TENANT}"
+          echo "FINISH=${FINISH}, VIOLATION_RATE=${VIOLATION_RATE}, RECOVERY_RATE=${RECOVERY_RATE}"
+
+      - name: Resolve safe ramp
+        id: ramp
+        shell: bash
+        run: |
+          set -euo pipefail
+          REQUESTED="${{ inputs.ramp_seconds }}"
+          VUS="${{ inputs.vus }}"
+          MODE="${{ inputs.mode }}"
+
+          if ! [[ "${REQUESTED}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+            echo "::error::ramp_seconds must be numeric."
+            exit 1
+          fi
+
+          if awk -v n="${REQUESTED}" 'BEGIN { exit !(n > 0) }'; then
+            RAMP="${REQUESTED}"
+          elif [[ "${MODE}" == "startup" ]]; then
+            if (( VUS >= 300 )); then RAMP=120
+            elif (( VUS >= 200 )); then RAMP=90
+            elif (( VUS >= 100 )); then RAMP=60
+            elif (( VUS >= 50 )); then RAMP=40
+            else RAMP=20
+            fi
+          elif [[ "${MODE}" == "soak" ]]; then
+            if (( VUS >= 300 )); then RAMP=60
+            elif (( VUS >= 200 )); then RAMP=45
+            else RAMP=30
+            fi
+          else
+            if (( VUS >= 800 )); then RAMP=60
+            elif (( VUS >= 500 )); then RAMP=45
+            elif (( VUS >= 300 )); then RAMP=30
+            else RAMP=20
+            fi
+          fi
+
+          echo "value=${RAMP}" >> "${GITHUB_OUTPUT}"
+          echo "Using RAMP_SECONDS=${RAMP}"
+
+      - name: Generate ephemeral dummy account file
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const password = process.env.LOADTEST_STUDENT_PASSWORD || '';
+          if (!password) throw new Error('LOADTEST_STUDENT_PASSWORD is empty');
+
+          const accounts = [];
+          for (let i = 1; i <= 800; i++) {
+            const suffix = String(i).padStart(3, '0');
+            accounts.push({
+              username: `loadtest${suffix}`,
+              password
+            });
+          }
+
+          fs.writeFileSync('tests/accounts.local.json', JSON.stringify(accounts), {
+            encoding: 'utf8',
+            mode: 0o600
+          });
+          console.log(`Generated ${accounts.length} ephemeral dummy accounts.`);
+          NODE
+
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Verify production health
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS="$(curl -sS -o /tmp/health.json -w '%{http_code}' --connect-timeout 10 --max-time 20 "${BASE_URL}/api/health")"
+          echo "Health HTTP status: ${STATUS}"
+          if [[ "${STATUS}" != "200" ]]; then
+            cat /tmp/health.json || true
+            echo "::error::Production health check failed before load test."
+            exit 1
+          fi
+
+      - name: Prepare result directory
+        shell: bash
+        run: mkdir -p tests/results
+
+      - name: Run startup diagnostic
+        if: inputs.mode == 'startup'
+        env:
+          VUS: ${{ inputs.vus }}
+          RAMP_SECONDS: ${{ steps.ramp.outputs.value }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          k6 run             --summary-export="tests/results/startup-${GITHUB_RUN_ID}.json"             tests/k6-cbt-startup-diagnostic.js
+
+      - name: Run stepped load test
+        if: inputs.mode == 'load'
+        env:
+          VUS: ${{ inputs.vus }}
+          RAMP_SECONDS: ${{ steps.ramp.outputs.value }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          k6 run             --summary-export="tests/results/load-${GITHUB_RUN_ID}.json"             tests/k6-cbt-load.js
+
+      - name: Run soak test
+        if: inputs.mode == 'soak'
+        env:
+          VUS: ${{ inputs.vus }}
+          RAMP_SECONDS: ${{ steps.ramp.outputs.value }}
+          SOAK_MINUTES: ${{ inputs.soak_minutes }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          k6 run             --summary-export="tests/results/soak-${GITHUB_RUN_ID}.json"             tests/k6-cbt-soak.js
+
+      - name: Upload k6 summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cbt-resilience-${{ inputs.mode }}-${{ inputs.vus }}-run-${{ github.run_id }}
+          path: tests/results/*.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Remove ephemeral credentials
+        if: always()
+        shell: bash
+        run: |
+          rm -f tests/accounts.local.json
+          rm -f /tmp/health.json

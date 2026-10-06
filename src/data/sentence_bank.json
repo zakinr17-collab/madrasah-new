@@ -1,0 +1,81 @@
+{
+  "karakteristik_materi": [
+    "Materi {{MATERI_INTI}} membekali peserta didik dengan pemahaman dasar mengenai {{KONSEP_UTAMA}} serta melatih keterampilan praktis yang relevan dengan kebutuhan pembelajaran.",
+    "Melalui kajian {{MATERI_INTI}}, peserta didik diajak mengenali {{KONSEP_UTAMA}} secara sistematis, runtut, dan aplikatif dalam kehidupan sehari-hari.",
+    "Pembelajaran {{BAB_UTAMA}} dirancang agar peserta didik dapat memahami prinsip {{SUBBAB}}, mengkaji penerapannya, serta mengevaluasi hasil secara mandiri.",
+    "{{MATERI_INTI}} melatih kemampuan peserta didik dalam menganalisis permasalahan, merumuskan tahapan logis, dan melakukan verifikasi hasil secara cermat."
+  ],
+  "tujuan_pembelajaran": {
+    "C1_C2": [
+      "Peserta didik mampu menjelaskan prinsip dasar {{KONSEP_UTAMA}} serta mengidentifikasi komponen utama yang digunakan dalam {{MATERI_INTI}}.",
+      "Melalui pengamatan dan diskusi, peserta didik mampu menguraikan definisi esensial dan fungsi dari {{SUBBAB}} dengan tepat.",
+      "Peserta didik dapat mendeskripsikan ruang lingkup dan karakteristik khas dari {{MATERI_INTI}} secara runtut."
+    ],
+    "C3_C4": [
+      "Peserta didik mampu menyusun langkah penyelesaian suatu masalah secara sistematis dan menerapkannya pada {{SUBBAB}} secara tepat.",
+      "Setelah mengamati contoh konkret, peserta didik mampu menerapkan konsep dasar {{MATERI_INTI}} untuk menyelesaikan tugas/latihan serta memeriksa keakuratan hasilnya.",
+      "Peserta didik mampu menguraikan tahapan proses dalam {{SUBBAB}} serta mengidentifikasi potensi kekeliruan secara teliti."
+    ],
+    "C5_C6": [
+      "Melalui telaah kritis dan perbandingan beberapa skenario, peserta didik mampu mengevaluasi serta menyempurnakan pemahaman {{MATERI_INTI}} agar optimal.",
+      "Peserta didik mampu menganalisis efektivitas penerapan {{SUBBAB}} dalam studi kasus nyata serta mempresentasikan laporan hasilnya secara runtut dan bertanggung jawab."
+    ]
+  },
+  "pertanyaan_pemantik": {
+    "fenomena": [
+      "Bagaimana keterkaitan materi {{MATERI_INTI}} dengan fenomena atau peristiwa yang sering kita temukan dalam kehidupan sehari-hari?",
+      "Mengapa penting bagi kita untuk memahami konsep {{MATERI_INTI}} dalam konteks pembelajaran saat ini?"
+    ],
+    "masalah": [
+      "Apa tantangan atau kekeliruan utama yang sering muncul saat kita mempelajari {{MATERI_INTI}}?",
+      "Bagaimana cara kita mengidentifikasi bagian yang membutuhkan pemahaman lebih mendalam pada {{MATERI_INTI}}?"
+    ],
+    "prediksi": [
+      "Apa yang akan terjadi jika konsep dasar {{MATERI_INTI}} tidak dipahami dengan benar sebelum melanjutkan ke materi berikutnya?",
+      "Bagaimana penguasaan {{MATERI_INTI}} dapat membantu kalian memecahkan persoalan di masa depan?"
+    ],
+    "perbandingan": [
+      "Bagaimana perbandingan antara pendekatan yang tepat dengan pendekatan yang kurang efektif dalam mempelajari {{MATERI_INTI}}?",
+      "Apa keunggulan penerapan konsep {{MATERI_INTI}} yang terstruktur dibandingkan pemahaman yang parsial?"
+    ],
+    "problem_solving": [
+      "Langkah strategis apa yang dapat diambil untuk memecahkan kesulitan dalam memahami {{MATERI_INTI}}?",
+      "Bagaimana cara melakukan evaluasi mandiri untuk memastikan pemahaman kalian terhadap {{MATERI_INTI}} sudah tepat?"
+    ]
+  },
+  "kbc": {
+    "cinta_allah": [
+      "Menghayati keteraturan dan hukum alam pada {{MATERI_INTI}} sebagai wujud rasa syukur atas karunia akal pikiran, serta berkomitmen menggunakan ilmu untuk kemaslahatan bersama.",
+      "Menyadari bahwa keindahan dan kedalaman ilmu pada {{MATERI_INTI}} merupakan tanda keagungan Pencipta yang menganugerahkan kemampuan berpikir bagi manusia."
+    ],
+    "cinta_ilmu": [
+      "Eksplorasi terhadap {{MATERI_INTI}} diarahkan untuk menumbuhkan rasa ingin tahu yang tinggi, berpikir kritis, serta semangat mendalami ilmu pengetahuan.",
+      "Mengembangkan semangat pembelajar sepanjang hayat dengan terus mendalami {{MATERI_INTI}} dan bersikap terbuka terhadap wawasan baru."
+    ],
+    "cinta_diri": [
+      "Menjaga keseimbangan antara waktu belajar {{MATERI_INTI}} dan kesehatan fisik-mental, serta menerapkan kebiasaan disiplin dan tanggung jawab pribadi.",
+      "Membentengi diri dari pengaruh negatif, menjaga integritas akademik, serta bertanggung jawab terhadap perkembangan diri sendiri."
+    ],
+    "cinta_sesama": [
+      "Saat berkolaborasi dalam kelompok, peserta didik belajar bahwa penguasaan materi {{BAB_UTAMA}} seharusnya memperkuat kerja sama dan kepedulian, bukan menjadi sarana untuk bersikap sombong atau merugikan orang lain.",
+      "Memanfaatkan pemahaman {{MATERI_INTI}} untuk menciptakan solusi yang membantu, mempermudah, dan menghormati hak sesama."
+    ],
+    "cinta_lingkungan": [
+      "Menerapkan perilaku hemat sumber daya serta menjaga kebersihan dan kelestarian lingkungan belajar selama mempelajari {{MATERI_INTI}}.",
+      "Memanfaatkan pemahaman materi {{MATERI_INTI}} untuk merancang solusi efisiensi dan pelestarian lingkungan sekitar."
+    ],
+    "cinta_tanah_air": [
+      "Mengembangkan kemandirian belajar dan wawasan keilmuan demi memberikan kontribusi nyata bagi kemajuan dan kedaulatan bangsa Indonesia.",
+      "Memasang niat menggunakan kecakapan {{MATERI_INTI}} untuk memajukan daya saing dan kesejahteraan bangsa."
+    ]
+  },
+  "refleksi_peserta_didik": [
+    "1. Bagian mana dari materi {{MATERI_INTI}} yang paling mudah dan paling menantang bagi kalian?\n2. Bagaimana cara kalian mengatasi kesulitan saat mencoba memahami atau mempraktikkan {{SUBBAB}}?",
+    "1. Pengalaman baru apa yang kalian peroleh setelah menyelesaikan pembelajaran {{SUBBAB}}?\n2. Seberapa yakin kalian dapat menggunakan konsep {{MATERI_INTI}} untuk menyelesaikan permasalahan sehari-hari?",
+    "1. Apakah kalian merasa puas dengan hasil kerja dan proses diskusi bersama kelompok pada topik {{SUBBAB}}?\n2. Keterampilan komunikasi dan kerja sama apa yang paling terasa berkembang selama kegiatan ini?"
+  ],
+  "refleksi_guru": [
+    "1. Apakah alur kegiatan pembelajaran berhasil memandu seluruh peserta didik memahami konsep {{MATERI_INTI}} dengan baik?\n2. Bagian manakah dari aktivitas pembelajaran yang paling efektif, dan apa yang perlu disempurnakan untuk pertemuan berikutnya?",
+    "1. Apakah bimbingan (scaffolding) yang diberikan sudah cukup membantu peserta didik yang mengalami kendala?\n2. Bagaimana keterlibatan dan kolaborasi peserta didik dalam kelompok selama menyelesaikan tugas {{SUBBAB}}?"
+  ]
+}

@@ -1,0 +1,9 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Firestore is not an active persistence backend for Madrasah Bisa.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

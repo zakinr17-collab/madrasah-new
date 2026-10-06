@@ -1,0 +1,51 @@
+name: Learning Feature Validation
+
+on:
+  push:
+    branches: [feat/learning-materials-monitoring]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/learningModule.js'
+      - 'src/main.tsx'
+      - 'server.ts'
+      - 'package.json'
+      - '.github/workflows/learning-feature-validation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: npm
+      - run: npm ci
+      - name: Application security audit
+        run: npm run security:audit
+      - name: Hardening regression
+        run: npm run hardening:regression
+      - name: Runtime regression
+        run: npm run runtime:regression
+      - name: TypeScript check
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+      - name: Verify learning module and source/public parity
+        run: |
+          test -f src/learningModule.js
+          grep -q "import './learningModule.js'" src/main.tsx
+          test -f public/learningModule.js
+          cmp -s src/learningModule.js public/learningModule.js
+          git diff --check
+      - name: Frontend handler audit
+        run: npm run frontend:handler-audit
+      - name: Font asset audit
+        run: npm run font:asset-audit

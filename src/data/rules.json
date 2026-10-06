@@ -1,0 +1,396 @@
+{
+  "material_types": {
+    "KODING": {
+      "name": "Koding & Pemrograman",
+      "keywords": [
+        "algoritma",
+        "pseudocode",
+        "sintaks",
+        "coding",
+        "debugging",
+        "testing",
+        "error",
+        "perbaikan program",
+        "struktur if-else",
+        "perulangan",
+        "variabel"
+      ],
+      "aksi_fenomena": "menjalankan serangkaian perintah atau program komputer",
+      "perangkat_sistem": "program atau baris kode",
+      "sistem_pemrograman": "sistem kode program",
+      "sistem_komputer": "komputer atau mikrokontroler",
+      "diagnostik": "Soal Diagnostik Koding:\n'Jika variabel nilai >= 75 berstatus LULUS, selain itu REMEDIAL. Manakah struktur percabangan yang paling tepat digunakan?'",
+      "pertanyaan_pemantik": {
+        "fenomena": "Bagaimana sebuah komputer dapat mengeksekusi perintah-perintah rumit yang kita berikan melalui baris kode program?",
+        "masalah": "Apa akibatnya jika terdapat kesalahan penulisan (syntax error) atau logika dalam skrip kode?",
+        "prediksi": "Bagaimana kita dapat memastikan program berjalan sesuai harapan sebelum dieksekusi?",
+        "perbandingan": "Mengapa dua cara penulisan kode (syntax) dapat menghasilkan keluaran yang sama namun efisiensi berbeda?",
+        "problem_solving": "Bagaimana proses debugging dilakukan secara sistematis pada program yang gagal berjalan?"
+      },
+      "diferensiasi": {
+        "konten": "Menyediakan potongan contoh kode (code snippet), diagram alur logika, dan tabel rujukan sintaks dasar.",
+        "proses": "Live-coding terpandu untuk kelompok awal, praktik mandiri terarah, dan tantangan debugging terbuka untuk kelompok mahir.",
+        "produk": "Skrip program sederhana (kelompok reguler) vs program dengan penambahan fitur validasi/fungsi modular (kelompok mahir)."
+      },
+      "persiapan_guru": "1. Memastikan IDE/Code Editor (Scratch/Python/C++/UnoArduSim) terinstal atau siap diakses.\n2. Menyiapkan skrip kode awal (starter code) dan contoh bug untuk latihan debugging.\n3. Opsi Unplugged: Menyiapkan kartu cetak instruksi logika dan lembar alur eksekusi manual.",
+      "deep_learning": {
+        "mindful": "Peserta didik menyadari bahwa ketelitian dalam menulis sintaks dan kesabaran saat melakukan debugging adalah kunci utama dalam pemrograman.",
+        "meaningful": "Peserta didik memahami bagaimana logika percabangan dan perulangan digunakan untuk memecahkan masalah pengambilan keputusan sehari-hari.",
+        "joyful": "Peserta didik merasakan kepuasan saat berhasil memperbaiki error dan melihat program berjalan sesuai harapan."
+      },
+      "rubrik": "1. Ketepatan Logika & Sintaks (40%): Kode dapat dieksekusi tanpa syntax error dan logika sesuai spesifikasi.\n2. Struktur Kode & Penataan Variabel (20%): Penamaan variabel rapi, indentasi konsisten, dan mudah dibaca.\n3. Kemampuan Testing & Debugging (30%): Mampu menguji berbagai kondisi masukan dan memperbaiki error secara mandiri.\n4. Penjelasan & Dokumentasi (10%): Mampu menjelaskan alur kerja skrip kode kepada rekan sebaya.",
+      "pola_kegiatan": {
+        "pertemuan1": "Guru menyajikan permasalahan logika keputusan. Peserta didik mengidentifikasi variabel dan kondisi masukan, lalu menyusun pseudocode atau rancangan alur percabangan.",
+        "pertemuan2": "Peserta didik mengetikkan sintaks kode ke dalam IDE/editor, menjalankan program, dan menguji berbagai kombinasi nilai variabel.",
+        "pertemuan3": "Peserta didik melacak error/bug melalui teknik debugging, memperbaiki sintaks, dan mempresentasikan hasil program.",
+        "pertemuan4": "Peserta didik menambahkan fungsi perulangan atau validasi, menguji ketahanan program, dan mendokumentasikan skrip kode."
+      }
+    },
+    "AI": {
+      "name": "Kecerdasan Artifisial (AI)",
+      "keywords": [
+        "dataset",
+        "model",
+        "prediksi",
+        "generative AI",
+        "prompt",
+        "prompt engineering",
+        "evaluasi output",
+        "bias",
+        "privasi",
+        "etika AI"
+      ],
+      "aksi_fenomena": "menghasilkan teks, gambar, atau ide secara otomatis",
+      "perangkat_sistem": "model Kecerdasan Artifisial (AI)",
+      "sistem_pemrograman": "sistem AI Generatif",
+      "sistem_komputer": "model AI",
+      "diagnostik": "Soal Diagnostik AI:\n'Jika sebuah sistem AI Generatif memberikan jawaban yang terlihat sangat meyakinkan namun tidak mencantumkan sumber resmi, langkah verifikasi apa yang sebaiknya dilakukan?'",
+      "pertanyaan_pemantik": {
+        "fenomena": "Pernahkah kamu mencoba meminta bantuan AI untuk menulis atau menghasilkan sesuatu, dan mendapati hasilnya sangat meyakinkan?",
+        "masalah": "Apa yang terjadi jika sebuah model AI memberikan informasi yang salah atau bias tanpa kita sadari?",
+        "prediksi": "Bagaimana cara kita memastikan bahwa keluaran (output) dari AI benar-benar akurat dan dapat dipercaya?",
+        "perbandingan": "Apa perbedaan mendasar antara mencari informasi di mesin pencari konvensional dengan menggunakan prompt generative AI?",
+        "problem_solving": "Langkah verifikasi apa yang harus dilakukan ketika menghadapi informasi halusinasi dari AI?"
+      },
+      "diferensiasi": {
+        "konten": "Menyediakan contoh struktur prompt engineering, lembar panduan identifikasi bias/hallucination, dan studi kasus etika AI.",
+        "proses": "Penyusunan prompt terpandu dengan instruksi bertahap, eksperimen mandiri variasi peran (persona), dan diskusi evaluasi luaran.",
+        "produk": "Teks prompt terstruktur, tabel perbandingan output AI, dan laporan singkat evaluasi kebenaran fakta."
+      },
+      "persiapan_guru": "1. Memeriksa akses akun/platform AI Generatif atau menyiapkan lembar studi kasus teks luaran AI cetak.\n2. Menyiapkan daftar contoh prompt awal dan instrumen verifikasi kebenaran informasi (fact-checking sheet).\n3. Opsi Unplugged: Menggunakan lembar studi kasus simulasi 'Manusia sebagai Model AI' untuk menganalisis masukan dan keluaran.",
+      "deep_learning": {
+        "mindful": "Peserta didik bersikap kritis dan tidak telan mentah-mentah setiap jawaban AI, serta menyadari pentingnya kejujuran akademik dan privasi data.",
+        "meaningful": "Peserta didik memahami bagaimana AI Generatif memproses bahasa dan dampaknya terhadap komunikasi serta etika publik.",
+        "joyful": "Peserta didik mengeksplorasi kreativitas menyusun perintah (prompt) untuk menghasilkan solusi informasi yang bermanfaat dan beretika."
+      },
+      "rubrik": "1. Kejelasan & Keefektifan Prompt (30%): Prompt memuat peran, konteks, instruksi, dan batasan yang jelas.\n2. Akurasi Verifikasi Fakta & Cek Bias (35%): Mampu menemukan ketidaksesuaian/hallucination pada luaran AI secara kritis.\n3. Kesadaran Etika & Privasi (20%): Tidak memasukkan data sensitif/pribadi ke dalam prompt dan mencantumkan sitasi AI.\n4. Kualitas Laporan Evaluasi (15%): Menyajikan perbandingan luaran AI secara rinci dan terstruktur.",
+      "pola_kegiatan": {
+        "pertemuan1": "Guru menyajikan contoh luaran AI. Peserta didik menganalisis bagaimana model AI merespons masukan dan mengenali karakteristik generative AI.",
+        "pertemuan2": "Peserta didik merancang instruksi khusus (prompt engineering) dengan menyertakan konteks dan batasan, lalu menguji luaran AI.",
+        "pertemuan3": "Peserta didik mengevaluasi luaran AI untuk mendeteksi kemungkinan bias atau informasi palsu (hallucination), lalu menyusun pedoman penggunaan etis.",
+        "pertemuan4": "Peserta didik menyusun panduan penggunaan AI untuk bidang tertentu dan mempresentasikannya di depan kelas."
+      }
+    },
+    "JARINGAN": {
+      "name": "Jaringan Komputer & Internet",
+      "keywords": [
+        "perangkat jaringan",
+        "router",
+        "switch",
+        "IP address",
+        "konektivitas",
+        "konfigurasi",
+        "topologi",
+        "troubleshooting",
+        "keamanan jaringan"
+      ],
+      "aksi_fenomena": "melihat data terkirim secara instan antar perangkat di lokasi berbeda",
+      "perangkat_sistem": "konfigurasi router atau switch jaringan",
+      "sistem_pemrograman": "sistem komunikasi data",
+      "sistem_komputer": "node jaringan",
+      "diagnostik": "Soal Diagnostik Jaringan:\n'Perangkat manakah yang berfungsi untuk menghubungkan beberapa komputer dalam satu jaringan lokal (LAN) serta mengarahkan lalu lintas paket data?'",
+      "pertanyaan_pemantik": {
+        "fenomena": "Bagaimana data di perangkat kita dapat terkirim secara instan ke server lain di belahan dunia?",
+        "masalah": "Apa yang terjadi jika alamat IP (IP address) antar-node dalam jaringan mengalami bentrok (conflict)?",
+        "prediksi": "Bagaimana kita mengetahui titik mana yang menyebabkan kabel atau koneksi terputus?",
+        "perbandingan": "Apa perbedaan peran antara perangkat router dan switch dalam mengatur lalu lintas data?",
+        "problem_solving": "Langkah troubleshooting apa yang harus dilakukan ketika koneksi jaringan di lab komputer terputus?"
+      },
+      "diferensiasi": {
+        "konten": "Menyediakan diagram topologi jaringan, tabel skema pengalamatan IP, dan panduan fungsi perangkat jaringan.",
+        "proses": "Simulasi konektivitas terpandu menggunakan software simulator/alat fisik, diikuti pengujian ping mandiri.",
+        "produk": "Gambar peta topologi jaringan, tabel daftar IP address, dan laporan langkah troubleshooting koneksi."
+      },
+      "persiapan_guru": "1. Memastikan komputer lab terhubung atau simulator jaringan (misal Cisco Packet Tracer / Simulator Web) siap digunakan.\n2. Menyiapkan skema diagram topologi dan lembar perintah uji konektivitas (ping/traceroute).\n3. Opsi Unplugged: Menggunakan kartu fisik peragaan peran (komputer, switch, router) dan amplop fisik sebagai 'paket data'.",
+      "deep_learning": {
+        "mindful": "Peserta didik menyadari pentingnya keamanan jaringan dan perlindungan data saat terhubung ke dalam ekosistem digital.",
+        "meaningful": "Peserta didik memahami bagaimana data melintasi berbagai perangkat fisik hingga dapat sampai ke tujuan secara presisi.",
+        "joyful": "Peserta didik merasakan kepuasan saat berhasil menghubungkan antarnode jaringan yang semula terputus melalui analisis troubleshooting."
+      },
+      "rubrik": "1. Pemahaman Topologi & Perangkat (30%): Mengidentifikasi fungsi router, switch, dan node jaringan secara tepat.\n2. Ketepatan Pengalamatan IP (30%): Mengatur IP address dan subnet mask tanpa bentrok (IP conflict).\n3. Analisis Troubleshooting (25%): Mampu menemukan penyebab kegagalan ping dan memperbaikinya.\n4. Kesadaran Keamanan Jaringan (15%): Menerapkan dasar-dasar proteksi akses dan kata sandi jaringan.",
+      "pola_kegiatan": {
+        "pertemuan1": "Guru mendemonstrasikan skema jaringan. Peserta didik mengidentifikasi fungsi router, switch, dan alur data dalam topologi.",
+        "pertemuan2": "Peserta didik melakukan konfigurasi IP address pada simulator/fisik dan melakukan tes ping antarkomputer.",
+        "pertemuan3": "Peserta didik menganalisis kasus gangguan koneksi (troubleshooting), melacak titik putus paket data, dan menerapkan perbaikan.",
+        "pertemuan4": "Peserta didik merancang skema jaringan skala kecil dan mempresentasikan proteksi keamanannya."
+      }
+    },
+    "ALGORITMA": {
+      "name": "Algoritma & Berpikir Komputasional",
+      "keywords": [
+        "flowchart",
+        "pseudocode",
+        "dekomposisi",
+        "abstraksi",
+        "tracing",
+        "desk-check",
+        "percabangan",
+        "infinite loop"
+      ],
+      "aksi_fenomena": "menyelesaikan permasalahan sehari-hari melalui urutan langkah yang logis",
+      "perangkat_sistem": "bagan alur (flowchart) atau pseudocode",
+      "sistem_pemrograman": "alur logika algoritma",
+      "sistem_komputer": "sistem pemrosesan data",
+      "diagnostik": "Soal Diagnostik Algoritma:\n'Simbol flowchart berbentuk jajaran genjang digunakan untuk menyatakan proses masukan (input) atau keluaran (output). Apa fungsi dari simbol belah ketupat dalam diagram alur?'",
+      "pertanyaan_pemantik": {
+        "fenomena": "Pernahkah kamu menghadapi masalah sehari-hari yang harus diselesaikan melalui urutan langkah yang sistematis?",
+        "masalah": "Apa yang terjadi jika salah satu langkah dalam flowchart ditempatkan tidak sesuai urutan?",
+        "prediksi": "Bagaimana kita mengetahui bahwa flowchart sudah menggambarkan penyelesaian masalah dengan benar?",
+        "perbandingan": "Mengapa satu masalah dapat memiliki rancangan algoritma atau bentuk flowchart yang berbeda?",
+        "problem_solving": "Bagaimana cara menelusuri flowchart (tracing) ketika hasil akhirnya tidak sesuai harapan?"
+      },
+      "diferensiasi": {
+        "konten": "Menyediakan kamus simbol standar flowchart, contoh notasi pseudocode, dan lembar studi kasus dekomposisi.",
+        "proses": "Penyusunan flowchart terpandu dengan papan tempel atau aplikasi diagram, dilanjutkan latihan penelusuran (desk-check).",
+        "produk": "Bagan flowchart sistematis, notasi pseudocode yang rapi, dan tabel pelacakan nilai variabel (tracing table)."
+      },
+      "persiapan_guru": "1. Menyiapkan lembar simbol flowchart cetak atau digital (Draw.io / Lucidchart / Papan Tulis).\n2. Menyiapkan studi kasus persoalan logis sehari-hari dengan berbagai cabang kondisi.\n3. Opsi Unplugged: Menggunakan kartu simbol magnetik atau kertas untuk disusun bersama di papan flanel atau meja kelompok.",
+      "deep_learning": {
+        "mindful": "Peserta didik melatih ketelitian dan kesabaran dalam memeriksa setiap urutan instruksi agar tidak ada kondisi cabang yang terlewat.",
+        "meaningful": "Peserta didik menyadari bahwa masalah rumit di kehidupan nyata dapat dipecahkan secara efisien jika didekomposisi menjadi langkah-langkah logis.",
+        "joyful": "Peserta didik menikmati proses pengujian manual (desk-check) saat membuktikan bahwa alur algoritma buatannya terbukti benar."
+      },
+      "rubrik": "1. Ketepatan Penggunaan Simbol (30%): Menggunakan standar simbol flowchart yang tepat sesuai fungsinya.\n2. Keruntutan & Efisiensi Logika (35%): Alur penyelesaian runtut, tidak berputar pada perulangan tanpa akhir (infinite loop), dan efisien.\n3. Ketelitian Desk-Check / Tracing (20%): Mampu menelusuri perubahan nilai variabel pada setiap langkah secara akurat.\n4. Kerapian Notasi Pseudocode (15%): Notasi ditulis secara terstruktur dan mudah dipahami.",
+      "pola_kegiatan": {
+        "pertemuan1": "Guru menyajikan studi kasus persoalan nyata. Peserta didik melakukan dekomposisi masalah, menentukan komponen input, proses, dan output, mengenal simbol dasar, serta menyusun alur sederhana.",
+        "pertemuan2": "Peserta didik merancang flowchart lengkap, menguji alur, melakukan tracing / desk-check untuk menemukan kesalahan logika, memperbaiki, dan mempresentasikan hasil.",
+        "pertemuan3": "Peserta didik mengkaji struktur percabangan dan perulangan kompleks dalam algoritma, merancang jalur alternatif keputusan, dan menguji ketahanan alur terhadap berbagai kondisi masukan.",
+        "pertemuan4": "Peserta didik menyempurnakan notasi pseudocode dan diagram alur secara komprehensif, melakukan simulasi kelompok, serta mendokumentasikan laporan rancangan algoritma."
+      }
+    },
+    "DATA": {
+      "name": "Analisis Data & Statistik",
+      "keywords": [
+        "dataset",
+        "tabel",
+        "variabel",
+        "analisis data",
+        "visualisasi data",
+        "pembersihan data",
+        "statistik dasar",
+        "grafik"
+      ],
+      "aksi_fenomena": "melihat grafik visual berubah secara dinamis berdasarkan tabel angka",
+      "perangkat_sistem": "lembar kerja pengolahan data atau skrip spreadsheet",
+      "sistem_pemrograman": "model pengolahan data",
+      "sistem_komputer": "sistem visualisasi data",
+      "diagnostik": "Soal Diagnostik Data:\n'Jika kita ingin membandingkan persentase proporsi kategori dari total keseluruhan, jenis diagram apa yang paling tepat digunakan?'",
+      "pertanyaan_pemantik": {
+        "fenomena": "Bagaimana tumpukan angka mentah dapat diubah menjadi informasi visual yang mudah dipahami?",
+        "masalah": "Apa dampak dari adanya data kosong atau ganda (duplicate) dalam sebuah dataset?",
+        "prediksi": "Bagaimana tren dari grafik visual dapat membantu kita memprediksi kondisi di masa depan?",
+        "perbandingan": "Antara grafik batang dan grafik garis, mana yang lebih tepat untuk menunjukkan perkembangan data dari waktu ke waktu?",
+        "problem_solving": "Langkah pembersihan data (data cleaning) apa yang harus dilakukan sebelum dataset diolah?"
+      },
+      "diferensiasi": {
+        "konten": "Menyediakan dataset mentah (CSV/Excel), panduan fungsi rumus spreadsheet dasar, dan contoh berbagai jenis grafik.",
+        "proses": "Pembersihan data terpandu, pembuatan diagram visual secara mandiri, dan diskusi penarikan kesimpulan berbasis data.",
+        "produk": "Tabel data yang sudah dibersihkan, grafik visualisasi yang komunikatif, dan ringkasan kesimpulan analisis data."
+      },
+      "persiapan_guru": "1. Menyiapkan dataset kontekstual (misal data kehadiran, penjualan kantin, atau survei minat siswa).\n2. Memastikan perangkat pengolah data (Google Sheets/Excel/LibreOffice Calc) dapat diakses peserta didik.\n3. Opsi Unplugged: Menyiapkan lembar kerja Kertas Milimeter dan data tabel cetak untuk digambar secara manual.",
+      "deep_learning": {
+        "mindful": "Peserta didik bersikap jujur dan objektif dalam mengolah data tanpa memanipulasi angka untuk menghasilkan kesimpulan yang salah.",
+        "meaningful": "Peserta didik memahami bahwa fakta angka dan tren data merupakan dasar kuat dalam mengambil keputusan yang dapat dipertanggungjawabkan.",
+        "joyful": "Peserta didik menemukan kepuasan saat berhasil mengubah tumpukan angka mentah menjadi grafik visual yang indah dan bernilai informasi."
+      },
+      "rubrik": "1. Kebersihan & Struktur Data (25%): Membuang data ganda/kosong dan menata variabel tabel secara terstruktur.\n2. Pemilihan Jenis Visualisasi (30%): Memilih bentuk grafik (batang/garis/lingkaran) yang sesuai dengan karakteristik data.\n3. Ketepatan Analisis & Kesimpulan (30%): Menarik kesimpulan yang relevan berdasarkan tren data yang ditampilkan.\n4. Kejelasan Presentasi Visual (15%): Memberi judul, label sumbu, dan legenda grafik yang informatif.",
+      "pola_kegiatan": {
+        "pertemuan1": "Guru menyajikan dataset mentah. Peserta didik mengidentifikasi tipe variabel, membersihkan data, dan menyusun tabel terstruktur.",
+        "pertemuan2": "Peserta didik mengolah data menggunakan software spreadsheet untuk menghasilkan grafik visual yang relevan.",
+        "pertemuan3": "Peserta didik menganalisis tren pada grafik, menyimpulkan wawasan utama, dan menyusun laporan singkat berbasis data.",
+        "pertemuan4": "Peserta didik mempresentasikan temuan visualisasi data di depan kelas dan mendiskusikan rekomendasi solusinya."
+      }
+    },
+    "ETIKA_DIGITAL": {
+      "name": "Etika & Keamanan Digital",
+      "keywords": [
+        "hak cipta",
+        "siber",
+        "hoaks",
+        "jejak digital",
+        "etika berkomunikasi",
+        "perlindungan data pribadi",
+        "keamanan akun"
+      ],
+      "aksi_fenomena": "menemukan informasi mencurigakan atau peringatan keamanan di akun digital",
+      "perangkat_sistem": "sistem keamanan data pribadi",
+      "sistem_pemrograman": "sistem verifikasi identitas digital",
+      "sistem_komputer": "platform jejaring digital",
+      "diagnostik": "Soal Diagnostik Etika Digital:\n'Langkah apa yang pertama kali harus dilakukan ketika menerima pesan berantai yang meminta data pribadi atau informasi finansial?'",
+      "pertanyaan_pemantik": {
+        "fenomena": "Mengapa informasi hoaks dapat menyebar begitu cepat di media sosial?",
+        "masalah": "Apa dampak negatif dari pengabaian privasi dan kebocoran data pribadi di ruang digital?",
+        "prediksi": "Bagaimana cara kita mengenali bahwa sebuah informasi di internet adalah disinformasi?",
+        "perbandingan": "Apa perbedaan antara membagikan ulang informasi yang belum diverifikasi dengan informasi resmi yang tervalidasi?",
+        "problem_solving": "Langkah fact-checking apa yang harus dilakukan saat menerima berita meragukan?"
+      },
+      "diferensiasi": {
+        "konten": "Menyediakan contoh kasus kejahatan siber (phishing/hoaks), panduan lisensi Creative Commons, dan ceklist keamanan akun.",
+        "proses": "Analisis kasus kejahatan siber terpandu, latihan verifikasi fakta (fact-check), dan perancangan pesan kampanye positif.",
+        "produk": "Poster/infografis panduan keamanan digital, matriks verifikasi hoaks, dan dokumen komitmen budaya siber."
+      },
+      "persiapan_guru": "1. Menyiapkan tangkapan layar contoh kasus pesan phishing, berita bohong (hoaks), dan insiden kebocoran data.\n2. Menyiapkan lembar panduan cek fakta (CRAAP Test / Cek Dulu Sebelum Sebar).\n3. Opsi Unplugged: Diskusi studi kasus menggunakan kartu skenario perilaku digital.",
+      "deep_learning": {
+        "mindful": "Peserta didik memiliki kesadaran penuh terhadap dampak jejak digital yang ditinggalkan serta menjaga kehormatan diri dan orang lain di media siber.",
+        "meaningful": "Peserta didik menyadari bahwa dunia digital adalah ruang publik yang membutuhkan integritas, etika, dan perlindungan hukum.",
+        "joyful": "Peserta didik merasa berdaya dan percaya diri saat mampu mengamankan akun pribadi serta melindungi komunitas dari informasi palsu."
+      },
+      "rubrik": "1. Analisis Risiko & Jejak Digital (30%): Mengidentifikasi potensi bahaya kebocoran data dan ancaman siber secara tepat.\n2. Kemampuan Verifikasi Fakta (35%): Menerapkan langkah cek fakta untuk membedakan informasi valid dan hoaks.\n3. Penerapan Etika Komunikasi (20%): Menyusun pesan digital yang santun, menghargai hak cipta, dan tidak provokatif.\n4. Kualitas Karya Kampanye (15%): Infografis/media kampanye informatif dan menarik.",
+      "pola_kegiatan": {
+        "pertemuan1": "Guru menyajikan kasus jejak digital dan isu privasi. Peserta didik mengidentifikasi risiko siber dan pentingnya lisensi hak cipta.",
+        "pertemuan2": "Peserta didik menganalisis berbagai konten digital, menerapkan teknik fact-checking untuk mendeteksi hoaks, dan menyusun kriteria sumber valid.",
+        "pertemuan3": "Peserta didik merancang karya kampanye etika siber (infografis/video singkat) dan mempresentasikannya sebagai ikrar bersama.",
+        "pertemuan4": "Peserta didik mengevaluasi pengaturan keamanan akun pribadi dan menyusun panduan digital hygiene mandiri."
+      }
+    },
+    "PROYEK": {
+      "name": "Proyek Inovasi Digital",
+      "keywords": [
+        "perancangan produk",
+        "prototipe",
+        "uji coba",
+        "presentasi karya",
+        "revisi",
+        "kolaborasi tim",
+        "umpan balik"
+      ],
+      "aksi_fenomena": "membuat karya digital ciptaan sendiri dari tahap perencanaan hingga dapat digunakan",
+      "perangkat_sistem": "prototipe karya buatan tim",
+      "sistem_pemrograman": "rancangan produk digital",
+      "sistem_komputer": "sistem prototipe solusi",
+      "diagnostik": "Soal Diagnostik Proyek:\n'Sebutkan 3 tahapan utama dalam merancang sebuah produk inovasi digital dari masalah hingga siap digunakan pengguna!'",
+      "pertanyaan_pemantik": {
+        "fenomena": "Bagaimana sebuah ide kreatif dapat diwujudkan menjadi produk nyata yang berguna bagi masyarakat?",
+        "masalah": "Kendala apa saja yang sering muncul saat sebuah tim merancang prototipe produk digital?",
+        "prediksi": "Bagaimana umpan balik (feedback) pengguna dapat membantu menyempurnakan kualitas produk?",
+        "perbandingan": "Mengapa pembuatan prototipe awal (wireframe) penting sebelum membangun produk akhir?",
+        "problem_solving": "Bagaimana cara tim mengatasi perbedaan pendapat dalam perancangan proyek?"
+      },
+      "diferensiasi": {
+        "konten": "Menyediakan lembar spesifikasi produk, contoh sketsa wireframe/prototipe, dan panduan manajemen tugas kelompok.",
+        "proses": "Pembagian peran spesifik (Ketiga/Desainer/Pengembang/Penguji), perancangan kolaboratif, dan iterasi berdasarkan umpan balik.",
+        "produk": "Prototipe produk digital siap uji, dokumen spesifikasi teknis, dan paparan slide pameran karya."
+      },
+      "persiapan_guru": "1. Menyiapkan lembar kerja manajemen proyek (Kanban board / Gantt chart sederhana).\n2. Memastikan ketersediaan perangkat lunak/alat bantu pembuatan prototipe digital.\n3. Opsi Unplugged: Menggunakan Kertas Karton, Sticky Notes, dan Bahan Daur Ulang untuk membuat prototipe fisik (paper prototype).",
+      "deep_learning": {
+        "mindful": "Peserta didik menghargai perbedaan pendapat dalam tim dan menerima umpan balik kritis sebagai bahan perbaikan produk.",
+        "meaningful": "Peserta didik merasakan pengalaman nyata memecahkan masalah masyarakat melalui perancangan karya teknologi yang aplikatif.",
+        "joyful": "Peserta didik merasakan kepuasan luar biasa saat melihat ide ciptaannya berwujud menjadi produk yang berfungsi dan dipamerkan."
+      },
+      "rubrik": "1. Orientasi Masalah & Spesifikasi (20%): Produk menjawab kebutuhan nyata pengguna secara spesifik.\n2. Kualitas Prototipe & Fungsi (40%): Prototipe bekerja sesuai alur perancangan dan minim kendala saat diuji.\n3. Kerja Sama Tim & Manajemen Proyek (20%): Pembagian tugas jelas dan jadwal pengerjaan ditaati bersama.\n4. Komunikasi Presentasi (20%): Mampu menyampaikan keunggulan produk dan merespons pertanyaan penguji dengan baik.",
+      "pola_kegiatan": {
+        "pertemuan1": "Kelompok mendefinisikan masalah target, menyusun spesifikasi produk solusi, dan membagi peran kerja dalam tim.",
+        "pertemuan2": "Peserta didik membangun prototipe solusi (aplikasi, media, atau perangkat) berdasarkan rancangan yang disepakati.",
+        "pertemuan3": "Kelompok melakukan uji coba produk, mengumpulkan umpan balik pengguna, dan menyempurnakan prototipe.",
+        "pertemuan4": "Kelompok mempresentasikan karya dalam pameran/forum sekolah dan menyerahkan dokumen produk akhir."
+      }
+    },
+    "KONSEP": {
+      "name": "Materi Inti Pembelajaran",
+      "keywords": [
+        "definisi",
+        "pemahaman",
+        "penerapan",
+        "analisis",
+        "penalaran",
+        "karakteristik"
+      ],
+      "aksi_fenomena": "mempelajari konsep materi secara mendalam",
+      "perangkat_sistem": "materi pembelajaran",
+      "sistem_pemrograman": "struktur pemikiran",
+      "sistem_komputer": "dasar materi",
+      "diagnostik": "Soal Diagnostik:\n'Sebutkan hal yang paling mendasar tentang materi yang akan kita pelajari hari ini!'",
+      "pertanyaan_pemantik": {
+        "fenomena": "Mengapa konsep ini penting untuk kita pahami dalam konteks pembelajaran kita?",
+        "masalah": "Apa yang terjadi jika kita tidak menerapkan prinsip materi ini dengan benar?",
+        "prediksi": "Bagaimana hubungan antara konsep ini dengan hal-hal yang sering kita temui sehari-hari?",
+        "perbandingan": "Apa perbedaan utama antara prinsip konsep ini dengan materi sebelumnya?",
+        "problem_solving": "Bagaimana cara kita menerapkan prinsip teori ini untuk memecahkan soal atau masalah nyata?"
+      },
+      "diferensiasi": {
+        "konten": "Bahan bacaan dengan tingkat kompleksitas yang beragam.",
+        "proses": "Diskusi terbimbing untuk pemahaman dasar, dan eksplorasi mandiri untuk siswa mahir.",
+        "produk": "Ringkasan pemahaman sederhana vs penyajian analisis materi tingkat lanjut."
+      },
+      "persiapan_guru": "1. Menyiapkan bahan tayang, sumber bacaan, dan media pembelajaran yang sesuai.\n2. Menyiapkan lembar kerja peserta didik untuk eksplorasi materi.",
+      "deep_learning": {
+        "mindful": "Peserta didik fokus dalam memahami esensi materi yang diajarkan.",
+        "meaningful": "Peserta didik mampu mengaitkan materi yang dipelajari dengan nilai kehidupan dan manfaat praktisnya.",
+        "joyful": "Peserta didik menikmati proses eksplorasi materi melalui diskusi dan kegiatan interaktif."
+      },
+      "rubrik": "1. Pemahaman Materi (40%): Mampu menjelaskan konsep dan inti pelajaran dengan baik.\n2. Penalaran dan Analisis (30%): Mampu menghubungkan antar-konsep secara logis.\n3. Partisipasi dan Diskusi (20%): Aktif memberikan pendapat dan merespon pertanyaan.\n4. Kerapian Hasil Kerja (10%): Menyajikan tugas atau catatan dengan struktur yang teratur.",
+      "pola_kegiatan": {
+        "pertemuan1": "Peserta didik dikenalkan dengan konsep dasar dan mengidentifikasi poin-poin utama materi.",
+        "pertemuan2": "Peserta didik melakukan eksplorasi kelompok dan menganalisis materi lebih dalam.",
+        "pertemuan3": "Peserta didik mengerjakan lembar aktivitas dan mendiskusikan temuan atau jawaban mereka.",
+        "pertemuan4": "Peserta didik mempresentasikan hasil pemahaman, menarik kesimpulan bersama guru, dan melakukan refleksi."
+      }
+    },
+    "BAHASA": {
+      "name": "Bahasa & Komunikasi",
+      "keywords": [
+        "kosakata",
+        "tata bahasa",
+        "ungkapan",
+        "dialog",
+        "komunikasi",
+        "teks",
+        "pelafalan",
+        "menyimak",
+        "berbicara",
+        "membaca",
+        "menulis"
+      ],
+      "aksi_fenomena": "berkomunikasi menggunakan bahasa yang tepat",
+      "perangkat_sistem": "teks atau dialog",
+      "sistem_pemrograman": "kaidah kebahasaan",
+      "sistem_komputer": "struktur bahasa",
+      "diagnostik": "Soal Diagnostik Bahasa:\n'Lengkapi dialog rumpang berikut dengan kosakata atau ungkapan yang tepat!'",
+      "pertanyaan_pemantik": {
+        "fenomena": "Bagaimana cara menggunakan ungkapan bahasa yang tepat dalam kehidupan sehari-hari?",
+        "masalah": "Apa makna yang tersirat jika kita menggunakan kosakata yang berbeda saat berbicara?",
+        "prediksi": "Bagaimana cara menyusun teks atau dialog yang dapat dipahami lawan bicara?",
+        "perbandingan": "Apa perbedaan ungkapan ini jika digunakan kepada teman sebaya dibandingkan kepada orang yang lebih tua?",
+        "problem_solving": "Bagaimana cara berlatih melafalkan kosakata baru agar terdengar fasih?"
+      },
+      "diferensiasi": {
+        "konten": "Menyediakan teks/dialog dengan tingkat kesulitan berbeda (pendek vs panjang), dan glosarium kosakata.",
+        "proses": "Praktik pelafalan terbimbing untuk kelompok awal, praktik berpasangan, dan pembuatan dialog mandiri untuk kelompok mahir.",
+        "produk": "Membaca teks/dialog (reguler) vs menyusun dan mempraktikkan dialog kreasi sendiri (mahir)."
+      },
+      "persiapan_guru": "1. Menyiapkan teks bacaan, contoh dialog, dan audio/visual pendukung.\n2. Menyiapkan daftar kosakata (mufradat/vocabulary) beserta pelafalannya.\n3. Menyusun pasangan atau kelompok kecil untuk praktik komunikasi.",
+      "deep_learning": {
+        "mindful": "Peserta didik menyadari bahwa kejelasan pelafalan dan ketepatan kosakata sangat penting dalam interaksi sosial.",
+        "meaningful": "Peserta didik memahami bahwa kemampuan berbahasa membuka wawasan dan membangun hubungan baik antarsesama.",
+        "joyful": "Peserta didik merasa antusias dan percaya diri saat mempraktikkan dialog berpasangan dengan teman."
+      },
+      "rubrik": "1. Kelancaran Berbicara & Pelafalan (40%): Melafalkan kosakata dan kalimat dengan jelas dan fasih.\n2. Penguasaan Kosakata (30%): Menggunakan kosakata yang bervariasi dan tepat konteks.\n3. Pemahaman Teks/Menyimak (20%): Mampu merespon atau menjawab pertanyaan berdasarkan teks/dialog.\n4. Tata Bahasa (10%): Menggunakan struktur kalimat yang benar.",
+      "pola_kegiatan": {
+        "pertemuan1": "Guru menyajikan contoh kosakata dan ungkapan. Peserta didik menirukan pelafalan dan berlatih mencocokkan kosakata dengan artinya.",
+        "pertemuan2": "Peserta didik menyimak atau membaca contoh dialog, lalu mempraktikkan ungkapan secara klasikal dan kelompok.",
+        "pertemuan3": "Peserta didik berlatih menyusun kalimat sederhana atau melengkapi teks/dialog rumpang.",
+        "pertemuan4": "Peserta didik mempraktikkan percakapan (role play) secara berpasangan atau menyajikan hasil tulisan/teks di depan kelas."
+      }
+    }
+  }
+}

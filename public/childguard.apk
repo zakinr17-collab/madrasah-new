@@ -1,0 +1,5 @@
+# ChildGuard Service App (Mock Binary File)
+# This is a pre-compiled placeholder representing the childguard.apk application.
+# When distributed to students, installing this APK enables background remote mirroring, 
+# app blocking, GPS tracking, accessibility listeners, and camera streaming capabilities.
+# Configuration and settings are synchronized with the Madrasah Bisa web database.

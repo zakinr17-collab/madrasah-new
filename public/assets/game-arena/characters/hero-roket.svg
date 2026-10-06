@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 210 270">
+<defs>
+<linearGradient id="shirt" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#60a5fa"/><stop offset=".55" stop-color="#2563eb"/><stop offset="1" stop-color="#0f172a"/></linearGradient>
+<radialGradient id="aura"><stop stop-color="#60a5fa" stop-opacity=".42"/><stop offset=".7" stop-color="#2563eb" stop-opacity=".12"/><stop offset="1" stop-color="#2563eb" stop-opacity="0"/></radialGradient>
+<filter id="shadow"><feDropShadow dy="10" stdDeviation="5" flood-opacity=".34"/></filter>
+</defs>
+<ellipse cx="105" cy="252" rx="65" ry="13" fill="#020617" opacity=".28"/>
+<ellipse cx="105" cy="165" rx="92" ry="104" fill="url(#aura)" opacity=".9"/>
+<g filter="url(#shadow)">
+<path d="M69 178 55 238h33l17-63Zm72 0 14 60h-33l-17-63Z" fill="#172554"/>
+<path d="M55 236h39v17H56c-10 0-12-12-1-17Zm100 0h-39v17h38c10 0 12-12 1-17Z" fill="#0b1220"/>
+<path d="M52 143c8-31 28-48 53-48s45 17 53 48l12 57c-18 18-40 27-65 27s-47-9-65-27Z" fill="url(#shirt)" stroke="#fff" stroke-opacity=".42" stroke-width="4"/>
+<path d="M57 149c-24 8-36 27-34 51 1 14 8 23 19 22 13-1 17-13 16-23-2-15 6-28 19-35Z" fill="#d9a57f"/>
+<path d="M153 149c24 8 36 27 34 51-1 14-8 23-19 22-13-1-17-13-16-23 2-15-6-28-19-35Z" fill="#d9a57f"/>
+<ellipse cx="105" cy="81" rx="45" ry="50" fill="#d9a57f"/>
+<path d="M58 72c-2-40 22-64 50-64 33 0 56 24 55 64-17-13-33-19-49-17-15 1-31 7-56 17Z" fill="#111827"/>
+<path d="M67 43c21-17 55-18 80 0-24-7-52-6-80 0Z" fill="#fff" opacity=".12"/>
+<ellipse cx="88" cy="85" rx="6" ry="7" fill="#111827"/><ellipse cx="123" cy="85" rx="6" ry="7" fill="#111827"/>
+<circle cx="86" cy="82" r="2" fill="#fff"/><circle cx="121" cy="82" r="2" fill="#fff"/>
+<path d="M94 105c7 7 16 7 23 0" fill="none" stroke="#9f1239" stroke-width="4" stroke-linecap="round"/>
+<circle cx="73" cy="104" r="7" fill="#fb7185" opacity=".22"/><circle cx="137" cy="104" r="7" fill="#fb7185" opacity=".22"/>
+<path d="M81 158h48l-10 34H91Z" fill="#fff" opacity=".16"/>
+<path d="M87 157h36M105 142v58" stroke="#fff" stroke-opacity=".52" stroke-width="5" stroke-linecap="round"/>
+<circle cx="105" cy="161" r="25" fill="none" stroke="#fff" stroke-opacity=".42" stroke-width="4"/>
+</g>
+</svg>

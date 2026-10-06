@@ -1,0 +1,1485 @@
+// Master Generative Rules Engine V2 (Refactored & Audited - Strict Domain Lock)
+// Rules-Based Non-AI Modul Ajar Generator
+
+import sentenceBank from './data/sentence_bank.json' with { type: 'json' };
+import rulesData from './data/rules.json' with { type: 'json' };
+
+export function parseAlokasiJP(alokasiString = '') {
+    if (!alokasiString || typeof alokasiString !== 'string') return 4;
+    const jpMatch = alokasiString.match(/(\d+)\s*JP/i);
+    if (jpMatch) return parseInt(jpMatch[1], 10) || 4;
+    const menitMatch = alokasiString.match(/(\d+)\s*x\s*\d+/i);
+    if (menitMatch) return parseInt(menitMatch[1], 10) || 4;
+    const numMatch = alokasiString.match(/(\d+)/);
+    if (numMatch) {
+        const val = parseInt(numMatch[1], 10);
+        if (val > 0 && val <= 40) return val;
+    }
+    return 4;
+}
+
+function getPatternIndex(seedString, maxOptions, nonce = 0) {
+    if (!maxOptions || maxOptions <= 0) return 0;
+    const combined = `${seedString}_nonce_${nonce}`;
+    let hash = 0;
+    for (let i = 0; i < combined.length; i++) {
+        hash = ((hash << 5) - hash) + combined.charCodeAt(i);
+        hash |= 0;
+    }
+    const x = Math.sin(hash + 0.12345) * 10000;
+    const randVal = x - Math.floor(x);
+    return Math.floor(randVal * maxOptions);
+}
+
+export function autoDetectMaterialType(subjectName = '', topic = '', subbab = '', detail = '') {
+    const combined = `${subjectName} ${topic} ${subbab} ${detail}`.toLowerCase();
+
+    if (/\b(ai|generative ai|prompt|kecerdasan buatan|chatgpt|gemini|llm|machine learning|model ai|bias ai)\b/.test(combined)) {
+        return 'AI';
+    }
+    if (/\b(etika digital|keamanan siber|jejak digital|privasi|hoaks|hak cipta|literasi digital|sosial media|phishing)\b/.test(combined)) {
+        return 'ETIKA_DIGITAL';
+    }
+    if (/\b(koding|coding|pemrograman|program|c\+\+|python|pascal|javascript|html|css|syntax|sintaks|if-else|if else|loop|for|while|array|variabel|debugging|compiler|ide|unoardusim|arduino)\b/.test(combined)) {
+        return 'KODING';
+    }
+    if (/\b(jaringan|network|router|switch|ip address|ip|topologi|lan|wan|wifi|konektivitas|troubleshooting|cyber|keamanan jaringan)\b/.test(combined)) {
+        return 'JARINGAN';
+    }
+    if (/\b(algoritma|flowchart|pseudocode|dekomposisi|abstraksi|berpikir komputasional|computational thinking|pengurutan|pencarian)\b/.test(combined)) {
+        return 'ALGORITMA';
+    }
+    if (/\b(data|dataset|tabel|grafik|analisis data|visualisasi|statistik|excel|spreadsheet|database|sql)\b/.test(combined)) {
+        return 'DATA';
+    }
+    if (/\b(proyek|prototipe|produk|karya|inovasi|pameran|perancangan)\b/.test(combined)) {
+        return 'PROYEK';
+    }
+    if (/\b(bahasa|arab|inggris|indonesia|jerman|prancis|jepang|mandarin|teks|hiwar|qira|istima|kitabah|mufradat|grammar|vocabulary|speaking|listening|reading|writing|dialog|percakapan)\b/.test(combined)) {
+        return 'BAHASA';
+    }
+    return 'KONSEP';
+}
+
+export function deriveTopicVocabulary(materiInti) {
+    if (!materiInti || typeof materiInti !== 'string') {
+        return {
+            main: "Konsep Utama",
+            list: ["Konsep Utama", "Langkah Terkait", "Penerapan Praktis", "Materi Inti"]
+        };
+    }
+
+    const cleanMateri = materiInti.replace(/&/g, 'dan').replace(/dan/gi, 'dan').replace(/atau/gi, 'atau').trim();
+    const parts = cleanMateri.split(/(?:dan|atau|,\s*|\bserta\b|-|\/)/gi)
+        .map(p => p.trim())
+        .filter(p => p.length > 2);
+
+    const list = [];
+    for (const part of parts) {
+        const cleaned = part.replace(/^[^a-zA-Z0-9\s]+|[^a-zA-Z0-9\s]+$/g, '').trim();
+        if (cleaned.length > 2 && !list.includes(cleaned)) {
+            list.push(cleaned);
+        }
+    }
+
+    const genericModifiers = [
+        'manajemen', 'istilah', 'struktur', 'dasar', 'konsep', 'proses', 'sistem', 
+        'teknik', 'pengenalan', 'studi', 'analisis', 'teori', 'penggunaan', 'aplikasi', 
+        'metode', 'penerapan', 'dalam', 'dengan', 'yang', 'untuk', 'pada', 'dan', 
+        'atau', 'serta', 'dari', 'tentang', 'secara', 'contoh'
+    ];
+
+    // Sub-phrase extraction (non-mechanically splitting)
+    const subPhrases = [];
+    for (const part of list) {
+        const words = part.split(/\s+/).map(w => w.replace(/[^a-zA-Z0-9]/g, '').trim()).filter(w => w.length > 2);
+        
+        // Remove prefix modifiers to get clean sub-phrases (e.g., "Istilah Struktur Pemrograman" -> "Struktur Pemrograman")
+        if (words.length >= 2) {
+            if (genericModifiers.includes(words[0].toLowerCase())) {
+                const sub = words.slice(1).join(' ');
+                // Ensure the extracted sub-phrase remains a coherent compound term of at least 2 words (Rule 6)
+                if (sub.split(/\s+/).length >= 2) {
+                    if (sub.length > 2 && !subPhrases.includes(sub)) {
+                        subPhrases.push(sub);
+                    }
+                }
+            }
+        }
+    }
+
+    // Combine primary segments with sub-phrases
+    for (const sp of subPhrases) {
+        if (!list.some(item => item.toLowerCase() === sp.toLowerCase())) {
+            list.push(sp);
+        }
+    }
+
+    if (list.length === 0) {
+        list.push(cleanMateri);
+    }
+
+    const formattedList = list.map(item => {
+        return item.split(/\s+/).map(word => {
+            if (word.length === 0) return '';
+            return word[0].toUpperCase() + word.substring(1).toLowerCase();
+        }).join(' ');
+    });
+
+    // Pad to 4 items using compound phrases
+    while (formattedList.length < 4) {
+        const fallbackWord = formattedList[0] || 'Konsep';
+        formattedList.push(`${formattedList[1] || 'Materi Inti'} ${fallbackWord}`);
+    }
+
+    return {
+        main: formattedList[0] || cleanMateri,
+        list: formattedList
+    };
+}
+
+export function resolveTerm(term, materi) {
+    const lower = (materi || '').toLowerCase();
+    const t = term.toLowerCase();
+    
+    if (lower.includes(t)) {
+        return term;
+    }
+    
+    const fallbacks = {
+        'syntax': 'aturan penulisan',
+        'sintaks': 'aturan penulisan',
+        'debugging': 'pengujian hasil',
+        'debug': 'pemeriksaan',
+        'if-else': 'alur keputusan',
+        'if else': 'alur keputusan',
+        'percabangan': 'alur keputusan',
+        'perulangan': 'proses berulang',
+        'loop': 'proses berulang',
+        'variabel': 'parameter data',
+        'fungsi': 'peran utama/kegunaan',
+        'objek': 'komponen',
+        'pseudocode': 'notasi langkah terstruktur',
+        'flowchart': 'diagram alur',
+        'bagan alur': 'diagram alur',
+        'prompt engineering': 'penerapan praktis',
+        'prompt-engineering': 'penerapan praktis',
+        'prompt': 'instruksi',
+        'prompts': 'instruksi',
+        'dataset': 'data',
+        'data set': 'data',
+        'data-set': 'data',
+        'hallucination': 'kekeliruan informasi',
+        'halusinasi': 'kesalahan',
+        'bias': 'keterbatasan',
+        'bias ai': 'keterbatasan',
+        'asisten ai': 'asisten cerdas',
+        'asisten cerdas': 'asisten cerdas',
+        'teknologi cerdas': 'teknologi cerdas',
+        'model ai': 'sistem cerdas',
+        'router': 'node penghubung',
+        'switch': 'perangkat hub',
+        'ip address': 'identitas koneksi',
+        'alamat ip': 'identitas koneksi',
+        'topologi': 'skema struktur',
+        'spreadsheet': 'aplikasi pengolah data',
+        'phishing': 'ancaman keamanan digital',
+        'hoaks': 'informasi palsu',
+        'hoax': 'informasi palsu'
+    };
+    
+    return fallbacks[t] || term;
+}
+
+export function replacePlaceholdersRecursive(obj, safeMateri, safeSubbab, safeBab) {
+    if (typeof obj === 'string') {
+        let s = obj
+            .replace(/{{MATERI_INTI}}/g, safeMateri)
+            .replace(/{{KONSEP_UTAMA}}/g, safeSubbab)
+            .replace(/{{BAB_UTAMA}}/g, safeBab)
+            .replace(/{{SUBBAB}}/g, safeSubbab);
+            
+        s = s.replace(/{{[A-Z0-9_]+}}/g, safeMateri);
+        return s;
+    } else if (Array.isArray(obj)) {
+        return obj.map(item => replacePlaceholdersRecursive(item, safeMateri, safeSubbab, safeBab));
+    } else if (typeof obj === 'object' && obj !== null) {
+        const copy = {};
+        for (const key of Object.keys(obj)) {
+            copy[key] = replacePlaceholdersRecursive(obj[key], safeMateri, safeSubbab, safeBab);
+        }
+        return copy;
+    }
+    return obj;
+}
+
+export function runSelfValidation(result, safeMateri, selectedJenis) {
+    const vocab = deriveTopicVocabulary(safeMateri);
+    const checkedFields = ['capaianPembelajaran', 'tujuanPembelajaran', 'pertanyaanPemantik', 'kegiatanPembelajaran', 'lkpd', 'asesmen', 'glosarium'];
+    
+    let scoredSections = 0;
+    let successfulSections = 0;
+    for (const field of checkedFields) {
+        if (!result[field]) continue;
+        scoredSections++;
+        const valStr = String(result[field]).toLowerCase();
+        let sectionHasTopic = false;
+        for (const term of vocab.list) {
+            if (valStr.includes(term.toLowerCase())) {
+                sectionHasTopic = true;
+            }
+        }
+        
+        let sectionHasBias = false;
+        const forbiddenDefaults = [
+            'prompt engineering', 'hallucination', 'dataset', 'bias ai', 'fact-checking', 'generative ai', 'model ai',
+            'syntax', 'debugging', 'if-else', 'sintaks', 'perulangan', 'percabangan',
+            'router', 'switch', 'ip address', 'topologi', 'alamat ip',
+            'spreadsheet',
+            'flowchart', 'pseudocode', 'tracing', 'bagan alur',
+            'phishing', 'hoaks'
+        ];
+        for (const word of forbiddenDefaults) {
+            if (!safeMateri.toLowerCase().includes(word) && valStr.includes(word)) {
+                sectionHasBias = true;
+            }
+        }
+
+        if (sectionHasTopic && !sectionHasBias) {
+            successfulSections++;
+        }
+    }
+    const topicDominance = scoredSections > 0 ? (successfulSections / scoredSections) * 100 : 100;
+
+    let missingTerms = 0;
+    for (const term of vocab.list) {
+        let found = false;
+        for (const field of checkedFields) {
+            if (result[field] && String(result[field]).toLowerCase().includes(term.toLowerCase())) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            missingTerms++;
+        }
+    }
+    const topicDrift = vocab.list.length > 0 ? (missingTerms / vocab.list.length) * 100 : 0;
+
+    let leakageCount = 0;
+    const allForbiddens = {
+        AI: ['router', 'switch', 'ip address', 'syntax', 'if-else', 'flowchart', 'pseudocode', 'tracing'],
+        KODING: ['router', 'ip address', 'topologi', 'ping', 'model ai', 'prompt engineering', 'kecerdasan artifisial', 'kecerdasan buatan', 'asisten cerdas', 'teknologi cerdas', 'sistem cerdas'],
+        JARINGAN: ['syntax error', 'prompt engineering', 'model ai', 'flowchart', 'pseudocode', 'kecerdasan artifisial', 'kecerdasan buatan', 'asisten cerdas', 'teknologi cerdas', 'sistem cerdas'],
+        DATA: ['router', 'ip address', 'syntax', 'debugging', 'flowchart', 'pseudocode', 'prompt engineering', 'kecerdasan artifisial', 'kecerdasan buatan', 'asisten cerdas', 'teknologi cerdas', 'sistem cerdas'],
+        ALGORITMA: ['router', 'ip address', 'prompt engineering', 'model ai', 'phishing', 'kecerdasan artifisial', 'kecerdasan buatan', 'asisten cerdas', 'teknologi cerdas', 'sistem cerdas'],
+        ETIKA_DIGITAL: ['router', 'ip address', 'syntax', 'debugging', 'flowchart', 'pseudocode', 'kecerdasan artifisial', 'kecerdasan buatan', 'asisten cerdas', 'teknologi cerdas', 'sistem cerdas'],
+        PROYEK: ['router', 'ip address', 'syntax', 'debugging', 'flowchart', 'pseudocode', 'kecerdasan artifisial', 'kecerdasan buatan', 'asisten cerdas', 'teknologi cerdas', 'sistem cerdas'],
+        KONSEP: ['router', 'ip address', 'syntax', 'debugging', 'flowchart', 'pseudocode', 'prompt engineering', 'kecerdasan artifisial', 'kecerdasan buatan', 'asisten cerdas', 'teknologi cerdas', 'sistem cerdas']
+    };
+    const forbiddenList = allForbiddens[selectedJenis] || [];
+    for (const word of forbiddenList) {
+        if (safeMateri.toLowerCase().includes(word)) continue;
+        for (const field of Object.keys(result)) {
+            if (['kompetensiAwal', 'profilPancasila', 'saranaPrasarana', 'targetPeserta', 'selectedJenis'].includes(field)) continue;
+            const valStr = String(result[field] || '').toLowerCase();
+            let isLeaking = false;
+            if (word === 'ping') {
+                // Check for whole word "ping" using regex to avoid matching "pendampingan"
+                isLeaking = /\bping\b/i.test(valStr);
+            } else {
+                isLeaking = valStr.includes(word);
+            }
+            if (isLeaking) {
+                leakageCount++;
+            }
+        }
+    }
+    const domainLeakage = leakageCount;
+
+    let defaultSubtopicOverride = 0;
+    const allDefaults = [
+        'prompt engineering', 'hallucination', 'dataset', 'bias ai', 'fact-checking', 'generative ai', 'model ai',
+        'syntax', 'debugging', 'if-else', 'sintaks', 'perulangan', 'percabangan',
+        'router', 'switch', 'ip address', 'topologi', 'alamat ip',
+        'spreadsheet',
+        'flowchart', 'pseudocode', 'tracing', 'bagan alur',
+        'phishing', 'hoaks'
+    ];
+    for (const word of allDefaults) {
+        if (safeMateri.toLowerCase().includes(word)) continue;
+        for (const field of Object.keys(result)) {
+            if (['kompetensiAwal', 'profilPancasila', 'saranaPrasarana', 'targetPeserta', 'selectedJenis'].includes(field)) continue;
+            const valStr = String(result[field] || '').toLowerCase();
+            if (valStr.includes(word)) {
+                defaultSubtopicOverride++;
+            }
+        }
+    }
+
+    const domainTemplateBias = defaultSubtopicOverride > 0;
+
+    let unresolvedPlaceholder = 0;
+    const placeholderRegex = /{{[A-Z0-9_]+}}/g;
+    for (const field of Object.keys(result)) {
+        const valStr = String(result[field] || '');
+        const matches = valStr.match(placeholderRegex);
+        if (matches) {
+            unresolvedPlaceholder += matches.length;
+        }
+    }
+
+    let irrelevantVocabulary = 0;
+    const otherKeywords = [];
+    const allKeys = ['AI', 'KODING', 'JARINGAN', 'DATA', 'ALGORITMA', 'ETIKA_DIGITAL', 'PROYEK', 'KONSEP'];
+    for (const k of allKeys) {
+        if (k === selectedJenis) continue;
+        const kw = rulesData.material_types[k]?.keywords || [];
+        otherKeywords.push(...kw);
+    }
+    for (const word of otherKeywords) {
+        if (safeMateri.toLowerCase().includes(word.toLowerCase())) continue;
+        for (const field of Object.keys(result)) {
+            if (['kompetensiAwal', 'profilPancasila', 'saranaPrasarana', 'targetPeserta', 'selectedJenis'].includes(field)) continue;
+            const valStr = String(result[field] || '').toLowerCase();
+            if (valStr.includes(word.toLowerCase())) {
+                irrelevantVocabulary++;
+            }
+        }
+    }
+
+    return {
+        topicDominance,
+        topicDrift,
+        domainLeakage,
+        defaultSubtopicOverride,
+        domainTemplateBias,
+        unresolvedPlaceholder,
+        irrelevantVocabulary
+    };
+}
+
+const domainCapaian = {
+    AI: "Peserta didik mampu memahami konsep dasar Kecerdasan Artifisial (AI), teknik penyusunan prompt terstruktur, evaluasi keluaran model, analisis bias, serta etika dan privasi penggunaan sistem AI.",
+    DATA: "Peserta didik mampu mengumpulkan dataset, melakukan pembersihan data (data cleaning), mengolah variabel, membuat visualisasi grafik yang komunikatif, dan menarik kesimpulan berbasis analisis data.",
+    JARINGAN: "Peserta didik mampu memahami arsitektur jaringan komputer, fungsi perangkat keras (router, switch), konfigurasi alamat IP, pengujian konektivitas, dan analisis pemecahan gangguan (troubleshooting).",
+    ALGORITMA: "Peserta didik mampu melakukan dekomposisi masalah, merancang langkah logis, menyusun flowchart dan pseudocode, serta melakukan penelusuran (tracing) untuk memastikan kebenaran alur penyelesaian.",
+    KODING: "Peserta didik mampu menuliskan baris kode program (syntax) menggunakan struktur percabangan, perulangan, dan variabel, serta melakukan pengujian dan perbaikan kesalahan (debugging).",
+    ETIKA_DIGITAL: "Peserta didik mampu mengenali jejak digital, mengidentifikasi hoaks dan disinformasi melalui verifikasi fakta, menghargai hak cipta, serta menerapkan keamanan data pribadi dan etika siber.",
+    PROYEK: "Peserta didik mampu merencanakan perancangan produk inovasi digital dari identifikasi masalah, penyusunan spesifikasi, pembuatan prototipe, hingga uji coba dan presentasi karya.",
+    KONSEP: "Peserta didik mampu memahami definisi, hakikat, ruang lingkup, dan struktur teori konsep keilmuan serta mengaitkannya dengan fenomena di dunia nyata."
+};
+
+const domainTP = {
+    AI: {
+        C1_C2: "Peserta didik mampu menjelaskan prinsip kerja dasar model AI Generatif, struktur prompt, dan karakteristik luaran AI.",
+        C3_C4: "Peserta didik mampu merancang prompt terstruktur (role, context, instruction) serta menguji dan membandingkan variasi luaran AI.",
+        C5_C6: "Peserta didik mampu mengevaluasi akurasi, potensi bias, dan isu halusinasi luaran AI, serta menyusun panduan etika penggunaan AI."
+    },
+    DATA: {
+        C1_C2: "Peserta didik mampu mengidentifikasi jenis dataset, tipe variabel, dan komponen tabel pengolahan data.",
+        C3_C4: "Peserta didik mampu membersihkan data mentah dan menggunakan perangkat spreadsheet untuk menghasilkan visualisasi grafik yang relevan.",
+        C5_C6: "Peserta didik mampu menganalisis tren dari grafik visual serta menyusun rekomendasi keputusan berbasis bukti data."
+    },
+    JARINGAN: {
+        C1_C2: "Peserta didik mampu menjelaskan fungsi perangkat keras jaringan (router, switch, node) dan konsep dasar topologi.",
+        C3_C4: "Peserta didik mampu mengonfigurasi alamat IP (IP address) dan melakukan pengujian koneksi menggunakan perintah ping.",
+        C5_C6: "Peserta didik mampu menganalisis titik gangguan koneksi (troubleshooting) dan mengevaluasi keamanan akses jaringan."
+    },
+    ALGORITMA: {
+        C1_C2: "Peserta didik mampu menjelaskan konsep dekomposisi masalah dan fungsi simbol-simbol dasar flowchart.",
+        C3_C4: "Peserta didik mampu merancang flowchart dan pseudocode secara sistematis serta melakukan penelusuran (tracing) jalannya proses.",
+        C5_C6: "Peserta didik mampu mengevaluasi keefektifan alur logika, mendeteksi infinite loop, dan menyempurnakan rancangan algoritma."
+    },
+    KODING: {
+        C1_C2: "Peserta didik mampu mengenali struktur dasar syntax, variabel, dan tipe data dalam bahasa pemrograman.",
+        C3_C4: "Peserta didik mampu menuliskan kode program dengan struktur percabangan (if-else) atau perulangan serta melakukan eksekusi program.",
+        C5_C6: "Peserta didik mampu mendeteksi syntax error/logic error, melakukan debugging, dan menguji ketahanan skrip program."
+    },
+    ETIKA_DIGITAL: {
+        C1_C2: "Peserta didik mampu menjelaskan pentingnya privasi akun, hak cipta, dan dampak negatif penyebaran hoaks.",
+        C3_C4: "Peserta didik mampu menerapkan teknik verifikasi fakta (fact-checking) terhadap informasi digital dan mengevaluasi keamanan akun.",
+        C5_C6: "Peserta didik mampu merancang kampanye budaya siber yang positif dan menyusun panduan digital hygiene mandiri."
+    },
+    PROYEK: {
+        C1_C2: "Peserta didik mampu mengidentifikasi kebutuhan pengguna dan mendefinisikan masalah nyata untuk solusi proyek.",
+        C3_C4: "Peserta didik mampu merancang spesifikasi produk dan membangun prototipe solusi digital secara kolaboratif.",
+        C5_C6: "Peserta didik mampu melakukan uji coba produk, mengumpulkan umpan balik (feedback), dan mempresentasikan karya akhir."
+    },
+    BAHASA: {
+        C1_C2: "Peserta didik mampu melafalkan dan mengartikan kosakata serta ungkapan dasar dengan tepat.",
+        C3_C4: "Peserta didik mampu menggunakan ungkapan dan tata bahasa dalam kalimat atau percakapan sederhana.",
+        C5_C6: "Peserta didik mampu menyusun dan mempresentasikan teks atau dialog secara fasih dan bermakna."
+    },
+    KONSEP: {
+        C1_C2: "Peserta didik mampu menjelaskan definisi dan karakteristik dasar dari konsep keilmuan yang dipelajari.",
+        C3_C4: "Peserta didik mampu menguraikan komponen-komponen teori dan menyusun peta konsep (mind map) yang runtut.",
+        C5_C6: "Peserta didik mampu menganalisis penerapan teori dalam penerapan materi nyata dan menyusun kesimpulan komprehensif."
+    }
+};
+
+const domainRefleksiStud = {
+    AI: "1. Bagian mana dari materi \"{{MATERI_INTI}}\" yang paling menarik bagi kalian?\n2. Bagaimana cara kalian memastikan hasil atau informasi terkait \"{{MATERI_INTI}}\" dapat dipercaya dan terbebas dari bias?",
+    DATA: "1. Pengalaman apa yang paling berkesan saat mengolah data dan membuat visualisasi terkait \"{{MATERI_INTI}}\"?\n2. Bagaimana data membantu kita mengambil keputusan secara objektif?",
+    JARINGAN: "1. Tantangan apa yang kalian hadapi saat merancang koneksi atau memecahkan masalah terkait \"{{MATERI_INTI}}\"?\n2. Mengapa pemahaman tentang arsitektur dan sistem koneksi sangat penting di era digital?",
+    ALGORITMA: "1. Bagaimana proses dekomposisi dan perancangan langkah logis membantu menyelesaikan masalah terkait \"{{MATERI_INTI}}\"?\n2. Mengapa penelusuran alur penting untuk membuktikan kebenaran logika?",
+    KODING: "1. Pengalaman apa yang kalian peroleh saat menuliskan instruksi program dan memperbaiki error (debugging) terkait \"{{MATERI_INTI}}\"?\n2. Mengapa ketelitian dalam logika penulisan sangat menentukan keberhasilan program?",
+    ETIKA_DIGITAL: "1. Pelajaran penting apa yang kalian dapatkan mengenai tanggung jawab siber dan privasi terkait \"{{MATERI_INTI}}\"?\n2. Bagaimana cara kalian menerapkan budaya siber yang santun dan aman dalam kehidupan sehari-hari?",
+    PROYEK: "1. Pengalaman paling berharga apa yang kalian rasakan saat merancang prototipe produk \"{{MATERI_INTI}}\" bersama tim?\n2. Bagaimana cara kelompok menghadapi perbedaan pendapat dan umpan balik pengguna?",
+    BAHASA: "1. Kesulitan apa yang paling dirasakan saat mempraktikkan kosakata atau ungkapan terkait \"{{MATERI_INTI}}\"?\n2. Bagaimana cara kalian mengatasi rasa gugup saat berbicara menggunakan bahasa tersebut di depan kelas?",
+    KONSEP: "1. Bagaimana peta konsep membantu kalian memahami teori \"{{MATERI_INTI}}\" secara utuh?\n2. Contoh penerapan apa di sekitar kalian yang paling mencerminkan konsep yang dipelajari?"
+};
+
+const domainRefleksiTeach = {
+    AI: "1. Apakah peserta didik mampu menguasai konsep dasar \"{{MATERI_INTI}}\" dengan aktif?\n2. Seberapa efektif pemahaman peserta didik mengenai etika dan verifikasi hasil terkait \"{{MATERI_INTI}}\"?",
+    DATA: "1. Apakah peserta didik dapat memvisualisasikan data \"{{MATERI_INTI}}\" dengan tepat?\n2. Bagaimana pemahaman peserta didik dalam merumuskan kesimpulan berbasis analisis data?",
+    JARINGAN: "1. Apakah peserta didik memahami skema koneksi atau sistem \"{{MATERI_INTI}}\" dengan baik?\n2. Seberapa efektif bimbingan dalam mengatasi kendala teknis peserta didik?",
+    ALGORITMA: "1. Apakah peserta didik dapat menyusun alur logis \"{{MATERI_INTI}}\" secara runtut dan sistematis?\n2. Bagaimana efektivitas latihan desk-check dalam menemukan kesalahan logika?",
+    KODING: "1. Apakah peserta didik dapat memahami instruksi program dan struktur logika \"{{MATERI_INTI}}\" dengan baik?\n2. Seberapa efektif proses bimbingan praktikum dalam membantu peserta didik melakukan debugging?",
+    ETIKA_DIGITAL: "1. Apakah peserta didik mampu mengidentifikasi risiko keamanan siber atau hoaks terkait \"{{MATERI_INTI}}\" secara kritis?\n2. Bagaimana antusiasme peserta didik dalam menyusun kampanye etika digital?",
+    PROYEK: "1. Apakah kolaborasi dan manajemen proyek dalam tim untuk \"{{MATERI_INTI}}\" berjalan dengan efektif?\n2. Seberapa baik kualitas prototipe dan presentasi karya yang dihasilkan peserta didik?",
+    BAHASA: "1. Apakah peserta didik sudah mampu melafalkan kosakata \"{{MATERI_INTI}}\" dengan fasih dan tepat?\n2. Seberapa antusias peserta didik saat mempraktikkan dialog atau menyusun teks mandiri?",
+    KONSEP: "1. Apakah peserta didik mampu menguasai definisi dan kerangka teoretis terkait \"{{MATERI_INTI}}\" dengan baik?\n2. Seberapa aktif peserta didik dalam menghubungkan konsep dengan penerapan materi nyata?"
+};
+
+function getDomainLKPD(type, safeSubject, safeMateri, safeGrade, safeSemester) {
+    const vocab = deriveTopicVocabulary(safeMateri);
+    const t1 = vocab.list[0] || safeMateri;
+    const t2 = vocab.list[1] || t1;
+    const t3 = vocab.list[2] || t2;
+
+    const domainStyles = {
+        AI: {
+            act1: `Identifikasi Konsep "${t1}"`,
+            act1_desc: `1. Pelajari karakteristik utama dari "${t1}" secara mandiri.\n2. Tuliskan deskripsi ringkas mengenai hakikat dan tujuan "${t1}" di era digital saat ini.`,
+            act2: `Analisis Kelompok terhadap "${t2}"`,
+            act2_desc: `1. Diskusikan bersama kelompok mengenai penerapan "${t2}" dalam skenario dunia nyata.\n2. Kategorikan bagian-bagian pendukung dari "${t2}" berdasarkan perannya masing-masing.`,
+            act3: `Materi Inti Penerapan "${t3}"`,
+            act3_desc: `1. Lakukan kajian mendalam terhadap penyelesaian masalah kontekstual menggunakan prinsip "${t3}".\n2. Verifikasi efektivitas dan akurasi solusi tersebut, serta susun laporan hasil diskusi.`
+        },
+        DATA: {
+            act1: `Pengumpulan Data & Parameter "${t1}"`,
+            act1_desc: `1. Identifikasi struktur data, parameter, dan variabel penting yang terkandung dalam "${t1}".\n2. Susun parameter tersebut ke dalam format tabel pencatatan yang teratur.`,
+            act2: `Pemetaan Tren & Hubungan "${t2}"`,
+            act2_desc: `1. Lakukan analisis hubungan atau tren keterkaitan antar-variabel pada "${t2}".\n2. Buat draf visualisasi sederhana (tabel atau diagram skematik) untuk menggambarkan pola data tersebut.`,
+            act3: `Penarikan Kesimpulan Berbasis Informasi "${t3}"`,
+            act3_desc: `1. Telaah pola informasi yang terkumpul mengenai "${t3}" secara berkelompok.\n2. Susun simpulan objektif dan rekomendasi logis berbasis bukti-bukti informasi yang ada.`
+        },
+        JARINGAN: {
+            act1: `Pemetaan Hubungan & Alur Kerja "${t1}"`,
+            act1_desc: `1. Petakan keterkaitan, titik hubungan (node), atau skema transfer informasi dalam "${t1}".\n2. Jelaskan peran dan fungsi setiap elemen pendukung tersebut.`,
+            act2: `Simulasi Alur Interaksi "${t2}"`,
+            act2_desc: `1. Rancang urutan langkah interaksi dan skema pengiriman informasi antarpasang dalam "${t2}".\n2. Lakukan pengujian mandiri untuk memastikan seluruh titik interaksi dapat terhubung dengan baik.`,
+            act3: `Analisis Hambatan & Troubleshooting "${t3}"`,
+            act3_desc: `1. Identifikasi potensi kesalahan, hambatan, atau kegagalan sistem dalam alur kerja "${t3}".\n2. Rumuskan solusi sistematis untuk mengatasi hambatan tersebut.`
+        },
+        ALGORITMA: {
+            act1: `Dekomposisi Masalah "${t1}"`,
+            act1_desc: `1. Lakukan dekomposisi untuk memecah masalah terkait "${t1}" menjadi bagian-bagian kecil yang terstruktur.\n2. Tentukan komponen input, proses logis, dan output yang dihasilkan.`,
+            act2: `Perancangan Alur Logika "${t2}"`,
+            act2_desc: `1. Susun langkah-langkah penyelesaian logis untuk memproses "${t2}" secara berurutan.\n2. Tuliskan representasi alur tersebut menggunakan notasi terstruktur pilihan kalian.`,
+            act3: `Penelusuran & Verifikasi Alur "${t3}"`,
+            act3_desc: `1. Lakukan penelusuran (tracing) jalannya alur logika "${t3}" dengan berbagai skenario masukan.\n2. Buat tabel penelusuran untuk memverifikasi kebenaran langkah penyelesaian.`
+        },
+        KODING: {
+            act1: `Perancangan Logika & ${resolveTerm('variabel', safeMateri)} "${t1}"`,
+            act1_desc: `1. Rancang kerangka logika, pendefinisian ${resolveTerm('variabel', safeMateri).toLowerCase()}, dan tipe data pendukung untuk mengimplementasikan "${t1}".\n2. Jelaskan hubungan operasional antarkomponen tersebut dalam program.`,
+            act2: `Penyusunan Instruksi Terstruktur "${t2}"`,
+            act2_desc: `1. Tuliskan baris instruksi/logika program secara runtut dengan menerapkan pola alur yang tepat untuk "${t2}".\n2. Pastikan penulisan struktur instruksi rapi dan mudah dipahami.`,
+            act3: `Pengujian Logika & ${resolveTerm('debugging', safeMateri)} "${t3}"`,
+            act3_desc: `1. Jalankan alur instruksi kalian, deteksi potensi kekeliruan logika, and lakukan perbaikan secara mandiri.\n2. Pastikan program "${t3}" berjalan sesuai dengan spesifikasi yang diharapkan.`
+        },
+        ETIKA_DIGITAL: {
+            act1: `Identifikasi Dampak & Perlindungan Privasi "${t1}"`,
+            act1_desc: `1. Identifikasi implikasi, hak cipta, keamanan, atau privasi dalam implementasi materi terkait "${t1}".\n2. Tuliskan langkah pencegahan kebocoran informasi penting terkait konsep tersebut.`,
+            act2: `Verifikasi Validitas Informasi "${t2}"`,
+            act2_desc: `1. Lakukan analisis kritis terhadap keabsahan informasi dan keaslian karya seni/produk digital seputar "${t2}".\n2. Kumpulkan referensi tepercaya untuk melacak sumber data yang valid.`,
+            act3: `Penyusunan Panduan Etika Penggunaan "${t3}"`,
+            act3_desc: `1. Rumuskan pedoman penggunaan yang aman, sehat, dan bertanggung jawab mengenai "${t3}".\n2. Tuliskan komitmen kelompok dalam menjaga keamanan digital.`
+        },
+        PROYEK: {
+            act1: `Analisis Kebutuhan & Rancangan Solusi "${t1}"`,
+            act1_desc: `1. Lakukan analisis kebutuhan pengguna dan definisikan ruang lingkup permasalahan terkait "${t1}".\n2. Susun rancangan atau sketsa awal solusi kreatif yang ingin ditawarkan.`,
+            act2: `Pembuatan Prototipe Karya Inovasi "${t2}"`,
+            act2_desc: `1. Bangun prototipe operasional (solusi digital, simulasi visual, atau maket sederhana) terkait "${t2}" secara kolaboratif.\n2. Catat dan dokumentasikan setiap langkah pengembangan.`,
+            act3: `Uji Coba Fungsi & Pengumpulan Umpan Balik "${t3}"`,
+            act3_desc: `1. Simulasikan pengoperasian prototipe di depan rekan sejawat untuk menguji fungsi "${t3}".\n2. Catat seluruh umpan balik (feedback) dan usulan perbaikan untuk menyempurnakan karya.`
+        },
+        BAHASA: {
+            act1: `Pengenalan Kosakata & Ungkapan "${t1}"`,
+            act1_desc: `1. Simak dan tirukan pelafalan kosakata terkait "${t1}".\n2. Tuliskan arti dan cara penggunaan kosakata tersebut dalam kalimat sederhana.`,
+            act2: `Praktik Dialog Berpasangan "${t2}"`,
+            act2_desc: `1. Buatlah kelompok berpasangan untuk mempraktikkan dialog mengenai "${t2}".\n2. Gunakan tata bahasa dan intonasi yang tepat saat berdialog.`,
+            act3: `Penyusunan Teks/Percakapan Mandiri "${t3}"`,
+            act3_desc: `1. Susunlah teks atau naskah percakapan orisinal yang berfokus pada "${t3}".\n2. Presentasikan hasil karya bahasa kalian di depan kelas secara komunikatif.`
+        },
+        KONSEP: {
+            act1: `Pemetaan Konsep & Definisi Dasar "${t1}"`,
+            act1_desc: `1. Tuliskan pengertian mendasar, ruang lingkup, dan unsur utama dari "${t1}".\n2. Susun diagram atau skema keterhubungan untuk memetakan bagian-bagian penting tersebut.`,
+            act2: `Kajian Keterkaitan Unsur "${t2}"`,
+            act2_desc: `1. Uraikan hubungan logis dan saling ketergantungan antarkomponen teoretis dalam "${t2}".\n2. Diskusikan contoh penerapan yang mencerminkan hubungan tersebut.`,
+            act3: `Evaluasi Teori & Kesimpulan Studi "${t3}"`,
+            act3_desc: `1. Evaluasi kekuatan dan keterbatasan penerapan teori "${t3}" dalam skenario nyata.\n2. Tarik kesimpulan akademis yang komprehensif berdasarkan hasil diskusi kelompok.`
+        }
+    };
+
+    const style = domainStyles[type] || domainStyles['KONSEP'];
+
+    return `13. LEMBAR KERJA PESERTA DIDIK (LKPD)
+Mata Pelajaran : ${safeSubject}
+Topik / Materi Inti : "${safeMateri}"
+Kelas / Semester : ${safeGrade} / ${safeSemester}
+
+Aktivitas 1: ${style.act1}
+${style.act1_desc}
+
+Aktivitas 2: ${style.act2}
+${style.act2_desc}
+
+Aktivitas 3: ${style.act3}
+${style.act3_desc}`;
+}
+
+function sanitizeOutputForStrictTopicLock(value, safeMateri, domain) {
+    if (typeof value !== 'string') return value;
+
+    const lowerMateri = safeMateri.toLowerCase();
+    let result = value;
+
+    const inMateri = (pattern) => lowerMateri.includes(pattern.toLowerCase());
+
+    // 0. Absolute AI Domain Leak Elimination
+    const containsAI = /\b(ai|artificial intelligence|generative ai|kecerdasan buatan|kecerdasan artifisial|prompt|rekayasa prompt|prompt-engineering|prompt engineering)\b/i.test(safeMateri);
+    
+    if (!containsAI) {
+        let replacementDomainName = "Sistem / Konsep";
+        let replacementPerspektif = "secara sistematis";
+        let replacementLatihan = "Latihan Praktik Terstruktur";
+        let replacementSistem = "sistem terstruktur";
+        let replacementAsisten = "media/alat bantu pendukung";
+        
+        if (domain === 'KODING') {
+            replacementDomainName = "Koding & Pemrograman";
+            replacementPerspektif = "secara logis dan terstruktur";
+            replacementLatihan = "Latihan Praktik Pemrograman";
+            replacementSistem = "struktur logika program";
+            replacementAsisten = "media pemrograman";
+        } else if (domain === 'JARINGAN') {
+            replacementDomainName = "Jaringan Komputer";
+            replacementPerspektif = "berbasis skema jaringan";
+            replacementLatihan = "Latihan Praktik Jaringan";
+            replacementSistem = "sistem konektivitas";
+            replacementAsisten = "alat bantu simulasi";
+        } else if (domain === 'DATA') {
+            replacementDomainName = "Analisis Data";
+            replacementPerspektif = "secara analitis";
+            replacementLatihan = "Latihan Praktik Analisis Data";
+            replacementSistem = "sistem pengolahan data";
+            replacementAsisten = "aplikasi pengolah data";
+        } else if (domain === 'ALGORITMA') {
+            replacementDomainName = "Algoritma & Alur Logika";
+            replacementPerspektif = "secara logis";
+            replacementLatihan = "Latihan Praktik Algoritma";
+            replacementSistem = "bagan alur logika";
+            replacementAsisten = "media perancangan";
+        }
+
+        result = result.replace(/Latihan Praktik Berbasis Kecerdasan Artifisial \(AI\)/gi, replacementLatihan);
+        result = result.replace(/Latihan Praktik Berbasis Kecerdasan Artifisial/gi, replacementLatihan);
+        result = result.replace(/Kecerdasan Artifisial \(AI\)/g, replacementDomainName);
+        result = result.replace(/Kecerdasan Artifisial/g, replacementDomainName);
+        result = result.replace(/Kecerdasan buatan/gi, replacementDomainName);
+        result = result.replace(/perspektif Kecerdasan Artifisial/gi, replacementPerspektif);
+        result = result.replace(/perspektif cerdas/gi, replacementPerspektif);
+        result = result.replace(/menggunakan perspektif cerdas/gi, "secara logis dan kritis");
+        result = result.replace(/menggunakan perspektif sistem/gi, "secara logis");
+        result = result.replace(/teknologi cerdas/gi, "pendekatan sistematis");
+        result = result.replace(/sistem cerdas/gi, replacementSistem);
+        result = result.replace(/asisten\/perangkat bantu/gi, "media pembelajaran");
+        result = result.replace(/dengan bantuan perangkat bantu/gi, "secara mandiri");
+        result = result.replace(/asisten cerdas/gi, replacementAsisten);
+        result = result.replace(/asisten ai/gi, replacementAsisten);
+        result = result.replace(/model ai/gi, replacementSistem);
+        result = result.replace(/model-ai/gi, replacementSistem);
+        result = result.replace(/\bmodel ai\b/gi, replacementSistem);
+        result = result.replace(/\bAI\b/g, "Sistem");
+        result = result.replace(/\bai\b/g, "sistem");
+    }
+
+    // 1. AI Domain Hardening & Template Bias Eraser
+    if (!inMateri('prompt engineering') && !inMateri('prompt-engineering')) {
+        result = result.replace(/\bprompt engineering\b/gi, 'penerapan praktis');
+        result = result.replace(/\bprompt-engineering\b/gi, 'penerapan praktis');
+        result = result.replace(/\brekayasa prompt\b/gi, 'penerapan praktis');
+    }
+    if (!inMateri('generative ai') && !inMateri('ai generatif') && !inMateri('kecerdasan buatan') && !inMateri('kecerdasan artifisial')) {
+        result = result.replace(/\bgenerative ai\b/gi, 'konsep tingkat lanjut');
+        result = result.replace(/\bgenerative-ai\b/gi, 'konsep tingkat lanjut');
+        result = result.replace(/\bai generatif\b/gi, 'konsep tingkat lanjut');
+    }
+    if (!inMateri('model ai') && !inMateri('model-ai')) {
+        result = result.replace(/\bmodel ai\b/gi, 'sistem cerdas');
+        result = result.replace(/\bmodel-ai\b/gi, 'sistem cerdas');
+    }
+    if (!inMateri('dataset') && !inMateri('data set') && !inMateri('data-set')) {
+        result = result.replace(/\bdataset\b/gi, 'data');
+        result = result.replace(/\bdata-set\b/gi, 'data');
+        result = result.replace(/\bdata set\b/gi, 'data');
+    }
+    if (!inMateri('hallucination') && !inMateri('halusinasi')) {
+        result = result.replace(/\bhallucination\b/gi, 'kekeliruan informasi');
+        result = result.replace(/\bhalusinasi\b/gi, 'kesalahan');
+    }
+    if (!inMateri('bias')) {
+        result = result.replace(/\bbias ai\b/gi, 'ketidakakuratan');
+        result = result.replace(/\bbias\b/gi, 'keterbatasan');
+    }
+    if (!inMateri('fact-checking') && !inMateri('fact checking') && !inMateri('fact-check') && !inMateri('fact check')) {
+        result = result.replace(/\bfact-checking\b/gi, 'verifikasi fakta');
+        result = result.replace(/\bfact checking\b/gi, 'verifikasi fakta');
+        result = result.replace(/\bfact-check\b/gi, 'verifikasi');
+        result = result.replace(/\bfact check\b/gi, 'verifikasi');
+    }
+    if (!inMateri('prompt') && !inMateri('prompts')) {
+        result = result.replace(/\bprompt\b/gi, 'instruksi');
+        result = result.replace(/\bprompts\b/gi, 'instruksi');
+    }
+    if (!inMateri('asisten ai') && !inMateri('asisten-ai')) {
+        result = result.replace(/\basisten ai\b/gi, 'asisten cerdas');
+        result = result.replace(/\basisten-ai\b/gi, 'asisten cerdas');
+    }
+    if (!inMateri('asisten cerdas')) {
+        result = result.replace(/\basisten cerdas\b/gi, 'perangkat bantu');
+    }
+    if (!inMateri('tools ai') && !inMateri('tools-ai')) {
+        result = result.replace(/\btools ai\b/gi, 'media pendukung');
+        result = result.replace(/\btools-ai\b/gi, 'media pendukung');
+    }
+    if (!inMateri('manusia sebagai model ai')) {
+        result = result.replace(/\bmanusia sebagai model ai\b/gi, 'peran manusia dalam proses ini');
+    }
+    if (!inMateri('sistem otomatis') && !inMateri('otomatisasi') && !inMateri('otomatis')) {
+        result = result.replace(/\bsistem otomatis\b/gi, 'sistem terstruktur');
+        result = result.replace(/\botomatisasi\b/gi, 'proses sistematis');
+        result = result.replace(/\botomatis\b/gi, 'sistematis');
+    }
+    if (!inMateri('teknologi cerdas')) {
+        result = result.replace(/\bteknologi cerdas\b/gi, 'metode pendukung');
+    }
+
+    // 2. JARINGAN Domain Hardening
+    if (!inMateri('router')) {
+        result = result.replace(/\brouter\b/gi, 'node penghubung');
+    }
+    if (!inMateri('switch')) {
+        result = result.replace(/\bswitch\b/gi, 'perangkat jaringan');
+    }
+    if (!inMateri('ip address') && !inMateri('alamat ip') && !inMateri('ip')) {
+        result = result.replace(/\bip address\b/gi, 'identitas koneksi');
+        result = result.replace(/\balamat ip\b/gi, 'alamat jaringan');
+        result = result.replace(/\balamat ip address\b/gi, 'alamat identitas koneksi');
+    }
+    if (!inMateri('topologi')) {
+        result = result.replace(/\btopologi\b/gi, 'skema struktur');
+    }
+
+    // 3. KODING Domain Hardening
+    if (!inMateri('syntax') && !inMateri('sintaks')) {
+        result = result.replace(/\bsyntax\b/gi, 'struktur aturan');
+        result = result.replace(/\bsintaks\b/gi, 'aturan penulisan');
+    }
+    if (!inMateri('debugging') && !inMateri('debug')) {
+        result = result.replace(/\bdebugging\b/gi, 'pengujian hasil');
+        result = result.replace(/\bdebug\b/gi, 'perbaikan');
+    }
+    if (!inMateri('if-else') && !inMateri('percabangan')) {
+        result = result.replace(/\bif-else\b/gi, 'logika keputusan');
+        result = result.replace(/\bif else\b/gi, 'logika keputusan');
+        result = result.replace(/\bpercabangan\b/gi, 'alur keputusan');
+    }
+    if (!inMateri('loop') && !inMateri('perulangan')) {
+        result = result.replace(/\bloop\b/gi, 'proses berulang');
+        result = result.replace(/\bperulangan\b/gi, 'langkah berulang');
+    }
+    if (!inMateri('fungsi')) {
+        result = result.replace(/fungsionalitasnya/gi, 'kegunaan dan perannya');
+        result = result.replace(/fungsionalitas/gi, 'kegunaan dan peran');
+        result = result.replace(/fungsional/gi, 'fungsional');
+        result = result.replace(/\bfungsi\b/gi, 'kegunaan/peran');
+    }
+    if (!inMateri('objek')) {
+        result = result.replace(/\bobjek\b/gi, 'komponen');
+    }
+    if (!inMateri('variabel')) {
+        result = result.replace(/\bvariabel\b/gi, 'parameter');
+    }
+
+    // 4. ALGORITMA Domain Hardening
+    if (!inMateri('flowchart') && !inMateri('bagan alur')) {
+        result = result.replace(/\bflowchart\b/gi, 'diagram alur');
+        result = result.replace(/\bbagan alur\b/gi, 'diagram alur');
+    }
+    if (!inMateri('pseudocode')) {
+        result = result.replace(/\bpseudocode\b/gi, 'notasi langkah terstruktur');
+    }
+    if (!inMateri('tracing') && !inMateri('penelusuran')) {
+        result = result.replace(/\btracing\b/gi, 'pemeriksaan');
+        result = result.replace(/\bpenelusuran\b/gi, 'pemeriksaan alur');
+    }
+
+    // 5. DATA Domain Hardening
+    if (!inMateri('spreadsheet') && !inMateri('spread sheet')) {
+        result = result.replace(/\bspreadsheet\b/gi, 'aplikasi pengolah data');
+        result = result.replace(/\bspread sheet\b/gi, 'lembar kerja digital');
+    }
+
+    // 6. ETIKA_DIGITAL Domain Hardening
+    if (!inMateri('phishing')) {
+        result = result.replace(/\bphishing\b/gi, 'ancaman keamanan digital');
+    }
+    if (!inMateri('hoaks') && !inMateri('hoax')) {
+        result = result.replace(/\bhoaks\b/gi, 'informasi palsu');
+        result = result.replace(/\bhoax\b/gi, 'informasi tidak akurat');
+    }
+
+    // 7. KONSEP Domain Hardening
+    if (!inMateri('mind map') && !inMateri('mindmap')) {
+        result = result.replace(/\bmind map\b/gi, 'peta analisis');
+        result = result.replace(/\bmindmap\b/gi, 'peta analisis');
+    }
+    if (!inMateri('peta konsep')) {
+        result = result.replace(/\bpeta konsep\b/gi, 'skema keterhubungan');
+    }
+
+    return result;
+}
+
+function sanitizeObject(obj, safeMateri, domain) {
+    if (typeof obj === 'string') {
+        return sanitizeOutputForStrictTopicLock(obj, safeMateri, domain);
+    } else if (Array.isArray(obj)) {
+        return obj.map(item => sanitizeObject(item, safeMateri, domain));
+    } else if (typeof obj === 'object' && obj !== null) {
+        const copy = {};
+        for (const key of Object.keys(obj)) {
+            if (key === 'selectedJenis') {
+                copy[key] = obj[key];
+            } else {
+                copy[key] = sanitizeObject(obj[key], safeMateri, domain);
+            }
+        }
+        return copy;
+    }
+    return obj;
+}
+
+export function generateMasterV2ModulAjar(inputs = {}) {
+    const {
+        schoolName = 'Nama Sekolah',
+        teacherName = 'Tim Guru Mata Pelajaran',
+        subjectName = 'Mata Pelajaran',
+        phase = 'D',
+        grade = 'VIII',
+        semester = '1',
+        babUtama = 'Algoritma dan Pemrograman',
+        subbab = 'Flowchart & Logika',
+        materiInti = 'Penyusunan algoritma dan alur keputusan',
+        alokasiWaktu = '4 JP',
+        jenisMateri = 'OTOMATIS',
+        modelPembelajaran = 'Deep Learning',
+        variationNonce
+    } = inputs;
+
+    const nonce = (variationNonce !== undefined && variationNonce !== null) 
+        ? variationNonce 
+        : Math.floor(Math.random() * 100000);
+
+    const totalJP = parseAlokasiJP(alokasiWaktu);
+    const jumlahPertemuan = Math.max(1, Math.ceil(totalJP / 2));
+    const formattedAlokasi = `${totalJP} JP (${jumlahPertemuan} Pertemuan @ 2 JP)`;
+
+    // Phase and Grade consistency check
+    let finalPhase = phase;
+    const upperGrade = (grade || '').toUpperCase();
+    if (upperGrade.includes('XII') || upperGrade.includes('XI') || upperGrade.includes('12') || upperGrade.includes('11')) {
+        finalPhase = 'F';
+    } else if (upperGrade.includes('X') || upperGrade.includes('10')) {
+        finalPhase = 'E';
+    } else if (upperGrade.includes('IX') || upperGrade.includes('VIII') || upperGrade.includes('VII') || upperGrade.includes('9') || upperGrade.includes('8') || upperGrade.includes('7')) {
+        finalPhase = 'D';
+    }
+
+    // STRICT DOMAIN LOCK: if jenisMateri is explicitly provided and not OTOMATIS, use it absolutely.
+    const selectedJenis = (jenisMateri && jenisMateri !== 'OTOMATIS' && jenisMateri.trim() !== '') 
+        ? jenisMateri.toUpperCase() 
+        : autoDetectMaterialType(subjectName, babUtama, subbab, materiInti);
+
+    const matRules = rulesData.material_types[selectedJenis] || rulesData.material_types['KONSEP'];
+    const seed = `${subjectName}_${babUtama}_${subbab}_${materiInti}_${grade}_${selectedJenis}`;
+
+    // Establish Single Source of Truth: Domain Context
+    const domainContext = {
+        type: selectedJenis,
+        rules: matRules,
+        subject: subjectName || 'Mata Pelajaran',
+        phase: finalPhase || 'D',
+        grade: grade || 'VIII',
+        semester: semester || '1',
+        bab: babUtama || 'Materi Utama',
+        subbab: subbab || 'Topik Pokok',
+        materi: materiInti || 'Konsep Dasar',
+        selectedJenis: selectedJenis
+    };
+
+    const safeSchool = schoolName || 'MTs / SMA Negeri 1';
+    const safeTeacher = teacherName || 'Tim Guru Mata Pelajaran';
+    const safeSubject = domainContext.subject;
+    const safePhase = domainContext.phase;
+    const safeGrade = domainContext.grade;
+    const safeSemester = domainContext.semester;
+    const safeBab = domainContext.bab;
+    const safeSubbab = domainContext.subbab;
+    const safeMateri = domainContext.materi;
+
+    const karIndex = getPatternIndex(seed + '_kar', sentenceBank.karakteristik_materi.length, nonce);
+    const rawKarakteristik = sentenceBank.karakteristik_materi[karIndex];
+    const karakteristikFormatted = rawKarakteristik
+        .replace(/{{MATERI_INTI}}/g, safeMateri)
+        .replace(/{{KONSEP_UTAMA}}/g, safeSubbab)
+        .replace(/{{BAB_UTAMA}}/g, safeBab)
+        .replace(/{{SUBBAB}}/g, safeSubbab);
+
+    // STRICT TOPIC LOCK: Dynamic, non-biased Capaian Pembelajaran definitions
+    const domainCaps = {
+        AI: `Peserta didik mampu memahami, menganalisis, dan mengevaluasi penerapan "${safeMateri}" menggunakan perspektif ${resolveTerm('asisten cerdas', safeMateri)} secara kritis, kreatif, dan beretika.`,
+        DATA: `Peserta didik mampu mengumpulkan, mengolah, menganalisis, dan memvisualisasikan data terkait "${safeMateri}" untuk menarik kesimpulan dan rekomendasi keputusan berbasis bukti data.`,
+        JARINGAN: `Peserta didik mampu memahami arsitektur, konektivitas, konfigurasi, dan pemecahan masalah (troubleshooting) sistem/node yang berkaitan dengan penerapan "${safeMateri}".`,
+        ALGORITMA: `Peserta didik mampu melakukan dekomposisi, merancang alur logika, ${resolveTerm('flowchart', safeMateri)}, dan menyusun langkah sistematis (${resolveTerm('pseudocode', safeMateri)}) dalam memecahkan masalah terkait "${safeMateri}".`,
+        KODING: `Peserta didik mampu memodelkan, menuliskan struktur logika/instruksi program, melakukan pengujian, dan melakukan perbaikan kesalahan (${resolveTerm('debugging', safeMateri)}) dalam implementasi praktis terkait "${safeMateri}".`,
+        ETIKA_DIGITAL: `Peserta didik mampu menganalisis implikasi, keamanan informasi, hak cipta, perlindungan data pribadi, dan etika komunikasi dalam konteks materi "${safeMateri}".`,
+        PROYEK: `Peserta didik mampu merencanakan, merancang prototipe, melakukan kolaborasi tim, mengumpulkan umpan balik, dan mempresentasikan karya inovasi digital terkait "${safeMateri}".`,
+        KONSEP: `Peserta didik mampu mengkaji secara mendalam definisi teoretis, ruang lingkup, hakikat, dan klasifikasi konseptual terkait "${safeMateri}" serta relevansinya di dunia nyata.`
+    };
+
+    // STRICT TOPIC LOCK: Dynamic, non-biased Bloom's Taxonomy Tujuan Pembelajaran (TP) C1-C6
+    const domainTps = {
+        AI: {
+            C1_C2: `Peserta didik mampu menjelaskan konsep dasar, definisi esensial, dan istilah teknis terkait "${safeMateri}" secara kritis menggunakan perspektif cerdas.`,
+            C3_C4: `Peserta didik mampu merancang langkah praktis, mensimulasikan alur kerja, dan menganalisis penerapan "${safeMateri}" dengan bantuan ${resolveTerm('asisten ai', safeMateri)} secara sistematis.`,
+            C5_C6: `Peserta didik mampu mengevaluasi akurasi, meminimalkan potensi ${resolveTerm('bias', safeMateri)}/kesalahan, serta merumuskan panduan etis pemanfaatan ${resolveTerm('asisten ai', safeMateri)} pada materi "${safeMateri}".`
+        },
+        DATA: {
+            C1_C2: `Peserta didik mampu mengidentifikasi tipe ${resolveTerm('variabel', safeMateri)}, parameter, dan kebutuhan ${resolveTerm('dataset', safeMateri)} dasar terkait "${safeMateri}".`,
+            C3_C4: `Peserta didik mampu mengolah data, membuat visualisasi grafik, dan menganalisis tren informasi terkait "${safeMateri}".`,
+            C5_C6: `Peserta didik mampu menarik kesimpulan analitis, menyusun laporan, dan merekomendasikan keputusan berbasis data terkait "${safeMateri}".`
+        },
+        JARINGAN: {
+            C1_C2: `Peserta didik mampu menjelaskan fungsi perangkat jaringan, ${resolveTerm('topologi', safeMateri)}, dan alur komunikasi data terkait "${safeMateri}".`,
+            C3_C4: `Peserta didik mampu mengonfigurasi skema pengalamatan, ${resolveTerm('ip address', safeMateri)}, dan menguji konektivitas sistem pada penerapan "${safeMateri}".`,
+            C5_C6: `Peserta didik mampu menganalisis kesalahan (troubleshooting), menguji keamanan node, dan menyempurnakan keandalan koneksi "${safeMateri}".`
+        },
+        ALGORITMA: {
+            C1_C2: `Peserta didik mampu menjelaskan dekomposisi masalah, langkah logis, dan fungsi simbol-simbol ${resolveTerm('bagan alur', safeMateri)} terkait "${safeMateri}".`,
+            C3_C4: `Peserta didik mampu merancang ${resolveTerm('flowchart', safeMateri)} dan ${resolveTerm('pseudocode', safeMateri)} sistematis untuk merumuskan alur keputusan terkait "${safeMateri}".`,
+            C5_C6: `Peserta didik mampu melakukan penelusuran (tracing), mengevaluasi efisiensi logika, dan memverifikasi kebenaran alur dari "${safeMateri}".`
+        },
+        KODING: {
+            C1_C2: `Peserta didik mampu mengenali ${resolveTerm('sintaks', safeMateri)} dasar, struktur ${resolveTerm('variabel', safeMateri)}, dan inisialisasi tipe data untuk mengimplementasikan "${safeMateri}".`,
+            C3_C4: `Peserta didik mampu menuliskan baris kode program menggunakan struktur ${resolveTerm('percabangan', safeMateri)} atau ${resolveTerm('perulangan', safeMateri)} terkait "${safeMateri}".`,
+            C5_C6: `Peserta didik mampu mendeteksi kesalahan (error), melakukan ${resolveTerm('debugging', safeMateri)} secara mandiri, and menguji kegunaan program "${safeMateri}".`
+        },
+        ETIKA_DIGITAL: {
+            C1_C2: `Peserta didik mampu menjelaskan perlindungan privasi, jejak digital, dan pentingnya menghargai hak cipta terkait "${safeMateri}".`,
+            C3_C4: `Peserta didik mampu melakukan verifikasi fakta (fact-checking) dan mengidentifikasi potensi ancaman keamanan digital terkait "${safeMateri}".`,
+            C5_C6: `Peserta didik mampu merancang kampanye etika terapan yang aman, sehat, dan bertanggung jawab mengenai penggunaan materi "${safeMateri}".`
+        },
+        PROYEK: {
+            C1_C2: `Peserta didik mampu merumuskan kebutuhan pengguna dan mendefinisikan ruang lingkup masalah nyata terkait proyek "${safeMateri}".`,
+            C3_C4: `Peserta didik mampu merancang spesifikasi teknis and membangun prototipe solusi digital terkait "${safeMateri}" secara kolaboratif.`,
+            C5_C6: `Peserta didik mampu menguji fungsi prototipe, mengumpulkan masukan pengguna, serta menyempurnakan karya akhir "${safeMateri}".`
+        },
+        BAHASA: {
+            C1_C2: `Peserta didik mampu melafalkan dan mengartikan kosakata serta ungkapan dasar dengan tepat terkait "${safeMateri}".`,
+            C3_C4: `Peserta didik mampu menggunakan ungkapan dan tata bahasa dalam kalimat atau percakapan sederhana terkait "${safeMateri}".`,
+            C5_C6: `Peserta didik mampu menyusun dan mempresentasikan teks atau dialog secara fasih dan bermakna terkait "${safeMateri}".`
+        },
+        KONSEP: {
+            C1_C2: `Peserta didik mampu menjelaskan definisi, pengertian esensial, dan ruang lingkup konseptual dari "${safeMateri}".`,
+            C3_C4: `Peserta didik mampu menguraikan komponen utama dan memetakan keterkaitan unsur-unsur teoretis terkait "${safeMateri}".`,
+            C5_C6: `Peserta didik mampu mengevaluasi penerapan teori, menarik kesimpulan yang komprehensif, dan mengaitkan konsep "${safeMateri}" dengan penerapan materi nyata.`
+        }
+    };
+
+    const activeTP = domainTps[domainContext.type] || domainTps['KONSEP'];
+    const tp1 = activeTP.C1_C2;
+    const tp2 = activeTP.C3_C4;
+    const tp3 = activeTP.C5_C6;
+
+    // STRICT TOPIC LOCK: Pertanyaan Pemantik must be dynamically centered on safeMateri to prevent default subtopic overrides
+    const pemantikFenomena = `Bagaimana fenomena terkait "${safeMateri}" diimplementasikan dalam domain ${domainContext.rules.name} untuk mempermudah aktivitas manusia sehari-hari?`;
+    const pemantikMasalah = `Apa masalah atau batasan utama yang harus diantisipasi saat kita merancang solusi berbasis "${safeMateri}"?`;
+    const pemantikPrediksi = `Bagaimana dampak jangka panjang dari penerapan "${safeMateri}" terhadap efisiensi dan keilmuan ini?`;
+    const pemantikPerbandingan = `Bagaimana perbandingan efektivitas antara metode konvensional dengan metode modern yang menerapkan konsep "${safeMateri}"?`;
+    const pemantikProblemSolving = `Langkah strategis apa yang dapat diambil untuk memecahkan kendala atau kegagalan sistem dalam penerapan "${safeMateri}"?`;
+
+    const kbcAllahIdx = getPatternIndex(seed + '_kbc_allah', sentenceBank.kbc.cinta_allah.length, nonce);
+    const kbcIlmuIdx = getPatternIndex(seed + '_kbc_ilmu', sentenceBank.kbc.cinta_ilmu.length, nonce);
+    const kbcDiriIdx = getPatternIndex(seed + '_kbc_diri', sentenceBank.kbc.cinta_diri.length, nonce);
+    const kbcSesamaIdx = getPatternIndex(seed + '_kbc_sesama', sentenceBank.kbc.cinta_sesama.length, nonce);
+    const kbcLingkunganIdx = getPatternIndex(seed + '_kbc_lingkungan', sentenceBank.kbc.cinta_lingkungan.length, nonce);
+    const kbcTanahAirIdx = getPatternIndex(seed + '_kbc_tanahair', sentenceBank.kbc.cinta_tanah_air.length, nonce);
+
+    const kbcAllah = sentenceBank.kbc.cinta_allah[kbcAllahIdx].replace(/{{MATERI_INTI}}/g, safeMateri);
+    const kbcIlmu = sentenceBank.kbc.cinta_ilmu[kbcIlmuIdx].replace(/{{MATERI_INTI}}/g, safeMateri);
+    const kbcDiri = sentenceBank.kbc.cinta_diri[kbcDiriIdx].replace(/{{MATERI_INTI}}/g, safeMateri);
+    const kbcSesama = sentenceBank.kbc.cinta_sesama[kbcSesamaIdx].replace(/{{BAB_UTAMA}}/g, safeBab).replace(/{{MATERI_INTI}}/g, safeMateri);
+    const kbcLingkungan = sentenceBank.kbc.cinta_lingkungan[kbcLingkunganIdx].replace(/{{MATERI_INTI}}/g, safeMateri);
+    const kbcTanahAir = sentenceBank.kbc.cinta_tanah_air[kbcTanahAirIdx].replace(/{{MATERI_INTI}}/g, safeMateri);
+
+    let kegiatanPembelajaranText = `08. KEGIATAN PEMBELAJARAN (${jumlahPertemuan} PERTEMUAN - ALOKASI ${totalJP} JP)\n`;
+
+    const getDynamicActivities = (domain, safeMateri) => {
+        const lower = safeMateri.toLowerCase();
+        const inMateri = (term) => lower.includes(term.toLowerCase());
+
+        const hasAI = inMateri('ai') || inMateri('artificial intelligence') || inMateri('kecerdasan') || inMateri('prompt');
+        const hasData = inMateri('data') || inMateri('dataset') || inMateri('spreadsheet') || inMateri('tabel') || inMateri('grafik');
+        const hasJaringan = inMateri('jaringan') || inMateri('router') || inMateri('ip') || inMateri('switch') || inMateri('koneksi');
+        const hasAlgo = inMateri('algoritma') || inMateri('flowchart') || inMateri('pseudocode') || inMateri('rute') || inMateri('langkah');
+        const hasKoding = inMateri('koding') || inMateri('pemrograman') || inMateri('variabel') || inMateri('perulangan') || inMateri('percabangan') || inMateri('fungsi');
+
+        if (domain === 'AI') {
+            if (hasAI) {
+                return {
+                    pTunggal: `Guru memaparkan konsep dasar kecerdasan artifisial dan relevansinya. Peserta didik menganalisis "${safeMateri}", mengamati simulasi model AI, mengeksplorasi prompt engineering secara kritis terbantu asisten AI, serta merangkum hasil pembelajaran.`,
+                    p1: `Guru menyajikan gambaran umum kecerdasan artifisial. Peserta didik mengidentifikasi unsur-unsur AI, menganalisis dasar "${safeMateri}", serta merumuskan pertanyaan eksplorasi menggunakan asisten AI.`,
+                    p2: `Peserta didik merancang skema kerja atau model AI terkait "${safeMateri}", menguji respon sistem dengan bantuan asisten AI, serta mendokumentasikan variasi hasil.`,
+                    p3: `Peserta didik mengevaluasi akurasi, menganalisis potensi bias atau halusinasi sistem pada penerapan "${safeMateri}", serta mendiskusikan langkah mitigasinya.`,
+                    p4: `Peserta didik menyempurnakan rancangan solusi, menyusun panduan etis pemanfaatan asisten AI untuk "${safeMateri}", dan mendemonstrasikannya.`
+                };
+            } else {
+                return {
+                    pTunggal: `Guru mengulas landasan teoretis dan penerapan praktis terkait "${safeMateri}". Peserta didik menganalisis konsep pokok "${safeMateri}", mengamati penerapan materi digital, melakukan eksperimen terstruktur secara kritis, serta merangkum hasil pembelajaran secara kolaboratif.`,
+                    p1: `Guru menyajikan gambaran umum dan relevansi kontekstual seputar "${safeMateri}". Peserta didik mengidentifikasi elemen utama, mendiskusikan pentingnya materi tersebut di era digital, serta merumuskan pertanyaan eksplorasi yang mendasar.`,
+                    p2: `Peserta didik merancang skema operasional atau alur kerja terstruktur terkait "${safeMateri}", menyusun pemodelan sistematis, serta mendokumentasikan variasi hasil observasi kelompok.`,
+                    p3: `Peserta didik menguji keandalan skema operasional, menganalisis potensi kendala atau kekeliruan dalam penerapan "${safeMateri}", serta mendiskusikan langkah pemecahan masalah bersama kelompok.`,
+                    p4: `Peserta didik menyempurnakan rancangan solusi, menyusun panduan penerapan praktis yang aman untuk "${safeMateri}", dan mendemonstrasikan hasil evaluasi di hadapan kelas.`
+                };
+            }
+        }
+
+        if (domain === 'DATA') {
+            if (hasData) {
+                return {
+                    pTunggal: `Guru menyajikan dataset dasar. Peserta didik mengidentifikasi tipe ${resolveTerm('variabel', safeMateri)}, membersihkan data, menyusun tabel informasi terstruktur terkait "${safeMateri}", membuat grafik sederhana, serta merangkum kesimpulan tren data.`,
+                    p1: `Guru menyajikan ${resolveTerm('dataset', safeMateri)} kontekstual. Peserta didik mengidentifikasi parameter data, menyusun tabel terstruktur, dan merancang kerangka kerja pengolahan data terkait "${safeMateri}".`,
+                    p2: `Peserta didik mengolah tabel informasi, membuat visualisasi grafik/diagram komunikasi yang informatif seputar tren "${safeMateri}" menggunakan ${resolveTerm('spreadsheet', safeMateri)}.`,
+                    p3: `Peserta didik menguji ketepatan grafik, menganalisis tren data, serta mendiskusikan wawasan (insights) penting mengenai "${safeMateri}" bersama kelompok.`,
+                    p4: `Peserta didik merumuskan rekomendasi keputusan berbasis bukti data "${safeMateri}", menyusun laporan analitis, dan mempresentasikan hasil temuan mereka.`
+                };
+            } else {
+                return {
+                    pTunggal: `Guru memaparkan konsep dasar dan skenario analisis terkait "${safeMateri}". Peserta didik memetakan elemen-elemen informasi pokok, mengorganisasi data penting secara sistematis, serta merangkum kesimpulan hasil analisis terstruktur.`,
+                    p1: `Guru memberikan gambaran umum dan penerapan materi seputar "${safeMateri}". Peserta didik mengidentifikasi aspek-aspek informasi kunci, menyusun kategori pengamatan, dan merancang rencana eksplorasi kelompok.`,
+                    p2: `Peserta didik melakukan pengamatan dan analisis informasi kontekstual, memetakan hubungan logis antarbagian terkait "${safeMateri}", serta mendokumentasikan temuan secara teratur.`,
+                    p3: `Peserta didik memverifikasi kebenaran informasi, mendeteksi penyimpangan atau kekeliruan konsep seputar "${safeMateri}", serta mendiskusikan implikasinya secara kritis.`,
+                    p4: `Peserta didik merumuskan kesimpulan akhir, menyusun dokumen hasil rekomendasi praktis terkait "${safeMateri}", dan menyajikan laporan kelompok.`
+                };
+            }
+        }
+
+        if (domain === 'JARINGAN') {
+            if (hasJaringan) {
+                return {
+                    pTunggal: `Guru menguraikan dasar infrastruktur jaringan. Peserta didik memetakan ${resolveTerm('topologi', safeMateri)} sederhana, mengonfigurasi skema pengalamatan ${resolveTerm('ip address', safeMateri)}, menguji koneksi ping terkait "${safeMateri}", serta merangkum penyelesaian kendala.`,
+                    p1: `Guru menguraikan skema infrastruktur/distribusi. Peserta didik mengidentifikasi komponen node, memetakan ${resolveTerm('topologi', safeMateri)}, dan merancang alur transfer informasi terkait "${safeMateri}".`,
+                    p2: `Peserta didik melakukan konfigurasi skema pengalamatan, merancang ${resolveTerm('ip address', safeMateri)}, dan mensimulasikan uji konektivitas antarnode terkait "${safeMateri}".`,
+                    p3: `Peserta didik mendeteksi kendala koneksi (troubleshooting), menganalisis titik kegagalan sistem pada penerapan "${safeMateri}", dan mengeksekusi perbaikan taktis.`,
+                    p4: `Peserta didik menguji aspek keamanan akses, menyusun laporan arsitektur jaringan "${safeMateri}", and mempresentasikan skema solusi kelompok.`
+                };
+            } else {
+                return {
+                    pTunggal: `Guru menguraikan arsitektur dan keterhubungan sistem terkait "${safeMateri}". Peserta didik memetakan hubungan antarkomponen, menyusun alur koordinasi terstruktur, serta menguji ketepatan koneksi konseptual antarelemen tersebut.`,
+                    p1: `Guru menjelaskan skema keterhubungan atau struktur operasional seputar "${safeMateri}". Peserta didik memetakan elemen penunjang, mendesain pola interaksi, dan menyusun peta rancangan awal.`,
+                    p2: `Peserta didik menyusun skema integrasi, menetapkan peran operasional tiap komponen, serta menyimulasikan jalannya pertukaran informasi pada "${safeMateri}".`,
+                    p3: `Peserta didik menganalisis titik hambatan atau kendala operasional dalam penerapan "${safeMateri}", mendiskusikan alternatif solusi, dan melakukan perbaikan skema.`,
+                    p4: `Peserta didik memverifikasi keandalan sistem secara menyeluruh, menyusun dokumen panduan operasional "${safeMateri}", dan mendemonstrasikannya di depan kelas.`
+                };
+            }
+        }
+
+        if (domain === 'ALGORITMA') {
+            if (hasAlgo) {
+                return {
+                    pTunggal: `Guru memaparkan dasar pemecahan masalah logis. Peserta didik melakukan dekomposisi masalah, menyusun ${resolveTerm('flowchart', safeMateri)} simbol standar, merancang ${resolveTerm('pseudocode', safeMateri)} terstruktur terkait "${safeMateri}", serta melakukan tracing manual.`,
+                    p1: `Guru menyajikan permasalahan logika. Peserta didik melakukan dekomposisi masalah, menentukan bagian masukan-proses-keluaran, dan merancang langkah awal (algoritma) terkait "${safeMateri}".`,
+                    p2: `Peserta didik membangun diagram alur (${resolveTerm('flowchart', safeMateri)}) menggunakan simbol standar dan menuliskan ${resolveTerm('pseudocode', safeMateri)} terstruktur untuk menyelesaikan "${safeMateri}".`,
+                    p3: `Peserta didik melakukan penelusuran (tracing / desk-check) jalannya logika untuk memverifikasi kebenaran dan efisiensi alur penyelesaian "${safeMateri}".`,
+                    p4: `Peserta didik memperbaiki kesalahan logika (infinite loop/miskonsepsi), menyempurnakan ${resolveTerm('pseudocode', safeMateri)}, dan mempresentasikan hasil rancangan algoritma "${safeMateri}".`
+                };
+            } else {
+                return {
+                    pTunggal: `Guru menjelaskan dasar perencanaan langkah pemecahan masalah secara logis. Peserta didik melakukan dekomposisi materi "${safeMateri}", menyusun skema urutan langkah terstruktur, serta memverifikasi ketepatan jalannya proses tersebut.`,
+                    p1: `Guru memaparkan penerapan materi permasalahan kontekstual seputar "${safeMateri}". Peserta didik memecah masalah menjadi bagian lebih kecil, merancang urutan tindakan logis, dan menyusun peta alur penyelesaian.`,
+                    p2: `Peserta didik membangun bagan proses terperinci dan mendokumentasikan instruksi langkah-demi-langkah yang terstruktur untuk mengimplementasikan "${safeMateri}".`,
+                    p3: `Peserta didik melakukan pemeriksaan mandiri (simulasi jalannya alur) untuk memverifikasi kebenaran dan keefektifan setiap langkah penyelesaian terkait "${safeMateri}".`,
+                    p4: `Peserta didik menganalisis dan memperbaiki ketidaklarasan atau tumpang tindih langkah, mengoptimalkan urutan proses, dan menyajikan hasil rancangan terstruktur di depan kelas.`
+                };
+            }
+        }
+
+        if (domain === 'KODING') {
+            if (hasKoding) {
+                return {
+                    pTunggal: `Guru memperagakan pemodelan logika dasar. Peserta didik mengidentifikasi tipe data ${resolveTerm('variabel', safeMateri)}, mengetikkan ${resolveTerm('syntax', safeMateri)} program dasar percabangan, melakukan eksekusi dan ${resolveTerm('debugging', safeMateri)} sederhana terkait "${safeMateri}".`,
+                    p1: `Guru menyajikan pemodelan logika program. Peserta didik mengidentifikasi inisialisasi ${resolveTerm('variabel', safeMateri)}, tipe data, dan merancang skema alur instruksi terkait "${safeMateri}".`,
+                    p2: `Peserta didik menuliskan baris kode program (${resolveTerm('syntax', safeMateri)}) dengan menerapkan struktur ${resolveTerm('percabangan', safeMateri)} atau ${resolveTerm('perulangan', safeMateri)} yang relevan untuk mengeksekusi "${safeMateri}".`,
+                    p3: `Peserta didik menjalankan program, mendeteksi error, melakukan ${resolveTerm('debugging', safeMateri)} secara sistematis, dan menguji ketahanan skrip program "${safeMateri}".`,
+                    p4: `Peserta didik menyempurnakan struktur modular kode, menambahkan fungsi validasi, mendokumentasikan skrip, dan mempresentasikan demonstrasi program "${safeMateri}".`
+                };
+            } else {
+                return {
+                    pTunggal: `Guru mendemonstrasikan penyusunan aturan dan struktur kerja sistem. Peserta didik mengidentifikasi komponen pokok, menyusun instruksi operasional yang teratur, mengeksekusi langkah-langkah kerja, serta menguji ketepatan hasil terkait "${safeMateri}".`,
+                    p1: `Guru menjelaskan pemodelan logika operasional. Peserta didik mengidentifikasi elemen masukan, menentukan parameter dasar, and merancang skema alur proses terkait "${safeMateri}".`,
+                    p2: `Peserta didik menyusun dan merangkai baris instruksi atau aturan kerja terstruktur yang presisi untuk menjalankan skenario terkait "${safeMateri}".`,
+                    p3: `Peserta didik menguji jalannya instruksi, mendeteksi ketidaksesuaian hasil, melakukan koreksi atau perbaikan langkah secara sistematis, dan menguji ketahanan solusi "${safeMateri}".`,
+                    p4: `Peserta didik menyempurnakan keutuhan struktur instruksi, menambahkan langkah antisipasi kesalahan, mendokumentasikan prosedur kerja, and mempresentasikan demonstrasi hasil kelompok.`
+                };
+            }
+        }
+
+        const fallbackMap = {
+            ETIKA_DIGITAL: {
+                pTunggal: `Guru memaparkan isu perilaku siber. Peserta didik mengidentifikasi risiko keamanan/privasi, menerapkan verifikasi fakta (fact-check) terhadap konten "${safeMateri}", serta berkomitmen menjaga digital hygiene.`,
+                p1: `Guru menyajikan kasus penyalahgunaan informasi/keamanan. Peserta didik mengidentifikasi risiko, privasi, dan implikasi hukum siber terkait "${safeMateri}".`,
+                p2: `Peserta didik melakukan analisis kritis terhadap kevalidan informasi, melakukan verifikasi fakta (fact-checking), and mengumpulkan rujukan kredibel seputar "${safeMateri}".`,
+                p3: `Peserta didik merumuskan pedoman keamanan atau etika implementasi dalam konteks keilmuan terkait "${safeMateri}".`,
+                p4: `Peserta didik merancang produk kampanye positif (poster/infografis), menyusun komitmen bersama, dan menyajikan presentasi di depan kelas.`
+            },
+            PROYEK: {
+                pTunggal: `Guru mengulas perancangan solusi terpadu. Peserta didik menganalisis kebutuhan pengguna, membangun sketsa/prototipe sederhana, menguji coba, mencatat masukan terkait "${safeMateri}", serta menyusun draf karya.`,
+                p1: `Kelompok mengidentifikasi kebutuhan pengguna, merumuskan spesifikasi teknis, dan menyusun rencana kerja proyek terkait "${safeMateri}".`,
+                p2: `Peserta didik berkolaborasi membangun rancangan awal (wireframe) dan mengembangkan prototipe operasional solusi digital seputar "${safeMateri}".`,
+                p3: `Kelompok melakukan uji coba operasional prototipe, mengumpulkan umpan balik (feedback) dari pengguna, dan mencatat poin-poin perbaikan "${safeMateri}".`,
+                p4: `Kelompok menyempurnakan prototipe, mendokumentasikan laporan proyek secara lengkap, dan mempamerkan/mempresentasikan karya akhir "${safeMateri}".`
+            },
+            BAHASA: {
+            C1_C2: `Peserta didik mampu melafalkan dan mengartikan kosakata serta ungkapan dasar dengan tepat terkait "${safeMateri}".`,
+            C3_C4: `Peserta didik mampu menggunakan ungkapan dan tata bahasa dalam kalimat atau percakapan sederhana terkait "${safeMateri}".`,
+            C5_C6: `Peserta didik mampu menyusun dan mempresentasikan teks atau dialog secara fasih dan bermakna terkait "${safeMateri}".`
+        },
+        KONSEP: {
+                pTunggal: `Guru menjelaskan materi konseptual utama. Peserta didik mengkaji literatur teoretis, menyusun peta konsep sederhana, mengidentifikasi relevansi nyata terkait "${safeMateri}", serta berpartisipasi aktif dalam diskusi.`,
+                p1: `Guru memaparkan latar belakang teoretis. Peserta didik mengkaji literatur, merumuskan definisi esensial, dan mengidentifikasi ruang lingkup dasar dari "${safeMateri}".`,
+                p2: `Peserta didik membedah komponen utama dan kaidah mendasar yang mendominasi teori "${safeMateri}" melalui diskusi kelompok terarah.`,
+                p3: `Peserta didik menyusun peta konsep yang menggambarkan hubungan logis antar-elemen teoretis seputar "${safeMateri}".`,
+                p4: `Peserta didik menganalisis relevansi teori dalam penerapan materi nyata di masyarakat, merumuskan kesimpulan akhir, dan menyajikan hasil analisis kelompok.`
+            }
+        };
+
+        return fallbackMap[domain] || fallbackMap['KONSEP'];
+    };
+
+    const activeKegiatan = getDynamicActivities(domainContext.type, safeMateri);
+
+    for (let p = 1; p <= jumlahPertemuan; p++) {
+        let pTitle = '';
+        let pKegiatan = '';
+
+        if (jumlahPertemuan === 1) {
+            pTitle = `PERTEMUAN TUNGGAL (2 JP): EKSPLORASI & PRAKTIK INTEGRATIF`;
+            pKegiatan = activeKegiatan.pTunggal;
+        } else if (p === 1) {
+            pTitle = `PERTEMUAN KE-1 (2 JP): EKSPLORASI KONSEP & ANALISIS AWAL`;
+            pKegiatan = activeKegiatan.p1;
+        } else if (p === 2) {
+            pTitle = `PERTEMUAN KE-2 (2 JP): IMPLEMENTASI PRAKTIK & SIMULASI SOLUSI`;
+            pKegiatan = activeKegiatan.p2;
+        } else if (p === 3) {
+            pTitle = `PERTEMUAN KE-3 (2 JP): EVALUASI, PENYEMPURNAAN & ANALISIS LANJUT`;
+            pKegiatan = activeKegiatan.p3;
+        } else {
+            pTitle = `PERTEMUAN KE-${p} (2 JP): DOKUMENTASI, PRESENTASI KARYA & EVALUASI AKHIR`;
+            pKegiatan = activeKegiatan.p4;
+        }
+
+        kegiatanPembelajaranText += `\n${pTitle}
+- Pendahuluan (15 Menit): Guru membuka dengan doa bersama, cek presensi, apersepsi interaktif, dan menyampaikan pertanyaan pemantik.
+- Kegiatan Inti (60 Menit): ${pKegiatan}
+- Penutup (15 Menit): Refleksi singkat, penguatan nilai PPP, menyimpulkan poin utama, dan instruksi pertemuan selanjutnya.\n`;
+    }
+
+    let mod14_ProyekOrTugas = '';
+    if (domainContext.type === 'PROYEK') {
+        mod14_ProyekOrTugas = `14. PROYEK INOVASI DIGITAL (WAJIB UTAMA)\nPerancangan Solusi Berbasis ${domainContext.rules.name}:\n1. Pembentukan Tim (3-4 siswa) dan Identifikasi Masalah Kontekstual terkait "${safeMateri}".\n2. Penyusunan Spesifikasi Kebutuhan & Rancangan Solusi ${safeSubbab} seputar "${safeMateri}".\n3. Eksekusi Pembangunan Prototipe, Uji Coba, dan Pencatatan Umpan Balik.\n4. Pameran Karya (Exposition Day) dan Penyerahan Laporan Dokumentasi Proyek.`;
+    } else if (totalJP >= 6) {
+        mod14_ProyekOrTugas = `14. PROYEK / UNJUK KERJA KOMPREHENSIF\nTantangan Terpadu (${domainContext.type} - Alokasi Waktu Mencukupi):\n1. Kerjakan dalam kelompok kecil untuk merancang solusi terpadu berbasis ${safeSubbab}.\n2. Susun langkah kerja "${safeMateri}" untuk menyelesaikan penerapan materi yang diberikan.\n3. Lakukan pengujian produk/solusi, analisis kendala, dan presentasikan hasilnya di depan kelas.`;
+    } else {
+        mod14_ProyekOrTugas = `14. TUGAS PRODUK & PRAKTIK SEDERHANA (MINI CHALLENGE)\nLatihan Praktik Berbasis ${domainContext.rules.name} (Alokasi ${totalJP} JP):\n1. Kerjakan latihan mandiri/berpasangan untuk mengimplementasikan ${safeSubbab}.\n2. Selesaikan penerapan materi singkat terkait "${safeMateri}" menggunakan lembar kerja yang disediakan.\n3. Lakukan verifikasi hasil kerja secara mandiri atau antar-rekan sebaya (peer review).`;
+    }
+
+    const refleksiPesertaDidikRaw = domainRefleksiStud[domainContext.type] || domainRefleksiStud['KONSEP'];
+    const refleksiPesertaDidikFormatted = refleksiPesertaDidikRaw
+        .replace(/prompt engineering/gi, safeMateri)
+        .replace(/membasmi hoaks/gi, safeMateri)
+        .replace(/menuliskan sintaks kode/gi, safeMateri)
+        .replace(/konfigurasi IP address/gi, safeMateri)
+        .replace(/membuat visualisasi grafik/gi, safeMateri)
+        .replace(/dekomposisi dan pembuatan flowchart/gi, safeMateri)
+        .replace(/peta konsep/gi, safeMateri)
+        .replace(/merancang prototipe produk/gi, safeMateri);
+
+    const refleksiGuruRaw = domainRefleksiTeach[domainContext.type] || domainRefleksiTeach['KONSEP'];
+    const refleksiGuruFormatted = refleksiGuruRaw
+        .replace(/menyusun prompt terstruktur/gi, `memahami dan menerapkan konsep ${safeMateri}`)
+        .replace(/memilih jenis grafik/gi, `memahami dan menerapkan konsep ${safeMateri}`)
+        .replace(/memahami fungsi setiap perangkat jaringan/gi, `memahami dan menerapkan konsep ${safeMateri}`)
+        .replace(/menyusun alur flowchart/gi, `memahami dan menerapkan konsep ${safeMateri}`)
+        .replace(/memahami struktur percabangan atau perulangan/gi, `memahami dan menerapkan konsep ${safeMateri}`)
+        .replace(/mengidentifikasi risiko siber dan hoaks/gi, `memahami dan menerapkan konsep ${safeMateri}`)
+        .replace(/kualitas prototipe dan presentasi karya/gi, `memahami dan menerapkan konsep ${safeMateri}`)
+        .replace(/menguasai definisi dan kerangka teoretis/gi, `memahami dan menerapkan konsep ${safeMateri}`);
+
+    const mod01_Identitas = `01. IDENTITAS MODUL
+- Nama Instansi : ${safeSchool}
+- Penyusun : ${safeTeacher}
+- Mata Pelajaran : ${safeSubject}
+- Fase / Kelas / Semester : Fase ${safePhase} - Kelas ${safeGrade} / Semester ${safeSemester}
+- Bab Utama : ${safeBab}
+- Subbab / Topik : ${safeSubbab}
+- Materi Inti : ${safeMateri}
+- Alokasi Waktu : ${formattedAlokasi}
+- Kategori / Jenis Materi : ${domainContext.rules.name}`;
+
+    const mod02_Identifikasi = `02. KOMPETENSI AWAL & PROFIL PESERTA DIDIK
+- Kompetensi Awal: Peserta didik memiliki pemahaman dasar pendukung yang relevan sebelum mempelajari "${safeMateri}" dalam lingkup ${domainContext.rules.name}.
+- Kesiapan Belajar : Tingkat pemahaman awal dan keterampilan prosedural yang beragam terkait "${safeMateri}".
+- Karakteristik Utama : Membutuhkan visualisasi konseptual, bimbingan bertahap (scaffolding), serta latihan praktik langsung terkait "${safeMateri}".`;
+
+    const mod02_ProfilPancasila = `Profil Pelajar Pancasila:
+1. Bernalar Kritis: Peserta didik mampu menguraikan, menganalisis, dan memecahkan tantangan logis terkait "${safeMateri}".
+2. Mandiri: Peserta didik menunjukkan kemandirian dan tanggung jawab dalam mengeksplorasi konsep "${safeMateri}".
+3. Gotong Royong: Berkolaborasi secara harmonis dalam merumuskan penyelesaian terkait "${safeMateri}" bersama kelompok.
+
+Sinergi Nilai Karakter:
+- Ketaatan Keilmuan: Menghayati keteraturan ciptaan Tuhan melalui penguasaan materi "${safeMateri}".`;
+
+    const mod02_SaranaPrasarana = `Sarana & Prasarana:
+- Perangkat keras: Ruang kelas, perangkat penunjang yang relevan, atau lembar kerja (cetak) yang disesuaikan untuk materi "${safeMateri}".
+- Perangkat lunak / media: Media interaktif, slide presentasi, papan tulis, atau media pendukung domain ${domainContext.rules.name}.
+- Media belajar: Buku teks utama, draf artikel rujukan, dan panduan praktis terkait "${safeMateri}".`;
+
+    const mod02_TargetPeserta = `Target Peserta Didik:
+1. Reguler / Tipikal: Mampu memahami secara umum, merancang, dan menganalisis penerapan "${safeMateri}".
+2. Kesulitan Belajar: Memerlukan pendampingan bertahap (scaffolding) dan visualisasi konseptual mendasar tentang "${safeMateri}".
+3. Pencapaian Tinggi: Mampu memecahkan tantangan penerapan materi HOTS tingkat lanjut dan mengkreasi solusi inovatif seputar "${safeMateri}".`;
+
+    const mod03_Karakteristik = `03. KARAKTERISTIK MATERI
+${karakteristikFormatted}
+
+Kata Kunci Domain (${domainContext.type}):
+${domainContext.rules.keywords.join(', ')}`;
+
+    let bloomAlignmentText = `04. TUJUAN PEMBELAJARAN (BLOOM REVISED C1 - C6 & SELARAS INDIKATOR)
+1. [Kognitif C1-C2 / Pemahaman Konsep]
+   ${tp1}
+   → Indikator: Menjelaskan komponen & fungsi dasar.
+   → Aktivitas: Pengamatan contoh & diskusi kelompok.
+   → Asesmen: Tes tulis / Tanya jawab diagnostik-formatif.
+ 
+2. [Kognitif C3-C4 / Penerapan & Analisis]
+   ${tp2}
+   → Indikator: Menyusun alur kerja & menganalisis potensi kendala.
+   → Aktivitas: Praktik laboratorium / Lembar LKPD.
+   → Asesmen: Penilaian unjuk kerja & verifikasi hasil.`;
+
+    if (totalJP >= 4) {
+        bloomAlignmentText += `\n\n3. [Kognitif C5-C6 / Evaluasi & Inovasi]
+   ${tp3}
+   → Indikator: Mengevaluasi keefektifan solusi & menyempurnakan hasil.
+   → Aktivitas: Evaluasi kritis / Analisis mendalam / Presentasi hasil.
+   → Asesmen: Rubrik produk & lembar observasi HOTS.`;
+    }
+
+    bloomAlignmentText += `\n\n4. [Sikap & Komunikasi]
+   Peserta didik mampu mendokumentasikan dan mempresentasikan hasil karya ${safeSubbab} secara komunikatif, jujur, dan bertanggung jawab.`;
+
+    const mod05_PPP = `05. PENGUATAN PROFIL PELAJAR PANCASILA
+1. Cinta Allah & Ketaatan Keilmuan:
+   ${kbcAllah}
+2. Cinta Ilmu & Rasa Ingin Tahu:
+   ${kbcIlmu}
+3. Cinta Diri & Digital Hygiene:
+   ${kbcDiri}
+4. Cinta Sesama & Kolaborasi:
+   ${kbcSesama}
+5. Cinta Lingkungan & Efisiensi Sumber Daya:
+   ${kbcLingkungan}
+6. Cinta Tanah Air & Kemandirian Belajar:
+   ${kbcTanahAir}`;
+
+    const mod06_PembelajaranMendalam = `06. PEMBELAJARAN MENDALAM (DEEP LEARNING DOMAIN-SPECIFIC)
+- Berkesadaran (Mindful Learning):
+  ${domainContext.rules.deep_learning.mindful}
+- Bermakna (Meaningful Learning):
+  ${domainContext.rules.deep_learning.meaningful}
+- Menggembirakan (Joyful Learning):
+  ${domainContext.rules.deep_learning.joyful}`;
+
+    const mod07_PertanyaanPemantik = `07. PERTANYAAN PEMANTIK DOMAIN ${domainContext.type}
+1. [Pola Fenomena] : ${pemantikFenomena}
+2. [Pola Masalah] : ${pemantikMasalah}
+3. [Pola Prediksi] : ${pemantikPrediksi}
+4. [Pola Perbandingan] : ${pemantikPerbandingan}
+5. [Pola Problem Solving] : ${pemantikProblemSolving}`;
+
+    const safePersiapanRaw = domainContext.rules.persiapan_guru || "Menyiapkan bahan ajar dan lembar kerja.";
+    const safePersiapanFormatted = safePersiapanRaw
+        .replace(/IDE\/Code Editor \(Scratch\/Python\/C\+\+\/UnoArduSim\)/gi, `perangkat lunak atau media simulasi pendukung "${safeMateri}"`)
+        .replace(/Cisco Packet Tracer \/ Simulator Web/gi, `alat peraga atau media pendukung "${safeMateri}"`)
+        .replace(/Draw\.io \/ Lucidchart \/ Papan Tulis/gi, `media perancangan diagram/skema "${safeMateri}"`)
+        .replace(/Google Sheets\/Excel\/LibreOffice Calc/gi, `perangkat lunak pengolahan data atau tabel cetak "${safeMateri}"`)
+        .replace(/kejahatan siber \(phishing\/hoaks\)/gi, `kasus/isu siber terkait "${safeMateri}"`)
+        .replace(/Kanban board \/ Gantt chart/gi, `lembar kontrol rencana kerja proyek "${safeMateri}"`)
+        .replace(/akun\/platform AI Generatif/gi, `asisten cerdas atau bahan bacaan terkait "${safeMateri}"`);
+
+    const mod08_PersiapanDanLangkah = `08. PERSIAPAN GURU & KEGIATAN PEMBELAJARAN
+
+A. PERSIAPAN GURU (SPESIFIK DOMAIN ${domainContext.type}):
+${safePersiapanFormatted}
+
+B. STRUKTUR KEGIATAN PEMBELAJARAN:
+${kegiatanPembelajaranText}`;
+
+    const diagnostikQuestion = `1. Apa yang Anda ketahui tentang konsep dasar "${safeMateri}"?\n2. Bagaimana pemahaman mendalam terkait "${safeMateri}" dapat membantu memecahkan masalah dalam kehidupan sehari-hari?`;
+    const rubrikFormatted = `1. Penguasaan Konsep "${safeMateri}" (30%): Mampu menjelaskan definisi, prinsip dasar, dan istilah pendukung secara akurat.
+2. Desain & Implementasi (35%): Ketepatan dalam merancang alur kerja, skema, atau solusi praktis terkait "${safeMateri}".
+3. Analisis & Evaluasi (20%): Mampu menganalisis kesalahan, menguji hasil, dan merekomendasikan perbaikan secara logis.
+4. Komunikasi & Kolaborasi (15%): Penyajian hasil kerja terstruktur, kerja sama kelompok yang baik, dan penyampaian yang komunikatif.`;
+
+    const mod09_Asesmen = `09. ASESMEN DAN PENILAIAN SPESIFIK DOMAIN (${domainContext.type})
+
+1. Asesmen Diagnostik (Awal Pembelajaran):
+${diagnostikQuestion}
+
+2. Asesmen Formatif (Proses Pembelajaran):
+- Observasi unjuk kerja kelompok dalam memecahkan penerapan materi "${safeMateri}".
+- Penilaian keaktifan diskusi dan pengisian LKPD terkait "${safeMateri}".
+
+3. Asesmen Sumatif (Akhir Pembelajaran):
+- Uji pemecahan masalah / penerapan materi HOTS terkait penerapan "${safeMateri}".
+- Penilaian produk/praktik menggunakan Rubrik Khusus "${safeMateri}".
+
+4. Rubrik Penilaian Khusus:
+${rubrikFormatted}`;
+
+    const mod10_Diferensiasi = `10. DIFERENSIASI PEMBELAJARAN (SPESIFIK DOMAIN ${domainContext.type})
+- Diferensiasi Konten : Menyediakan bahan bacaan dengan tingkat kerumitan bervariasi, peta konsep, serta daftar istilah penting terkait "${safeMateri}".
+- Diferensiasi Proses : Memberikan bimbingan terarah (scaffolding) bagi kelompok awal, pendampingan praktis terstruktur, serta tantangan analisis penerapan materi mandiri terkait "${safeMateri}" bagi kelompok mahir.
+- Diferensiasi Produk : Menghasilkan draf rancangan/analisis sederhana (reguler) vs skema solusi/evaluasi mendalam dengan penambahan fitur optimalisasi terkait "${safeMateri}" (mahir).`;
+
+    const mod11_Remedial = `11. PROGRAM REMEDIAL
+- Sasaran : Peserta didik dengan pencapaian Kriteria Ketercapaian (KKTP < 75) pada materi "${safeMateri}".
+- Bentuk Kegiatan : Penjelasan ulang konsep dasar ${safeSubbab}, pendampingan individual (scaffolding), serta latihan soal adaptif dalam domain ${domainContext.rules.name}.`;
+
+    const mod12_Pengayaan = `12. PROGRAM PENGAYAAN
+- Sasaran : Peserta didik dengan pencapaian tinggi (KKTP ≥ 75) pada materi "${safeMateri}".
+- Bentuk Kegiatan : Pemecahan penerapan materi HOTS yang lebih mendalam, eksplorasi fitur/metode tingkat lanjut, atau menjadi tutor sebaya dalam memandu konsep "${safeMateri}".`;
+
+    const mod13_LKPD = getDomainLKPD(domainContext.type, safeSubject, safeMateri, safeGrade, safeSemester);
+
+    const mod15_Refleksi = `15. REFLEKSI GURU DAN PESERTA DIDIK
+
+Refleksi Peserta Didik:
+${refleksiPesertaDidikFormatted}
+
+Refleksi Guru:
+${refleksiGuruFormatted}`;
+
+    const glosVocabulary = deriveTopicVocabulary(safeMateri);
+    const glosTerms = glosVocabulary.list;
+    const glosEntries = [];
+    
+    const getSubstantiveDefinition = (term, safeMateri) => {
+        const lowerTerm = term.toLowerCase();
+        if (lowerTerm.includes('manajemen objek')) {
+            return `Sistem atau proses pengorganisasian, klasifikasi, dan pengaturan berbagai entitas atau komponen data (objek) agar dapat dikelola secara terstruktur dan efisien dalam konteks "${safeMateri}".`;
+        }
+        if (lowerTerm.includes('manajemen memori')) {
+            return `Metode pengaturan, pengalokasian, dan pembagian memori komputer agar seluruh instruksi dapat dieksekusi secara optimal tanpa menyebabkan tumpang tindih data.`;
+        }
+        if (lowerTerm.includes('alokasi ram')) {
+            return `Pemberian porsi kapasitas memori jangka pendek (RAM) secara dinamis kepada program yang sedang berjalan agar proses eksekusi berjalan stabil dan efisien.`;
+        }
+        if (lowerTerm.includes('variabel')) {
+            return `Wadah penyimpanan sementara di memori komputer yang dideklarasikan untuk menampung nilai yang dapat berubah-ubah selama proses komputasi berlangsung.`;
+        }
+        if (lowerTerm.includes('konstanta')) {
+            return `Nilai atau data tetap dalam pemrograman yang bersifat permanen dan tidak dapat diubah nilainya sepanjang program dijalankan.`;
+        }
+        if (lowerTerm.includes('perulangan') || lowerTerm.includes('loop')) {
+            return `Instruksi kontrol program yang mengeksekusi sekumpulan perintah secara berulang-ulang sampai kondisi logika yang ditetapkan terpenuhi atau selesai.`;
+        }
+        if (lowerTerm.includes('fungsi') || lowerTerm.includes('function')) {
+            return `Blok instruksi terenkapsulasi yang dirancang untuk melakukan tugas spesifik, menerima input, dan mengembalikan nilai output hasil pemrosesan.`;
+        }
+        if (lowerTerm.includes('struktur data')) {
+            return `Format khusus untuk mengorganisasi, menyimpan, dan mengelola data di komputer agar dapat diakses dan dimanipulasi secara efisien.`;
+        }
+        if (lowerTerm.includes('keamanan data')) {
+            return `Langkah perlindungan untuk menjaga integritas, kerahasiaan, dan ketersediaan data digital dari ancaman atau akses tidak sah.`;
+        }
+        if (lowerTerm.includes('etika')) {
+            return `Prinsip moral, panduan perilaku, dan kesadaran sosial yang melandasi pemanfaatan keilmuan atau sistem agar berjalan bertanggung jawab.`;
+        }
+        if (lowerTerm.includes('basis data') || lowerTerm.includes('database')) {
+            return `Kumpulan data terstruktur yang disimpan secara elektronik di memori komputer untuk memudahkan pencarian dan pembaruan data secara cepat.`;
+        }
+        if (lowerTerm.includes('pemrosesan teks')) {
+            return `Metode manipulasi, pemfilteran, dan transformasi data berupa sekumpulan karakter atau kalimat secara sistematis.`;
+        }
+        if (lowerTerm.includes('antarmuka pengguna') || lowerTerm.includes('user interface')) {
+            return `Desain visual dan tata letak interaktif yang menghubungkan pengguna dengan sistem komputer agar berjalan intuitif.`;
+        }
+        if (lowerTerm.includes('komputer') || lowerTerm.includes('sejarah perkembangan komputer')) {
+            return `Evolusi alat hitung dan pengolahan data dari generasi awal mekanis hingga sistem modern berkecepatan tinggi.`;
+        }
+        if (lowerTerm.includes('otomatisasi')) {
+            return `Penerapan metode atau skema logika untuk menjalankan proses kerja secara mandiri demi meningkatkan efisiensi operasional.`;
+        }
+        if (lowerTerm.includes('pencarian web')) {
+            return `Proses penemuan kembali berkas informasi yang relevan di jaringan internet global menggunakan query kata kunci spesifik.`;
+        }
+        if (lowerTerm.includes('search engine')) {
+            return `Aplikasi penjelajah web khusus yang mengindeks situs internet dan mencocokkan kueri pencarian pengguna dengan data yang relevan.`;
+        }
+        if (lowerTerm.includes('polusi udara')) {
+            return `Keberadaan partikel berbahaya atau zat kimia di atmosfer bumi yang melebihi batas aman dan merusak kesehatan lingkungan.`;
+        }
+        if (lowerTerm.includes('grafik korelasi')) {
+            return `Representasi visual diagram tebar yang menunjukkan keeratan hubungan atau ketergantungan pola data di antara dua variabel yang diamati.`;
+        }
+        if (lowerTerm.includes('rute terpendek')) {
+            return `Lintasan optimal dari titik awal ke titik tujuan yang meminimalkan jarak fisik atau waktu tempuh berdasarkan perhitungan matematis.`;
+        }
+        if (lowerTerm.includes('pengiriman barang')) {
+            return `Sistem logistik perpindahan fisik paket dari lokasi produsen menuju lokasi penerima secara terjadwal dan efisien.`;
+        }
+        if (lowerTerm.includes('hak cipta')) {
+            return `Perlindungan hukum yang memberikan hak eksklusif bagi pencipta atas karya orisinalnya berdasarkan peraturan yang berlaku.`;
+        }
+        if (lowerTerm.includes('musik digital')) {
+            return `Format audio suara yang telah ditransformasikan ke dalam representasi biner agar dapat disimpan dan diputar menggunakan pemutar digital.`;
+        }
+        if (lowerTerm.includes('lampu belajar')) {
+            return `Peranti penerangan portabel yang memberikan pancaran cahaya terarah pada area belajar agar mendukung kenyamanan mata.`;
+        }
+        if (lowerTerm.includes('hemat energi')) {
+            return `Upaya meminimalkan konsumsi daya listrik dengan mengoptimalkan rancangan efisiensi sistem tanpa mengurangi fungsi utama.`;
+        }
+        if (lowerTerm.includes('pembagian kerja')) {
+            return `Strategi pembagian rentang tugas operasional di dalam organisasi ke dalam bagian terspesialisasi agar setiap anggota bekerja fokus.`;
+        }
+        if (lowerTerm.includes('efisiensi organisasi')) {
+            return `Ukuran keberhasilan penggunaan sumber daya terhadap pencapaian hasil maksimal demi menghindari pemborosan di dalam kelompok kerja.`;
+        }
+        // Multi-word compound / structural term smart fallback (guaranteed Tautology-free!)
+        if (lowerTerm.includes('struktur pemrograman')) {
+            return `Kaidah penyusunan instruksi tertulis agar dapat dieksekusi secara terurut, efisien, dan logis oleh sistem komputer.`;
+        }
+        if (lowerTerm.includes('istilah teknis')) {
+            return `Kumpulan kosa kata khusus atau glosarium keilmuan yang digunakan untuk mendeskripsikan alat, metode, dan konsep terkait secara presisi.`;
+        }
+        if (lowerTerm.includes('perkembangan komputer')) {
+            return `Evolusi dan perjalanan historis perangkat pengolah data dari mesin mekanis hingga arsitektur modern berkecepatan tinggi.`;
+        }
+
+        // Deep linguistic fallback that dynamically builds high-quality, non-tautological CS definitions
+        // based on constituents to avoid any repetition of the term itself!
+        const words = lowerTerm.split(/\s+/).filter(w => w.length > 2);
+        
+        let subMeaning = '';
+        if (words.some(w => ['struktur', 'format', 'skema'].includes(w))) {
+            subMeaning = `rancangan arsitektur dan tata letak terorganisasi yang digunakan untuk menyusun elemen secara sistematis`;
+        } else if (words.some(w => ['manajemen', 'pengelolaan'].includes(w))) {
+            subMeaning = `mekanisme kontrol, pengaturan alokasi, dan koordinasi terstruktur terhadap sumber daya `;
+        } else if (words.some(w => ['analisis', 'studi', 'kajian'].includes(w))) {
+            subMeaning = `penyelidikan mendalam untuk memahami pola keterkaitan, karakteristik, dan dampak logis dari suatu fenomena `;
+        } else if (words.some(w => ['konsep', 'teori', 'prinsip'].includes(w))) {
+            subMeaning = `gagasan mendasar, landasan keilmuan, dan kerangka berpikir teoretis yang melandasi pemahaman `;
+        } else {
+            subMeaning = `metode operasional, komponen penting, atau aspek praktis terpadu `;
+        }
+
+        return `Aspek keilmuan / konseptual berupa ${subMeaning} untuk meningkatkan efisiensi proses serta memecahkan masalah praktis pada materi pembelajaran "${safeMateri}".`;
+    };
+
+    for (let i = 0; i < glosTerms.length; i++) {
+        const term = glosTerms[i];
+        glosEntries.push(`${i + 1}. ${term} : ${getSubstantiveDefinition(term, safeMateri)}`);
+    }
+    const finalGlosariumText = glosEntries.slice(0, 6).join('\n');
+
+    const mod16_Lampiran = `16. LAMPIRAN: GLOSARIUM DAN DAFTAR PUSTAKA
+
+A. GLOSARIUM SPESIFIK (${domainContext.type}):
+${finalGlosariumText}
+
+B. DAFTAR PUSTAKA:
+1. Kemendikbudristek. 2024. Buku Teks Utama ${safeSubject} Kelas ${safeGrade}.
+2. Tim Pengembang Kurikulum. 2024. Panduan Pembelajaran Domain ${domainContext.rules.name}.
+3. Rujukan Akademis & Dokumentasi Terkait ${safeSubject} (${domainContext.rules.name}) & Materi Inti "${safeMateri}".`;
+
+    const finalOutput = {
+        selectedJenis: domainContext.type,
+        identitasModul: mod01_Identitas,
+        capaianPembelajaran: domainCaps[domainContext.type] || domainCaps['KONSEP'],
+        karakteristikMateri: `${karakteristikFormatted}\n\nFokus Materi Inti Utama:\n"${safeMateri}"\n\nKata Kunci Domain (${domainContext.type}):\n${domainContext.rules.keywords.map(kw => resolveTerm(kw, safeMateri)).join(', ')}`,
+        kbc: `1. Cinta Allah & Ketaatan Keilmuan:\n${kbcAllah}\n\n2. Cinta Ilmu & Rasa Ingin Tahu:\n${kbcIlmu}\n\n3. Cinta Diri & Perawatan Pribadi:\n${kbcDiri}\n\n4. Cinta Sesama & Kolaborasi:\n${kbcSesama}\n\n5. Cinta Lingkungan & Efisiensi Sumber Daya:\n${kbcLingkungan}\n\n6. Cinta Tanah Air & Kemandirian Belajar:\n${kbcTanahAir}`,
+        pembelajaranMendalam: `- Berkesadaran (Mindful Learning):\n  ${domainContext.rules.deep_learning.mindful}\n- Bermakna (Meaningful Learning):\n  ${domainContext.rules.deep_learning.meaningful}\n- Menggembirakan (Joyful Learning):\n  ${domainContext.rules.deep_learning.joyful}`,
+        tujuanPembelajaran: `${bloomAlignmentText}`,
+        pemahamanBermakna: `Penguasaan terhadap "${safeMateri}" dalam domain ${domainContext.rules.name} membekali peserta didik dengan kecakapan berpikir analitis, pemecahan masalah secara terstruktur, and keterampilan aplikatif yang dapat dipertanggungjawabkan.`,
+        pertanyaanPemantik: `${mod07_PertanyaanPemantik}`,
+        praktikPedagogis: `- Pendekatan Pembelajaran : Student-Centered Learning & Domain-Based Inquiry (${domainContext.rules.name})\n- Model Pembelajaran : ${modelPembelajaran}\n- Metode Pembelajaran : Problem Solving, Praktik Eksplorasi, Diskusi Kelompok, & Analisis Materi Inti "${safeMateri}".\n- Alasan Pemilihan Pendekatan : Mendukung pemahaman konseptual dan keterampilan prosedural secara langsung melalui pengalaman belajar bermakna.`,
+        mitraPembelajaran: `- Guru Mata Pelajaran : Fasilitator dan mentor utama proses pembelajaran "${safeMateri}".\n- Teman Sebaya : Kolaborator dalam diskusi kelompok, perancangan, dan peer review.\n- Sumber Belajar : Modul ajar, lembar kerja peserta didik, dan dokumentasi terkait penerapan materi "${safeMateri}".`,
+        lingkunganPembelajaran: `- Lingkungan Fisik : Ruang kelas atau laboratorium ruang praktik yang tertata kondusif.\n- Lingkungan Belajar : Media penunjang simulasi atau penerapan materi terkait "${safeMateri}".\n- Pengaturan Kelompok : Kerja mandiri dan kolaborasi kelompok kecil (3-4 orang).\n- Alternatif Pembelajaran : Lembar kerja cetak dan diskusi kelompok terbimbing.`,
+        pemanfaatanDigital: `- Perangkat : Media fisik pendukung atau Lembar Kerja Cetak.\n- Fasilitas Pendukung : Alat bantu pembelajaran sesuai domain ${domainContext.type} untuk mengeksplorasi dan memverifikasi "${safeMateri}".\n- Aktivitas Kelas : Eksplorasi interaktif, simulasi alur, dan verifikasi hasil secara nyata.`,
+        kegiatanPembelajaran: kegiatanPembelajaranText,
+        asesmen: `${mod09_Asesmen}`,
+        diferensiasiPembelajaran: `- Diferensiasi Konten : Menyediakan bahan bacaan dengan tingkat kerumitan bervariasi, peta konsep, serta daftar istilah penting terkait "${safeMateri}".\n- Diferensiasi Proses : Memberikan bimbingan terarah (scaffolding) bagi kelompok awal, pendampingan praktis terstruktur, serta tantangan analisis penerapan materi mandiri terkait "${safeMateri}" bagi kelompok mahir.\n- Diferensiasi Produk : Menghasilkan draf rancangan/analisis sederhana (reguler) vs skema solusi/evaluasi mendalam dengan penambahan fitur optimalisasi terkait "${safeMateri}" (mahir).`,
+        remedial: mod11_Remedial,
+        pengayaan: mod12_Pengayaan,
+        lkpd: mod13_LKPD,
+        miniChallengeProyek: mod14_ProyekOrTugas,
+        refleksi: mod15_Refleksi,
+        bahanAjar: `Ringkasan Materi & Bahan Bacaan (${safeSubbab}):\nMateri ${safeMateri} merupakan fokus operasional dalam domain ${domainContext.rules.name}.\nKonsep Utama: ${safeSubbab} diterapkan secara khusus pada penerapan materi "${safeMateri}" yang menuntut ketelitian logika, perancangan langkah terstruktur, serta pengujian kebenaran hasil.\nLangkah Praktik: Lakukan kajian analitis "${safeMateri}", susun urutan instruksi/logika secara runtut, lakukan pengujian, and pastikan solusi yang dihasilkan telah valid dan akurat.`,
+        glosarium: finalGlosariumText,
+        daftarPustaka: `1. Kemendikbudristek. 2024. Buku Teks Utama ${safeSubject} Kelas ${safeGrade}.\n2. Tim Pengembang Kurikulum. 2024. Panduan Pembelajaran Domain ${domainContext.rules.name}.\n3. Rujukan Akademis & Dokumentasi Terkait ${safeSubject} & Materi Inti "${safeMateri}".`,
+        // Legacy compatibility fields:
+        kompetensiAwal: mod02_Identifikasi,
+        profilPancasila: mod02_ProfilPancasila,
+        saranaPrasarana: mod02_SaranaPrasarana,
+        targetPeserta: mod02_TargetPeserta,
+        modelPembelajaran: `Model : ${modelPembelajaran} | Metode : Problem Solving, Praktik Hands-On`,
+        persiapanPembelajaran: safePersiapanFormatted,
+        pengayaanRemedial: `${mod11_Remedial}\n\n${mod12_Pengayaan}`,
+        lembarKerja: `${mod14_ProyekOrTugas}\n\n${refleksiPesertaDidikFormatted}`
+    };
+
+    const resolvedOutput = replacePlaceholdersRecursive(finalOutput, safeMateri, safeSubbab, safeBab);
+    const sanitizedOutput = sanitizeObject(resolvedOutput, safeMateri, domainContext.type);
+    const validationSummary = runSelfValidation(sanitizedOutput, safeMateri, domainContext.type);
+
+    sanitizedOutput.validationSummary = validationSummary;
+    sanitizedOutput.DOMAIN_TEMPLATE_BIAS = validationSummary.domainTemplateBias;
+    sanitizedOutput.topicDominanceScore = validationSummary.topicDominance;
+    sanitizedOutput.topicDriftScore = validationSummary.topicDrift;
+    sanitizedOutput.domainLeakageCount = validationSummary.domainLeakage;
+    sanitizedOutput.defaultSubtopicOverrideCount = validationSummary.defaultSubtopicOverride;
+    sanitizedOutput.unresolvedPlaceholderCount = validationSummary.unresolvedPlaceholder;
+    sanitizedOutput.irrelevantVocabularyCount = validationSummary.irrelevantVocabulary;
+
+    return sanitizedOutput;
+}
+
+export default generateMasterV2ModulAjar;

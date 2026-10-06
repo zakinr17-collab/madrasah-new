@@ -1,0 +1,24 @@
+node_modules/
+/.npm-cache/
+coverage/
+.DS_Store
+*.log
+*.tmp
+.env*
+!.env.example
+
+dist/
+
+# Runtime state, uploads, and machine-local secrets must never be committed.
+local_store.json
+local_store.json.*
+.madrasah-secrets/
+uploads/*
+!uploads/.gitkeep
+!uploads/attendance_photos/
+uploads/attendance_photos/*
+!uploads/attendance_photos/.gitkeep
+
+# Local load-test credentials/results must stay outside Git.
+tests/accounts.local.json
+tests/*.local.json

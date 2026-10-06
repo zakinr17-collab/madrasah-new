@@ -1,0 +1,29 @@
+--- src/assessmentModule.js
++++ src/assessmentModule.js
+@@ -3910,13 +3910,21 @@
+ 
+ function downloadRoomTemplate() {
+-    const csvContent = "data:text/csv;charset=utf-8,NIS,Nama Siswa\n1001,Muhammad Al Fatih\n1002,Fatimah Az-Zahra";
+-    const encodedUri = encodeURI(csvContent);
+-    const link = document.createElement("a");
+-    link.setAttribute("href", encodedUri);
+-    link.setAttribute("download", "template_anggota_ruang.csv");
+-    document.body.appendChild(link);
+-    link.click();
+-    document.body.removeChild(link);
+-    showToast('Template Excel (CSV) berhasil diunduh!', 'success');
++    if (typeof XLSX === 'undefined') {
++        showToast('Library XLSX belum dimuat.', 'error');
++        return;
++    }
++    const ws_data = [
++        ["NIS", "Nama Siswa"],
++        ["1001", "Muhammad Al Fatih"],
++        ["1002", "Fatimah Az-Zahra"]
++    ];
++    const ws = XLSX.utils.aoa_to_sheet(ws_data);
++    const wb = XLSX.utils.book_new();
++    XLSX.utils.book_append_sheet(wb, ws, "Anggota_Ruang");
++    XLSX.writeFile(wb, "template_anggota_ruang.xlsx");
++    showToast('Template Excel (.xlsx) berhasil diunduh!', 'success');
+ }
