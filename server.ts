@@ -19367,15 +19367,18 @@ app.get("/api/learning-assets/inline-pdf", async (req: any, res: any) => {
     const pathParts = url.pathname.split('/').filter(Boolean);
     const versionIndex = pathParts.findIndex((part) => /^v\d+$/.test(part));
     if (versionIndex < 0 || pathParts[versionIndex + 1] !== 'madrasah_learning_assets') return res.status(400).end();
-    const publicId = pathParts.slice(versionIndex + 1).join('/').replace(/\.pdf$/i, '');
+    const rawPublicId = pathParts.slice(versionIndex + 1).join('/');
+    const publicId = resourceType === 'raw' ? rawPublicId : rawPublicId.replace(/\.pdf$/i, '');
     if (!publicId || publicId.length > 500 || !/^[A-Za-z0-9_./-]+$/.test(publicId)) return res.status(400).end();
 
-    const signedDownloadUrl = cloudinary.utils.private_download_url(publicId, 'pdf', {
-      resource_type: resourceType,
-      type: 'upload',
-      expires_at: Math.floor(Date.now() / 1000) + 300
-    });
-    const response = await fetch(signedDownloadUrl, { redirect: 'error' });
+    const downloadUrl = resourceType === 'raw'
+      ? rawUrl
+      : cloudinary.utils.private_download_url(publicId, 'pdf', {
+          resource_type: 'image',
+          type: 'upload',
+          expires_at: Math.floor(Date.now() / 1000) + 300
+        });
+    const response = await fetch(downloadUrl, { redirect: 'error' });
     if (!response.ok) {
       console.warn(`[Learning PDF] Cloudinary signed download gagal: ${response.status}`);
       return res.status(response.status).end();
