@@ -513,7 +513,7 @@ async function hydrateProtectedLearningPdfs() {
                 ? { 'Authorization': 'Bearer ' + authToken, 'X-Auth-Token': authToken }
                 : {};
             let requestSource = source;
-            if (authToken && /^\/api\/learning-assets\/drive-pdf(?:\?|$)/i.test(source)) {
+            if (authToken && /^\/api\/learning-assets\/(?:drive-pdf|inline-pdf)(?:\?|$)/i.test(source)) {
                 const separator = source.includes('?') ? '&' : '?';
                 requestSource = source + separator + 'auth=' + encodeURIComponent(authToken);
             }
@@ -557,9 +557,11 @@ function renderMaterialBlocks(blocks = []) {
             if (!url && !driveFileId) return '';
             const name = learningEsc(block.name || 'Materi PDF');
             const pdfSrc = learningAssetSrc(url);
-            const legacyProtectedPdf = Boolean(driveFileId);
-            const frameSrc = legacyProtectedPdf ? 'about:blank' : pdfSrc;
-            const frameData = legacyProtectedPdf ? ` data-learning-pdf-src="${learningAttr(`/api/learning-assets/drive-pdf?id=${encodeURIComponent(driveFileId)}`)}"` : '';
+            const protectedPdfSrc = driveFileId
+                ? `/api/learning-assets/drive-pdf?id=${encodeURIComponent(driveFileId)}`
+                : (/^\/api\/learning-assets\/inline-pdf(?:\?|$)/i.test(pdfSrc) ? pdfSrc : '');
+            const frameSrc = protectedPdfSrc ? 'about:blank' : pdfSrc;
+            const frameData = protectedPdfSrc ? ` data-learning-pdf-src="${learningAttr(protectedPdfSrc)}"` : '';
             return `<section data-learning-block-id="${blockId}" class="rounded-2xl border border-slate-200 overflow-hidden bg-white">
                 <div class="p-3 bg-rose-50 border-b border-rose-100">
                     <div class="text-xs font-black text-rose-700"><i class="fa-solid fa-file-pdf mr-2"></i>PDF</div>
