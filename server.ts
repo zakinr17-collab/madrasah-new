@@ -24320,9 +24320,7 @@ app.post("/api/sync-state", requireAuth, async (req, res) => {
           .map((item: any) => [String(item.id), cloneStateSnapshot(item)])
       );
 
-      questions = isTeacherSyncRole
-        ? mergeTenantScopedSyncRecords(questions, data, req, (item: any) => String(item?.id || '').trim())
-        : mergeTenantCrudSyncData(questions, data, req);
+      questions = isTeacherSyncRole ? mergeTenantScopedSyncRecords(questions, data, req, (item: any) => String(item?.id || '').trim()) : mergeTenantCrudSyncData(questions, data, req);
       await saveData('questions', questions);
 
       if (Array.isArray(data)) {
