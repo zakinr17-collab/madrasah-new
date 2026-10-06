@@ -1320,6 +1320,9 @@ function getCachedStudentTemporaryPassword(student) {
     if (!student) return '';
     const credentialRole = String(appState.role || '').toLowerCase();
     if (!['admin', 'bos', 'superadmin'].includes(credentialRole)) return '';
+    if (credentialRole === 'admin' && student.passwordDisplay) {
+        return String(student.passwordDisplay);
+    }
     try {
         const cached = JSON.parse(sessionStorage.getItem('cbt_print_credentials') || '[]');
         if (!Array.isArray(cached)) return '';
