@@ -19394,10 +19394,6 @@ app.get("/api/learning-assets/inline-pdf", async (req: any, res: any) => {
     console.warn('[Learning PDF inline] Failed:', err?.message || err);
     if (!res.headersSent) res.status(400).end();
   }
-} catch (err: any) {
-    console.warn('[Learning PDF inline] Failed:', err?.message || err);
-    if (!res.headersSent) res.status(400).end();
-  }
 });
 
 app.get("/api/learning-assets/serve", async (req: any, res: any) => {
