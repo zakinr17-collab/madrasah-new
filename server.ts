@@ -19014,17 +19014,81 @@ async function getGoogleDriveServiceAccountAccessToken(): Promise<string> {
   return token;
 }
 
-async function getStoredGoogleDriveOAuthRefreshToken(): Promise<string | null> {
+function canonicalGoogleDriveTenantId(value: any): string {
+  const raw = String(value || 'default').trim() || 'default';
+  const matched = (madrasahs || []).find((item: any) =>
+    String(item?.id || '') === raw || String(item?.slug || '') === raw
+  );
+  return String(matched?.id || raw).trim().slice(0, 200) || 'default';
+}
+
+function googleDriveOAuthStoreKey(madrasahId: any): string {
+  const tenantId = canonicalGoogleDriveTenantId(madrasahId);
+  const digest = crypto.createHash('sha256').update(tenantId).digest('hex').slice(0, 24);
+  return 'google_drive_oauth:' + digest;
+}
+
+async function getStoredGoogleDriveOAuthConnection(madrasahId: any = 'default'): Promise<any | null> {
   if (!pool) {
     try { await dbInitPromise; } catch (_) {}
   }
   if (!pool) return null;
+
+  const tenantId = canonicalGoogleDriveTenantId(madrasahId);
+  const scopedKey = googleDriveOAuthStoreKey(tenantId);
   try {
-    const result = await pool.query(
-      "SELECT value FROM app_store WHERE key = $1 LIMIT 1",
-      ['google_drive_oauth']
-    );
-    const value = result.rows?.[0]?.value;
+    const scoped = await pool.query("SELECT value FROM app_store WHERE key = $1 LIMIT 1", [scopedKey]);
+    const scopedValue = scoped.rows?.[0]?.value;
+    if (scopedValue && typeof scopedValue === 'object') return scopedValue;
+
+    const legacy = await pool.query("SELECT value FROM app_store WHERE key = $1 LIMIT 1", ['google_drive_oauth']);
+    const legacyValue = legacy.rows?.[0]?.value;
+    if (legacyValue && typeof legacyValue === 'object') {
+      const legacyTenantId = canonicalGoogleDriveTenantId(legacyValue?.madrasahId || 'default');
+      if (legacyTenantId === tenantId) {
+        const migratedValue = {
+          ...legacyValue,
+          madrasahId: tenantId,
+          migratedToTenantScopeAt: new Date().toISOString()
+        };
+        await pool.query(
+          `INSERT INTO app_store (key, value)
+           VALUES ($1, $2::jsonb)
+           ON CONFLICT (key) DO NOTHING`,
+          [scopedKey, JSON.stringify(migratedValue)]
+        );
+        return migratedValue;
+      }
+    }
+    return null;
+  } catch (error: any) {
+    console.warn('[Google Drive OAuth] Gagal membaca koneksi tersimpan:', error?.message || error);
+    return null;
+  }
+}
+
+async function saveGoogleDriveOAuthConnection(madrasahId: any, patch: any): Promise<void> {
+  if (!pool) {
+    try { await dbInitPromise; } catch (_) {}
+  }
+  if (!pool) throw new Error('Database belum siap. Koneksi Google Drive tidak dapat disimpan.');
+
+  const tenantId = canonicalGoogleDriveTenantId(madrasahId);
+  const scopedKey = googleDriveOAuthStoreKey(tenantId);
+  const current = (await getStoredGoogleDriveOAuthConnection(tenantId)) || {};
+  const value = { ...current, ...patch, madrasahId: tenantId };
+
+  await pool.query(
+    `INSERT INTO app_store (key, value)
+     VALUES ($1, $2::jsonb)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [scopedKey, JSON.stringify(value)]
+  );
+}
+
+async function getStoredGoogleDriveOAuthRefreshToken(madrasahId: any = 'default'): Promise<string | null> {
+  try {
+    const value = await getStoredGoogleDriveOAuthConnection(madrasahId);
     const encrypted = typeof value === 'string' ? value : value?.refreshToken;
     if (!encrypted) return null;
     return decryptGoogleDriveOAuthToken(String(encrypted));
@@ -19073,13 +19137,14 @@ function googleDriveOAuthServerConfigured(req: any): boolean {
   );
 }
 
-async function getGoogleDriveAccessToken(): Promise<string> {
+async function getGoogleDriveAccessToken(madrasahId: any = 'default'): Promise<string> {
   if (!isTrustedCloudRunRuntime) {
     throw new Error('Google Drive PDF storage hanya tersedia pada runtime Cloud Run.');
   }
 
   // Preferred Cloud Run path: a user-authorized OAuth refresh token persisted in PostgreSQL.
-  const storedRefreshToken = await getStoredGoogleDriveOAuthRefreshToken();
+  const tenantId = canonicalGoogleDriveTenantId(madrasahId);
+  const storedRefreshToken = await getStoredGoogleDriveOAuthRefreshToken(tenantId);
   if (storedRefreshToken) {
     try {
       return await exchangeGoogleDriveOAuthRefreshToken(storedRefreshToken);
@@ -19116,39 +19181,9 @@ async function getGoogleDriveAccessToken(): Promise<string> {
   throw googleDriveConnectionError('Google Drive belum terhubung. Hubungkan akun Google Drive terlebih dahulu.');
 }
 
-async function getStoredGoogleDriveOAuthConnection(): Promise<any | null> {
-  if (!pool) {
-    try { await dbInitPromise; } catch (_) {}
-  }
-  if (!pool) return null;
-  try {
-    const result = await pool.query("SELECT value FROM app_store WHERE key = $1 LIMIT 1", ['google_drive_oauth']);
-    const value = result.rows?.[0]?.value;
-    if (!value || typeof value !== 'object') return null;
-    return value;
-  } catch (error: any) {
-    console.warn('[Google Drive OAuth] Gagal membaca koneksi tersimpan:', error?.message || error);
-    return null;
-  }
-}
-
-async function saveGoogleDriveOAuthConnection(patch: any): Promise<void> {
-  if (!pool) {
-    try { await dbInitPromise; } catch (_) {}
-  }
-  if (!pool) throw new Error('Database belum siap. Koneksi Google Drive tidak dapat disimpan.');
-  const current = (await getStoredGoogleDriveOAuthConnection()) || {};
-  const value = { ...current, ...patch };
-  await pool.query(
-    `INSERT INTO app_store (key, value)
-     VALUES ($1, $2::jsonb)
-     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-    ['google_drive_oauth', JSON.stringify(value)]
-  );
-}
-
-async function getGoogleDriveFolderId(accessToken: string): Promise<string> {
-  const stored = await getStoredGoogleDriveOAuthConnection();
+async function getGoogleDriveFolderId(accessToken: string, madrasahId: any = 'default'): Promise<string> {
+  const tenantId = canonicalGoogleDriveTenantId(madrasahId);
+  const stored = await getStoredGoogleDriveOAuthConnection(tenantId);
   const storedFolderId = String(stored?.folderId || '').trim();
   if (/^[A-Za-z0-9_-]{10,200}$/.test(storedFolderId)) return storedFolderId;
 
@@ -19164,7 +19199,7 @@ async function getGoogleDriveFolderId(accessToken: string): Promise<string> {
   const listed: any = await listResponse.json();
   const existing = Array.isArray(listed?.files) ? listed.files.find((item: any) => /^[A-Za-z0-9_-]{10,200}$/.test(String(item?.id || ''))) : null;
   if (existing?.id) {
-    await saveGoogleDriveOAuthConnection({ folderId: String(existing.id), folderName: String(existing.name || 'Madrasah Bisa') });
+    await saveGoogleDriveOAuthConnection(tenantId, { folderId: String(existing.id), folderName: String(existing.name || 'Madrasah Bisa') });
     return String(existing.id);
   }
 
@@ -19177,15 +19212,16 @@ async function getGoogleDriveFolderId(accessToken: string): Promise<string> {
   if (!createResponse.ok || !created?.id) {
     throw new Error('Gagal membuat folder Madrasah Bisa di Google Drive (' + createResponse.status + '): ' + String(created?.error?.message || 'unknown_error'));
   }
-  await saveGoogleDriveOAuthConnection({ folderId: String(created.id), folderName: 'Madrasah Bisa' });
+  await saveGoogleDriveOAuthConnection(tenantId, { folderId: String(created.id), folderName: 'Madrasah Bisa' });
   return String(created.id);
 }
 
 async function uploadLearningPdfToGoogleDrive(buffer: Buffer, displayName: string, req: any): Promise<{ fileId: string; name: string }> {
-  const accessToken = await getGoogleDriveAccessToken();
-  const folderId = await getGoogleDriveFolderId(accessToken);
+  const tenantId = canonicalGoogleDriveTenantId(getRequestMadrasahId(req) || 'default');
+  const accessToken = await getGoogleDriveAccessToken(tenantId);
+  const folderId = await getGoogleDriveFolderId(accessToken, tenantId);
   const tenantHash = crypto.createHash('sha256')
-    .update(String(getRequestMadrasahId(req) || 'default'))
+    .update(tenantId)
     .digest('hex')
     .slice(0, 12);
   const suffix = crypto.randomBytes(6).toString('hex');
@@ -19232,7 +19268,8 @@ async function deleteManagedLearningPdfFromGoogleDrive(fileIdValue: any, req: an
   const fileId = String(fileIdValue || '').trim();
   if (!/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) return 'failed';
   try {
-    const accessToken = await getGoogleDriveAccessToken();
+    const tenantId = canonicalGoogleDriveTenantId(getRequestMadrasahId(req) || 'default');
+    const accessToken = await getGoogleDriveAccessToken(tenantId);
     const metadataResponse = await fetch(
       'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(fileId) + '?supportsAllDrives=true&fields=id,mimeType,trashed,appProperties',
       { headers: { Authorization: 'Bearer ' + accessToken } }
@@ -19242,7 +19279,7 @@ async function deleteManagedLearningPdfFromGoogleDrive(fileIdValue: any, req: an
     if (!metadataResponse.ok) return 'failed';
 
     const tenantHash = crypto.createHash('sha256')
-      .update(String(getRequestMadrasahId(req) || 'default'))
+      .update(tenantId)
       .digest('hex')
       .slice(0, 12);
     const props = metadata?.appProperties || {};
@@ -19269,16 +19306,51 @@ async function deleteManagedLearningPdfFromGoogleDrive(fileIdValue: any, req: an
   }
 }
 
-async function streamLearningPdfFromGoogleDrive(fileId: string, res: any): Promise<void> {
+async function streamLearningPdfFromGoogleDrive(fileId: string, req: any, res: any): Promise<void> {
   const safeFileId = String(fileId || '').trim();
   if (!/^[A-Za-z0-9_-]{10,200}$/.test(safeFileId)) {
     res.status(400).end();
     return;
   }
 
-  const accessToken = await getGoogleDriveAccessToken();
+  const tenantId = canonicalGoogleDriveTenantId(getRequestMadrasahId(req) || 'default');
+  const accessToken = await getGoogleDriveAccessToken(tenantId);
+  const metadataResponse = await fetch(
+    'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(safeFileId) +
+      '?supportsAllDrives=true&fields=id,mimeType,trashed,appProperties',
+    {
+      headers: { Authorization: 'Bearer ' + accessToken },
+      redirect: 'error'
+    }
+  );
+
+  if (metadataResponse.status === 404) {
+    res.status(404).end();
+    return;
+  }
+  if (!metadataResponse.ok) {
+    console.warn('[Google Drive PDF] Metadata gagal:', metadataResponse.status);
+    res.status(metadataResponse.status === 403 ? 403 : 502).end();
+    return;
+  }
+
+  const metadata: any = await metadataResponse.json().catch(() => ({}));
+  const expectedTenantHash = crypto.createHash('sha256').update(tenantId).digest('hex').slice(0, 12);
+  const props = metadata?.appProperties || {};
+  const ownedByTenant =
+    String(metadata?.mimeType || '') === 'application/pdf' &&
+    metadata?.trashed !== true &&
+    String(props?.managedBy || '') === 'madrasah-bisa-learning-pdf' &&
+    String(props?.tenantHash || '') === expectedTenantHash;
+
+  if (!ownedByTenant) {
+    console.warn('[Google Drive PDF] Tenant ownership ditolak untuk file:', safeFileId);
+    res.status(403).end();
+    return;
+  }
+
   const response = await fetch(
-    'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(safeFileId) + '?alt=media',
+    'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(safeFileId) + '?alt=media&supportsAllDrives=true',
     {
       headers: { Authorization: 'Bearer ' + accessToken },
       redirect: 'error'
@@ -19562,7 +19634,7 @@ app.get("/api/learning-assets/drive-pdf", async (req: any, res: any) => {
     if (!authUser) {
       return res.status(401).json({ success: false, message: "Akses ditolak: Silakan login terlebih dahulu." });
     }
-    await streamLearningPdfFromGoogleDrive(String(req.query?.id || '').trim(), res);
+    await streamLearningPdfFromGoogleDrive(String(req.query?.id || '').trim(), req, res);
   } catch (err: any) {
     console.warn('[Google Drive PDF] Failed:', err?.message || err);
     if (!res.headersSent) res.status(500).end();
@@ -24814,7 +24886,7 @@ function createGoogleDriveOAuthState(user: any, madrasahId: string): string {
     iat: Date.now(),
     userId: String(user?.id || ''),
     role: String(user?.role || '').toLowerCase(),
-    madrasahId: String(madrasahId || 'default'),
+    madrasahId: canonicalGoogleDriveTenantId(madrasahId),
     nonce: crypto.randomBytes(16).toString('hex')
   });
   const signature = crypto.createHmac('sha256', JWT_SECRET).update(payload).digest('base64url');
@@ -24872,7 +24944,7 @@ function googleDriveConnectPayload(req: any): { authorizationUrl: string; canCon
   const canConnect = ['admin', 'administrator', 'bos', 'superadmin'].includes(role) && googleDriveOAuthServerConfigured(req);
   if (!canConnect) return { authorizationUrl: '', canConnect: false };
   try {
-    const madrasahId = String(req.query?.madrasahId || req.headers?.['x-madrasah-id'] || req.user?.madrasahId || 'default');
+    const madrasahId = canonicalGoogleDriveTenantId(req.query?.madrasahId || req.headers?.['x-madrasah-id'] || req.user?.madrasahId || 'default');
     const state = createGoogleDriveOAuthState(req.user, madrasahId);
     return { authorizationUrl: buildGoogleDriveOAuthAuthorizationUrl(req, state), canConnect: true };
   } catch (_) {
@@ -24929,7 +25001,8 @@ async function exchangeGoogleDriveOAuthCode(req: any, code: string) {
 app.get('/api/google-drive/status', requireAuth, async (req: any, res: any) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
-    const connection = await getStoredGoogleDriveOAuthConnection();
+    const tenantId = canonicalGoogleDriveTenantId(getRequestMadrasahId(req) || 'default');
+    const connection = await getStoredGoogleDriveOAuthConnection(tenantId);
     const hasStoredRefreshToken = Boolean(connection && connection.refreshToken);
     const hasConfiguredServiceAccount = Boolean(getConfiguredGoogleServiceAccount());
     const runtimeServiceAccountEnabled = String(process.env.GOOGLE_DRIVE_USE_RUNTIME_SERVICE_ACCOUNT || '').trim().toLowerCase() === 'true';
@@ -24952,7 +25025,7 @@ app.get('/api/google-drive/status', requireAuth, async (req: any, res: any) => {
 
 app.get('/api/google-drive/oauth/start', requireAuth, requireRole(['admin', 'bos', 'superadmin']), (req: any, res: any) => {
   try {
-    const madrasahId = String(req.query?.madrasahId || req.headers?.['x-madrasah-id'] || req.user?.madrasahId || 'default');
+    const madrasahId = canonicalGoogleDriveTenantId(req.query?.madrasahId || req.headers?.['x-madrasah-id'] || req.user?.madrasahId || 'default');
     const state = createGoogleDriveOAuthState(req.user, madrasahId);
     const authorizationUrl = buildGoogleDriveOAuthAuthorizationUrl(req, state);
     return res.json({ success: true, authorizationUrl });
@@ -24997,7 +25070,7 @@ app.get('/api/google-drive/oauth/callback', async (req: any, res: any) => {
     }
 
     const encryptedRefreshToken = encryptGoogleDriveOAuthToken(refreshToken);
-    await saveGoogleDriveOAuthConnection({
+    await saveGoogleDriveOAuthConnection(pending.madrasahId, {
       refreshToken: encryptedRefreshToken,
       connectedAt: new Date().toISOString(),
       madrasahId: pending.madrasahId,
