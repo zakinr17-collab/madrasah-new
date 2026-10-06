@@ -19058,33 +19058,61 @@ async function exchangeGoogleDriveOAuthRefreshToken(refreshToken: string): Promi
   return token;
 }
 
+function googleDriveConnectionError(message: string): any {
+  const error: any = new Error(message);
+  error.code = 'GOOGLE_DRIVE_CONNECTION_REQUIRED';
+  return error;
+}
+
+function googleDriveOAuthServerConfigured(req: any): boolean {
+  return Boolean(
+    String(process.env.GOOGLE_DRIVE_OAUTH_CLIENT_ID || '').trim() &&
+    String(process.env.GOOGLE_DRIVE_OAUTH_CLIENT_SECRET || '').trim() &&
+    getGoogleDriveOAuthRedirectUri(req)
+  );
+}
+
 async function getGoogleDriveAccessToken(): Promise<string> {
   if (!isTrustedCloudRunRuntime) {
     throw new Error('Google Drive PDF storage hanya tersedia pada runtime Cloud Run.');
   }
 
-  // Preferred AI Studio/Cloud Run path: OAuth refresh token persisted in PostgreSQL.
+  // Preferred Cloud Run path: a user-authorized OAuth refresh token persisted in PostgreSQL.
   const storedRefreshToken = await getStoredGoogleDriveOAuthRefreshToken();
   if (storedRefreshToken) {
-    return exchangeGoogleDriveOAuthRefreshToken(storedRefreshToken);
+    try {
+      return await exchangeGoogleDriveOAuthRefreshToken(storedRefreshToken);
+    } catch (error: any) {
+      const detail = String(error?.message || error || '');
+      if (/invalid_grant|revoked|expired|refresh/i.test(detail)) {
+        throw googleDriveConnectionError('Koneksi Google Drive sudah tidak valid. Hubungkan Google Drive kembali.');
+      }
+      throw error;
+    }
   }
 
-  // Backward-compatible fallbacks for existing installations.
+  // Explicit service-account deployments remain supported.
   if (getConfiguredGoogleServiceAccount()) {
     return getGoogleDriveServiceAccountAccessToken();
   }
 
-  const tokenResponse = await fetch(
-    'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token',
-    { headers: { 'Metadata-Flavor': 'Google' } }
-  );
-  if (!tokenResponse.ok) {
-    throw new Error(`Cloud Run tidak dapat memperoleh token Google Drive (${tokenResponse.status}).`);
+  // Do not silently use the Cloud Run runtime service account for Drive. That identity
+  // usually has no Drive folder/ownership and previously surfaced only as a generic 500.
+  if (String(process.env.GOOGLE_DRIVE_USE_RUNTIME_SERVICE_ACCOUNT || '').trim().toLowerCase() === 'true') {
+    const tokenResponse = await fetch(
+      'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token',
+      { headers: { 'Metadata-Flavor': 'Google' } }
+    );
+    if (!tokenResponse.ok) {
+      throw googleDriveConnectionError('Service Account runtime Cloud Run belum dapat mengakses Google Drive.');
+    }
+    const payload: any = await tokenResponse.json();
+    const token = String(payload?.access_token || '');
+    if (!token) throw googleDriveConnectionError('Access token Google Drive tidak tersedia.');
+    return token;
   }
-  const payload: any = await tokenResponse.json();
-  const token = String(payload?.access_token || '');
-  if (!token) throw new Error('Access token Google Drive tidak tersedia.');
-  return token;
+
+  throw googleDriveConnectionError('Google Drive belum terhubung. Hubungkan akun Google Drive terlebih dahulu.');
 }
 
 async function getStoredGoogleDriveOAuthConnection(): Promise<any | null> {
@@ -19350,12 +19378,35 @@ app.post(
       });
     } catch (err: any) {
       const detail = String(err?.message || '');
-      console.warn('[Learning PDF Upload] Failed:', err?.http_code || err?.name || '', detail || err);
-      const actionable =
-        /Cloudinary belum terkonfigurasi/i.test(detail)
-          ? detail.slice(0, 700)
-          : safeServerError(err, 'Upload PDF materi gagal.');
-      return res.status(500).json({ success: false, message: actionable || 'Upload PDF materi gagal.' });
+      console.warn('[Learning PDF Upload] Failed:', err?.code || err?.http_code || err?.name || '', detail || err);
+
+      if (err?.code === 'GOOGLE_DRIVE_CONNECTION_REQUIRED') {
+        const connect = googleDriveConnectPayload(req);
+        return res.status(428).json({
+          success: false,
+          code: 'GOOGLE_DRIVE_CONNECTION_REQUIRED',
+          requiresGoogleDriveConnection: true,
+          canConnectGoogleDrive: connect.canConnect,
+          authorizationUrl: connect.authorizationUrl,
+          message: connect.canConnect
+            ? 'Google Drive belum terhubung. Hubungkan Google Drive, lalu klik Simpan/Publikasikan lagi.'
+            : 'Google Drive belum terhubung. Administrator harus menghubungkan Google Drive terlebih dahulu.'
+        });
+      }
+
+      const oauthConfigIssue = /Google Drive OAuth belum lengkap|CLIENT_ID|CLIENT_SECRET|REDIRECT_URI/i.test(detail);
+      if (oauthConfigIssue) {
+        return res.status(503).json({
+          success: false,
+          code: 'GOOGLE_DRIVE_SERVER_CONFIG_REQUIRED',
+          message: 'Konfigurasi Google Drive OAuth di server belum lengkap.'
+        });
+      }
+
+      return res.status(500).json({
+        success: false,
+        message: safeServerError(err, 'Upload PDF materi gagal.')
+      });
     }
   }
 );
@@ -24815,6 +24866,19 @@ function getGoogleDriveOAuthRedirectUri(req: any): string {
 }
 
 
+function googleDriveConnectPayload(req: any): { authorizationUrl: string; canConnect: boolean } {
+  const role = String(req.user?.role || '').toLowerCase();
+  const canConnect = ['admin', 'administrator', 'bos', 'superadmin'].includes(role) && googleDriveOAuthServerConfigured(req);
+  if (!canConnect) return { authorizationUrl: '', canConnect: false };
+  try {
+    const madrasahId = String(req.query?.madrasahId || req.headers?.['x-madrasah-id'] || req.user?.madrasahId || 'default');
+    const state = createGoogleDriveOAuthState(req.user, madrasahId);
+    return { authorizationUrl: buildGoogleDriveOAuthAuthorizationUrl(req, state), canConnect: true };
+  } catch (_) {
+    return { authorizationUrl: '', canConnect: false };
+  }
+}
+
 function buildGoogleDriveOAuthAuthorizationUrl(req: any, state: string): string {
   const clientId = String(process.env.GOOGLE_DRIVE_OAUTH_CLIENT_ID || '').trim();
   const redirectUri = getGoogleDriveOAuthRedirectUri(req);
@@ -24860,6 +24924,30 @@ async function exchangeGoogleDriveOAuthCode(req: any, code: string) {
 
   return payload;
 }
+
+app.get('/api/google-drive/status', requireAuth, (req: any, res: any) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    const connection = await getStoredGoogleDriveOAuthConnection();
+    const hasStoredRefreshToken = Boolean(connection && connection.refreshToken);
+    const hasConfiguredServiceAccount = Boolean(getConfiguredGoogleServiceAccount());
+    const runtimeServiceAccountEnabled = String(process.env.GOOGLE_DRIVE_USE_RUNTIME_SERVICE_ACCOUNT || '').trim().toLowerCase() === 'true';
+    const connect = ['admin', 'administrator', 'bos', 'superadmin'].includes(role)
+      ? googleDriveConnectPayload(req)
+      : { authorizationUrl: '', canConnect: false };
+    return res.json({
+      success: true,
+      connected: hasStoredRefreshToken || hasConfiguredServiceAccount || runtimeServiceAccountEnabled,
+      storage: 'google-drive',
+      oauthConfigured: googleDriveOAuthServerConfigured(req),
+      canConnectGoogleDrive: connect.canConnect,
+      authorizationUrl: connect.authorizationUrl,
+      folderName: String(connection?.folderName || 'Madrasah Bisa')
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: safeServerError(error, 'Status Google Drive tidak tersedia.') });
+  }
+});
 
 app.get('/api/google-drive/oauth/start', requireAuth, requireRole(['admin', 'bos', 'superadmin']), (req: any, res: any) => {
   try {
