@@ -64,10 +64,14 @@
     "node": ">=22.13.0"
   },
   "overrides": {
-    "dompurify": "3.4.13",
+    "dompurify": "3.4.16",
     "esbuild": "$esbuild",
     "qs": "6.16.0",
     "@xmldom/xmldom": "^0.9.9",
-    "nanoid": "^3.3.19"
+    "nanoid": "^3.3.19",
+    "proxy-addr": "2.0.8",
+    "brace-expansion": "5.0.12",
+    "source-map-js": "1.2.2",
+    "@grpc/grpc-js": "1.14.5"
   }
 }

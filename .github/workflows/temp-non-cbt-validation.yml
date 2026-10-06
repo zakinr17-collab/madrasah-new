@@ -1,0 +1,84 @@
+name: Temporary Non-CBT Validation
+
+on:
+  push:
+    branches:
+      - fix/dual-mode-hardening-clean
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: High critical dependency audit
+        run: npm audit --audit-level=high
+
+      - name: Verify dual-mode and Material hardening
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const assert = require('assert');
+          const server = fs.readFileSync('server.ts', 'utf8');
+          const learning = fs.readFileSync('src/learningModule.js', 'utf8');
+          const admin = fs.readFileSync('src/adminModules.js', 'utf8');
+          const creds = fs.readFileSync('src/credentialVisibilityPatch.js', 'utf8');
+
+          assert(server.includes("isTrustedCloudRunRuntime && Boolean("), 'BOSS must stay Cloud Run only');
+          assert(server.includes("Instalasi offline belum memiliki lisensi BOSS yang valid"), 'all-account offline license gate missing');
+          assert(server.includes("const activated = isOfflineLicenseActive();"), 'license status must verify signature');
+          assert(server.includes("body: JSON.stringify({ envelope, installationId: offlineLicense.installationId, madrasah: profile })"), 'offline->BOSS metadata sync missing');
+          assert(server.includes("offlineLastSyncAt"), 'BOSS offline last-sync metadata missing');
+          assert(server.includes("aes-256-gcm"), 'student admin password encryption missing');
+          assert(server.includes("passwordAdminCipher"), 'encrypted admin password field missing');
+          assert(server.includes("const exposeStudentPasswords = actorRole === 'admin';"), 'password display must be admin-only');
+          assert(admin.includes("student.passwordDisplay"), 'Data Siswa does not use admin-authorized password display');
+          assert(creds.includes("role === 'admin' && person?.passwordDisplay"), 'credential UI does not enforce admin-only display');
+
+          assert(server.includes("['image', 'video', 'raw'] as const"), 'Cloudinary RAW PDF audit/cleanup missing');
+          assert(server.includes("cleanupLocalLearningAssetsForDeletedMaterial"), 'offline local Material cleanup missing');
+          assert(server.includes('app.delete("/api/learning/assets"'), 'Material upload rollback endpoint missing');
+          assert.equal((server.match(/app\.get\("\/api\/learning-assets\/inline-pdf"/g) || []).length, 1, 'inline PDF route must be unique');
+          assert(learning.includes("rollbackLearningUploadedAssets"), 'frontend upload rollback missing');
+          assert(learning.includes("materialSaveRejected && uploadedThisSave.length"), 'rollback must be limited to confirmed rejected saves');
+
+          assert.equal(fs.readFileSync('src/learningModule.js','utf8'), fs.readFileSync('public/learningModule.js','utf8'), 'learning src/public mismatch');
+          assert.equal(fs.readFileSync('src/adminModules.js','utf8'), fs.readFileSync('public/adminModules.js','utf8'), 'admin src/public mismatch');
+          assert.equal(fs.readFileSync('src/credentialVisibilityPatch.js','utf8'), fs.readFileSync('public/credentialVisibilityPatch.js','utf8'), 'credential src/public mismatch');
+
+          console.log('PASS: dual-mode, credential, and Material invariants');
+          NODE
+
+      - name: Frontend handler audit
+        run: npm run frontend:handler-audit
+
+      - name: TypeScript check
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+
+      - name: Font audit
+        run: npm run font:asset-audit
+
+      - name: Verify tracked source/build parity
+        shell: bash
+        run: |
+          if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+            echo "Build changed tracked source files."
+            git status --short --untracked-files=no
+            exit 1
+          fi

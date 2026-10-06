@@ -42,10 +42,12 @@
         return byId || byUsername || null;
     }
     function visiblePassword(type, person) {
+        const role = String(state().role || state().currentUser?.role || '').toLowerCase();
+        if (type === 'student' && role === 'admin' && person?.passwordDisplay) {
+            return String(person.passwordDisplay);
+        }
         const c = findCredential(type, person);
         if (c && c.temporaryPassword) return String(c.temporaryPassword);
-        const raw = person && person.password ? String(person.password) : '';
-        if (raw && !/^\$2[aby]\$|^pbkdf2:|^argon2|^[a-f0-9]{64,}$/i.test(raw)) return raw;
         return '';
     }
     function generatePassword(person) {
