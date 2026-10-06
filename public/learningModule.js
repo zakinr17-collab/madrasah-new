@@ -367,7 +367,8 @@ async function flushLearningProgressQueue() {
     if (!queue.length) return;
 
     const remaining = [];
-    for (const item of queue) {
+    for (let index = 0; index < queue.length; index++) {
+        const item = queue[index];
         // Defensive isolation: even a manually modified queue may never submit another user's progress.
         if (String(item?.studentId || identity.studentId) !== identity.studentId) continue;
         if (item?.tenantId && String(item.tenantId) !== identity.tenantId) continue;
@@ -385,14 +386,14 @@ async function flushLearningProgressQueue() {
             });
             const data = await response.json().catch(() => ({}));
             if (response.status === 401 || response.status === 403) {
-                // Session/role is not valid for student progress. Do not hammer the endpoint.
-                remaining.push(item);
+                // Preserve this and all later rows, but stop retrying until a new valid session/online event.
+                remaining.push(...queue.slice(index));
                 break;
             }
             if (!response.ok || data.success === false) remaining.push(item);
             else if (data.progress) replaceLearningProgressSnapshot(data.progress);
         } catch (_) {
-            remaining.push(item);
+            remaining.push(...queue.slice(index));
             break;
         }
     }

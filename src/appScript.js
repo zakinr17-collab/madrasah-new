@@ -1150,6 +1150,8 @@ function getStoredRealtimeAuthToken() {
     return getStoredAuthToken();
 }
 
+if (typeof window.__madrasahSessionReady !== 'boolean') window.__madrasahSessionReady = false;
+
 function initRealtimeSync() {
     // Prevent duplicate SSE loops when modules/routes are rendered repeatedly.
     if (window.__madrasahRealtimeStarted) return;
@@ -1202,14 +1204,13 @@ function initRealtimeSync() {
         }
 
         // Wait until initAppSession/login has validated both the token and account-scoped data.
-        if (window.__onlineRuntimeReady !== true || !currentUser || !currentUser.role) {
+        if (window.__onlineRuntimeReady !== true || window.__madrasahSessionReady !== true || !currentUser || !currentUser.role) {
             rejectedAuthToken = '';
             scheduleReconnect(1500);
             return;
         }
 
         if (rejectedAuthToken && rejectedAuthToken === authToken) {
-            scheduleReconnect(5000);
             return;
         }
 
@@ -1220,7 +1221,6 @@ function initRealtimeSync() {
             const ticketResponse = await fetch('/api/realtime-token', { cache: 'no-store' });
             if (ticketResponse.status === 401 || ticketResponse.status === 403) {
                 rejectedAuthToken = authToken;
-                scheduleReconnect(5000);
                 return;
             }
             const ticketData = await ticketResponse.json();
@@ -1295,7 +1295,7 @@ function initRealtimeSync() {
             clearReconnectTimer();
             return;
         }
-        if (!currentToken || window.__onlineRuntimeReady !== true || !currentUser || !currentUser.role) {
+        if (!currentToken || window.__onlineRuntimeReady !== true || window.__madrasahSessionReady !== true || !currentUser || !currentUser.role) {
             if (sseSource) closeSource();
             return;
         }
@@ -1762,6 +1762,7 @@ async function loadInitialRuntimeSettings() {
 }
 
 function showLoggedOutShellImmediately() {
+    window.__madrasahSessionReady = false;
     appState.currentUser = null;
     appState.role = null;
     appState.currentRoute = null;
@@ -2285,6 +2286,8 @@ function startSession(isRefresh = false) {
     const isStudent = role === 'student' || role === 'murid' || role === 'class_leader' || role === 'ketua_kelas';
     const isTeacher = role === 'teacher' || role === 'guru';
 
+    window.__madrasahSessionReady = true;
+
     // Protected feature queues must only start after the login/session has been
     // validated and the current account has been installed into appState.
     try {
@@ -2459,6 +2462,7 @@ function logout() {
         window.__persistentStudentCameraStream = null;
     }
 
+    window.__madrasahSessionReady = false;
     appState.currentUser = null;
     appState.role = null;
     resetAccountScopedRuntimeState();
