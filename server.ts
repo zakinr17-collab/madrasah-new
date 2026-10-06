@@ -19093,6 +19093,72 @@ async function getGoogleDriveFolderId(accessToken: string): Promise<string> {
   return String(created.id);
 }
 
+async function streamLearningPdfFromGoogleDrive(fileIdValue: string, res: any): Promise<void> {
+  if (!isTrustedCloudRunRuntime || !isOnlineMode) {
+    res.status(404).end();
+    return;
+  }
+
+  const fileId = String(fileIdValue || '').trim();
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) {
+    res.status(400).end();
+    return;
+  }
+
+  const accessToken = await getGoogleDriveAccessToken();
+  const encodedId = encodeURIComponent(fileId);
+  const metadataResponse = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodedId}?fields=id,name,mimeType,size,trashed&supportsAllDrives=true`,
+    { headers: { Authorization: 'Bearer ' + accessToken } }
+  );
+  if (!metadataResponse.ok) {
+    console.warn(`[Google Drive PDF] Metadata gagal: ${metadataResponse.status}`);
+    res.status(metadataResponse.status === 404 ? 404 : 502).end();
+    return;
+  }
+
+  const metadata: any = await metadataResponse.json().catch(() => ({}));
+  const mimeType = String(metadata?.mimeType || '').toLowerCase();
+  const declaredSize = Number(metadata?.size || 0);
+  if (metadata?.trashed === true || mimeType !== 'application/pdf') {
+    res.status(415).end();
+    return;
+  }
+  if (Number.isFinite(declaredSize) && declaredSize > MAX_LEARNING_PDF_BYTES) {
+    res.status(413).end();
+    return;
+  }
+
+  const mediaResponse = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${encodedId}?alt=media&supportsAllDrives=true`,
+    { headers: { Authorization: 'Bearer ' + accessToken }, redirect: 'error' }
+  );
+  if (!mediaResponse.ok) {
+    console.warn(`[Google Drive PDF] Download gagal: ${mediaResponse.status}`);
+    res.status(mediaResponse.status === 404 ? 404 : 502).end();
+    return;
+  }
+
+  const buffer = Buffer.from(await mediaResponse.arrayBuffer());
+  if (!buffer.length || buffer.length > MAX_LEARNING_PDF_BYTES) {
+    res.status(buffer.length > MAX_LEARNING_PDF_BYTES ? 413 : 404).end();
+    return;
+  }
+  if (buffer.length < 5 || buffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    res.status(415).end();
+    return;
+  }
+
+  const displayName = sanitizeLearningAssetName(metadata?.name || 'Materi.pdf', 'Materi.pdf');
+  const safeFileName = displayName.replace(/["\\\r\n]/g, '_');
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Length', String(buffer.length));
+  res.setHeader('Content-Disposition', `inline; filename="${safeFileName}"`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.send(buffer);
+}
+
 app.post(
   "/api/learning/assets/pdf",
   requireAuth,
