@@ -12,9 +12,7 @@ function escapeHtmlAttr(value) {
 
 function getStoredAuthToken() {
     try {
-        const sessionToken = sessionStorage.getItem(AUTH_SESSION_TOKEN_KEY) || '';
-        if (sessionToken) return sessionToken;
-        return localStorage.getItem(AUTH_SESSION_TOKEN_KEY) || '';
+        return sessionStorage.getItem(AUTH_SESSION_TOKEN_KEY) || '';
     } catch (_) { return ''; }
 }
 
@@ -69,6 +67,8 @@ function readPersistedUser(requireToken = true) {
 
 function clearPersistedAuthSession() {
     try { sessionStorage.removeItem(AUTH_SESSION_TOKEN_KEY); } catch (_) {}
+    // Remove legacy JWT storage from older builds; current builds never persist JWT here.
+    try { localStorage.removeItem(AUTH_SESSION_TOKEN_KEY); } catch (_) {}
     try { localStorage.removeItem('madrasah_current_user'); } catch (_) {}
     try { localStorage.removeItem('madrasah_active_account'); } catch (_) {}
 }
@@ -237,18 +237,9 @@ window.getPhotoHtmlSrc = getPhotoHtmlSrc;
         options.headers['X-User-Role'] = userRole;
 
         const authToken = getStoredAuthToken();
-        const isLearningRequest = typeof url === 'string' && (
-            url.includes('/api/learning/') ||
-            url.includes('/api/learning-assets/drive-pdf') ||
-            url.includes('/api/learning-assets/inline-pdf')
-        );
         if (authToken) {
             options.headers['Authorization'] = 'Bearer ' + authToken;
             options.headers['X-Auth-Token'] = authToken;
-            if (isLearningRequest && !/[?&]auth=/.test(fetchUrl)) {
-                const separator = fetchUrl.includes('?') ? '&' : '?';
-                fetchUrl += separator + 'auth=' + encodeURIComponent(authToken);
-            }
         }
         
         if (activeMId && activeMId !== 'BOSS') {
