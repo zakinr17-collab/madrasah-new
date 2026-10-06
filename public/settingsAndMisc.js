@@ -50,35 +50,6 @@ window.compressBase64Image = async (dataUrl, maxWidth = 800, maxHeight = 800, qu
     });
 };
 
-// Google Drive OAuth connection for AI Studio/Cloud Run.
-async function connectGoogleDriveOAuth(button) {
-    const btn = button || null;
-    const originalHtml = btn ? btn.innerHTML : '';
-    if (btn) {
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Membuka Google...';
-    }
-    try {
-        const response = await fetch('/api/google-drive/oauth/start', {
-            method: 'GET',
-            headers: { 'Accept': 'application/json' }
-        });
-        const data = await response.json().catch(() => null);
-        if (!response.ok || !data?.success || !data?.authorizationUrl) {
-            throw new Error(data?.message || 'Gagal memulai koneksi Google Drive.');
-        }
-        window.location.href = data.authorizationUrl;
-    } catch (error) {
-        console.error('[Google Drive OAuth] Start failed:', error);
-        if (typeof showToast === 'function') showToast(error?.message || 'Gagal menghubungkan Google Drive.', 'error');
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
-        }
-    }
-}
-window.connectGoogleDriveOAuth = connectGoogleDriveOAuth;
-
 // Settings, Geofencing, Class Leader, Assessment & Data Sync Module
 
 function renderSettingModule(container) {
@@ -91,27 +62,6 @@ function renderSettingModule(container) {
                     <p class="text-xs text-slate-400 mt-0.5">Kelola nama sekolah, logo, geotagging, dan akun pengguna</p>
                 </div>
 
-
-                <!-- Google Drive OAuth -->
-                <div class="border-t border-slate-100 pt-6">
-                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border border-blue-100 bg-blue-50/60">
-                        <div class="flex items-start gap-3">
-                            <div class="w-10 h-10 rounded-xl bg-white border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
-                                <i class="fa-brands fa-google-drive text-lg"></i>
-                            </div>
-                            <div>
-                                <h2 class="text-base font-bold text-slate-800">Google Drive Materi Pembelajaran</h2>
-                                <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-                                    Hubungkan akun Google yang memiliki akses ke folder penyimpanan PDF. Setelah terhubung, PDF Materi Pembelajaran dapat diunggah ke Google Drive.
-                                </p>
-                            </div>
-                        </div>
-                        <button type="button" onclick="connectGoogleDriveOAuth(this)"
-                            class="shrink-0 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold shadow-sm transition">
-                            <i class="fa-brands fa-google-drive mr-1"></i>Hubungkan Google Drive
-                        </button>
-                    </div>
-                </div>
                 <div class="border-t border-slate-100 pt-6">
                     <h2 class="text-base font-bold text-slate-800 mb-2">Lokasi Geotagging Sekolah</h2>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
