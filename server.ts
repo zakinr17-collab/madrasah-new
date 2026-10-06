@@ -19328,7 +19328,7 @@ app.delete("/api/learning/assets", requireAuth, requireRole(['teacher', 'guru', 
     console.warn('[Learning Asset Rollback] Failed:', err?.message || err);
     return res.status(500).json({ success: false, message: safeServerError(err, 'Rollback aset Materi gagal.') });
   }
-}
+});
 
 app.get("/api/learning-assets/drive-pdf", async (req: any, res: any) => {
   try {
