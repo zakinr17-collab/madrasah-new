@@ -19305,7 +19305,7 @@ app.delete("/api/learning/assets", requireAuth, requireRole(['teacher', 'guru', 
     console.warn('[Learning Asset Rollback] Failed:', err?.message || err);
     return res.status(500).json({ success: false, message: safeServerError(err, 'Rollback aset Materi gagal.') });
   }
-});
+}
 
 app.get("/api/learning-assets/drive-pdf", async (req: any, res: any) => {
   try {
@@ -19371,7 +19371,7 @@ app.get("/api/learning-assets/inline-pdf", async (req: any, res: any) => {
     console.warn('[Learning PDF inline] Failed:', err?.message || err);
     if (!res.headersSent) res.status(400).end();
   }
-}); catch (err: any) {
+} catch (err: any) {
     console.warn('[Learning PDF inline] Failed:', err?.message || err);
     if (!res.headersSent) res.status(400).end();
   }
