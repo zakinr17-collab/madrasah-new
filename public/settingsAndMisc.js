@@ -50,6 +50,35 @@ window.compressBase64Image = async (dataUrl, maxWidth = 800, maxHeight = 800, qu
     });
 };
 
+// Google Drive OAuth connection for AI Studio/Cloud Run.
+async function connectGoogleDriveOAuth(button) {
+    const btn = button || null;
+    const originalHtml = btn ? btn.innerHTML : '';
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Membuka Google...';
+    }
+    try {
+        const response = await fetch('/api/google-drive/oauth/start', {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' }
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success || !data?.authorizationUrl) {
+            throw new Error(data?.message || 'Gagal memulai koneksi Google Drive.');
+        }
+        window.location.href = data.authorizationUrl;
+    } catch (error) {
+        console.error('[Google Drive OAuth] Start failed:', error);
+        if (typeof showToast === 'function') showToast(error?.message || 'Gagal menghubungkan Google Drive.', 'error');
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    }
+}
+window.connectGoogleDriveOAuth = connectGoogleDriveOAuth;
+
 // Settings, Geofencing, Class Leader, Assessment & Data Sync Module
 
 function renderSettingModule(container) {
@@ -62,6 +91,27 @@ function renderSettingModule(container) {
                     <p class="text-xs text-slate-400 mt-0.5">Kelola nama sekolah, logo, geotagging, dan akun pengguna</p>
                 </div>
 
+
+                <!-- Google Drive OAuth -->
+                <div class="border-t border-slate-100 pt-6">
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border border-blue-100 bg-blue-50/60">
+                        <div class="flex items-start gap-3">
+                            <div class="w-10 h-10 rounded-xl bg-white border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+                                <i class="fa-brands fa-google-drive text-lg"></i>
+                            </div>
+                            <div>
+                                <h2 class="text-base font-bold text-slate-800">Google Drive Materi Pembelajaran</h2>
+                                <p class="text-xs text-slate-500 mt-1 leading-relaxed">
+                                    Hubungkan akun Google yang memiliki akses ke folder penyimpanan PDF. Setelah terhubung, PDF Materi Pembelajaran dapat diunggah ke Google Drive.
+                                </p>
+                            </div>
+                        </div>
+                        <button type="button" onclick="connectGoogleDriveOAuth(this)"
+                            class="shrink-0 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold shadow-sm transition">
+                            <i class="fa-brands fa-google-drive mr-1"></i>Hubungkan Google Drive
+                        </button>
+                    </div>
+                </div>
                 <div class="border-t border-slate-100 pt-6">
                     <h2 class="text-base font-bold text-slate-800 mb-2">Lokasi Geotagging Sekolah</h2>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -78,7 +128,7 @@ function renderSettingModule(container) {
                 <div class="border-t border-slate-100 pt-6">
                     <h2 class="text-base font-bold text-slate-800 mb-1">Logo Madrasah</h2>
                     <p class="text-xs text-slate-400 mb-4">Pilih ikon dari preset, gunakan URL gambar, atau unggah logo kustom untuk dipasang di sidebar</p>
-                    
+
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <!-- Preview Logo -->
                         <div class="flex flex-col items-center justify-center p-6 bg-slate-50 rounded-3xl border border-slate-200">
@@ -88,7 +138,7 @@ function renderSettingModule(container) {
                             </div>
                             <span id="settings-logo-type-label" class="text-[11px] text-slate-500 mt-3 font-semibold">Tipe: Ikon</span>
                         </div>
-                        
+
                         <!-- Pilihan Ikon Preset -->
                         <div class="space-y-2 md:col-span-2">
                             <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Pilih Ikon Preset</label>
@@ -120,7 +170,7 @@ function renderSettingModule(container) {
                             </div>
                         </div>
                     </div>
-                    
+
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                         <!-- URL Input -->
                         <div>
@@ -130,7 +180,7 @@ function renderSettingModule(container) {
                                 <button type="button" onclick="clearCustomLogo()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-semibold transition">Reset</button>
                             </div>
                         </div>
-                        
+
                         <!-- File Upload -->
                         <div>
                             <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Atau Unggah File Gambar (PNG/JPG)</label>
@@ -143,7 +193,7 @@ function renderSettingModule(container) {
                             </div>
                         </div>
                     </div>
-                    
+
                     <!-- Logo Shape and Background controls -->
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 border-t border-slate-100 pt-4">
                         <div>
@@ -456,7 +506,7 @@ function renderSettingModule(container) {
                                     <input type="password" id="set-livekit-api-secret" value="${appState.settings.livekitApiSecret || ''}" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm font-semibold" placeholder="Masukkan API Secret">
                                 </div>
                             </div>
-                            
+
                             <div class="mt-2 pt-4 border-t border-slate-100">
                                 <h4 class="text-xs font-bold text-slate-700 flex items-center gap-1.5 mb-2">
                                     <i class="fa-solid fa-earth-americas text-emerald-600"></i>
@@ -583,7 +633,7 @@ function renderSettingModule(container) {
                                 </select>
                             </div>
                         </div>
-                        
+
                         <div id="login-custom-bg-container" class="${(appState.settings.loginConfig?.bgStyle || 'default') === 'custom' ? '' : 'hidden'} space-y-1.5 pt-2">
                             <label class="block text-xs font-semibold text-slate-600">Kode CSS Background Kustom (Color/Gradient)</label>
                             <input type="text" id="login-set-custom-bg" value="${(appState.settings.loginConfig?.customBg || 'linear-gradient(135deg, #0f172a 0%, #064e3b 100%)').replace(/"/g, '&quot;')}" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-mono" placeholder="linear-gradient(135deg, #0f172a, #1e293b)">
@@ -672,14 +722,14 @@ function renderSettingModule(container) {
                     <h2 class="text-xl sm:text-2xl font-bold text-slate-800">Pengaturan Akun & Peran Pengguna</h2>
                     <p class="text-xs text-slate-400 mt-0.5">Cari akun guru atau murid untuk mengubah peran (Guru, Murid, Ketua Kelas)</p>
                 </div>
-                
+
                 <div class="space-y-4">
                     <!-- Search bar -->
                     <div class="relative">
                         <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3.5 text-slate-400 text-xs"></i>
                         <input type="text" id="account-search-input" oninput="searchUserAccounts(this.value)" placeholder="Cari nama, NIS, NIP, atau username..." class="w-full pl-9 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm" autocomplete="off">
                     </div>
-                    
+
                     <!-- Search results list -->
                     <div id="account-results-list" class="space-y-2 max-h-80 overflow-y-auto pr-1">
                         <!-- Populated dynamically -->
@@ -745,7 +795,7 @@ function renderSettingModule(container) {
                         <p class="text-xs text-slate-600 leading-relaxed">
                             Unduh file JSON berisi basis data sistem sesuai komponen yang dipilih. Centang komponen yang ingin dicadangkan.
                         </p>
-                        
+
                         <div class="space-y-2 py-2 border-t border-b border-emerald-100 my-2">
                             <div class="flex items-center justify-between mb-2">
                                 <span class="text-[11px] font-bold text-emerald-900 uppercase tracking-wider">Pilih Komponen Backup:</span>
@@ -907,9 +957,9 @@ function renderSettingModule(container) {
 function searchUserAccounts(query = '') {
     const resultsContainer = document.getElementById('account-results-list');
     if (!resultsContainer) return;
-    
+
     const kw = query.toLowerCase().trim();
-    
+
     if (kw === '') {
         resultsContainer.innerHTML = `
             <div class="text-center py-8 bg-slate-50 rounded-2xl border border-slate-100 text-slate-400 text-xs font-medium">
@@ -918,7 +968,7 @@ function searchUserAccounts(query = '') {
         `;
         return;
     }
-    
+
     // Build combined list
     const teachersList = (appState.teachers || []).map(t => ({
         ...t,
@@ -927,7 +977,7 @@ function searchUserAccounts(query = '') {
         badgeColor: 'bg-indigo-50 text-indigo-700 border-indigo-200',
         ident: t.nip || 'Guru'
     }));
-    
+
     const studentsList = (appState.students || []).map(s => {
         const isLeader = s.role === 'class_leader' || s.role === 'ketua_kelas';
         return {
@@ -938,18 +988,18 @@ function searchUserAccounts(query = '') {
             ident: s.nis || 'Murid'
         };
     });
-    
+
     const allUsers = [...teachersList, ...studentsList];
-    
+
     let filtered = allUsers;
     if (kw) {
-        filtered = allUsers.filter(u => 
+        filtered = allUsers.filter(u =>
             (u.name && String(u.name).toLowerCase().includes(kw)) ||
             (u.username && String(u.username).toLowerCase().includes(kw)) ||
             (u.ident && String(u.ident).toLowerCase().includes(kw))
         );
     }
-    
+
     if (filtered.length === 0) {
         resultsContainer.innerHTML = `
             <div class="text-center py-8 bg-slate-50 rounded-2xl border border-slate-100 text-slate-400 text-xs">
@@ -958,7 +1008,7 @@ function searchUserAccounts(query = '') {
         `;
         return;
     }
-    
+
     resultsContainer.innerHTML = filtered.map(u => {
         // Safe string escape for name
         const escapedName = (u.name || '').replace(/'/g, "\\'");
@@ -1121,7 +1171,7 @@ async function copyAdminResetPassword() {
 function openEditRoleModal(userId, currentType, userName) {
     const modal = document.getElementById('modal-container');
     if (!modal) return;
-    
+
     modal.innerHTML = `
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-fade-in">
             <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-6 space-y-4">
@@ -1133,7 +1183,7 @@ function openEditRoleModal(userId, currentType, userName) {
                     <p class="text-xs text-slate-400 font-semibold uppercase">Nama Pengguna</p>
                     <p class="text-sm font-bold text-slate-800">${userName}</p>
                 </div>
-                
+
                 <div class="space-y-2">
                     <label class="block text-xs font-bold uppercase text-slate-500">Pilih Peran Baru</label>
                     <select id="new-user-role-select" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm font-semibold">
@@ -1142,7 +1192,7 @@ function openEditRoleModal(userId, currentType, userName) {
                         <option value="class_leader" ${currentType === 'class_leader' ? 'selected' : ''}>Ketua Kelas (Akses Absensi Kelas)</option>
                     </select>
                 </div>
-                
+
                 <div class="flex justify-end space-x-2 pt-2">
                     <button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-100 rounded-xl text-xs font-semibold hover:bg-slate-200 transition">Batal</button>
                     <button type="button" onclick="saveUserRole('${userId}')" class="px-4 py-2 bg-emerald-600 text-white rounded-xl text-xs font-bold hover:bg-emerald-700 shadow transition">Simpan Peran</button>
@@ -1156,23 +1206,23 @@ async function saveUserRole(userId) {
     const selectEl = document.getElementById('new-user-role-select');
     if (!selectEl) return;
     const newRole = selectEl.value;
-    
+
     try {
         const response = await fetch('/api/users/change-role', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ userId, newRole })
         });
-        
+
         const data = await response.json();
         if (!response.ok || !data.success) throw new Error(data.message || 'Gagal mengubah peran.');
-        
+
         showToast(data.message || 'Peran pengguna berhasil diperbarui!', 'success');
         closeModal();
-        
+
         // Refresh local data from server
         await loadDataFromServer();
-        
+
         // Refresh account search results list
         const searchInput = document.getElementById('account-search-input');
         const kw = searchInput ? searchInput.value : '';
@@ -1197,7 +1247,7 @@ function handleLogoURLInput(url) {
 function handleLogoFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
-    
+
     const reader = new FileReader();
     reader.onload = function(e) {
         appState.tempLogo = e.target.result;
@@ -1228,28 +1278,28 @@ function updateSettingsLogoPreview() {
     const previewContainer = document.getElementById('settings-logo-preview-container');
     const typeLabel = document.getElementById('settings-logo-type-label');
     if (!previewContainer) return;
-    
+
     const shapeSelect = document.getElementById('settings-logo-shape');
     const bgInput = document.getElementById('settings-logo-bg');
     const bgHexSpan = document.getElementById('settings-logo-bg-hex');
     const colorInput = document.getElementById('settings-logo-color');
     const colorHexSpan = document.getElementById('settings-logo-color-hex');
-    
+
     const shape = shapeSelect ? shapeSelect.value : (appState.settings.schoolLogoShape || 'rounded-xl');
     const bg = bgInput ? bgInput.value : (appState.settings.schoolLogoBg || '#059669');
     const color = colorInput ? colorInput.value : (appState.settings.schoolLogoColor || '#ffffff');
-    
+
     if (bgHexSpan && bgInput) {
         bgHexSpan.innerText = bg;
     }
     if (colorHexSpan && colorInput) {
         colorHexSpan.innerText = color;
     }
-    
+
     // Reset classes
     previewContainer.className = "w-16 h-16 flex items-center justify-center text-3xl font-bold shadow-lg overflow-hidden transition-all duration-200";
     previewContainer.style.color = color;
-    
+
     // Apply shape via applyLogoShape helper
     if (window.applyLogoShape) {
         window.applyLogoShape(previewContainer, shape);
@@ -1260,15 +1310,15 @@ function updateSettingsLogoPreview() {
     } else {
         previewContainer.classList.add(shape);
     }
-    
+
     // Apply background color style
     previewContainer.style.backgroundColor = bg;
-    
+
     const logo = appState.tempLogo || appState.settings.schoolLogo || 'fa-moon';
     if (logo.startsWith('data:image/') || logo.startsWith('http://') || logo.startsWith('https://')) {
         previewContainer.innerHTML = `<img src="${logo}" class="w-full h-full object-cover" referrerPolicy="no-referrer" alt="Logo">`;
         typeLabel.innerText = 'Tipe: Gambar';
-        
+
         const urlInput = document.getElementById('settings-logo-url');
         if (urlInput && (logo.startsWith('http://') || logo.startsWith('https://'))) {
             urlInput.value = logo;
@@ -1311,7 +1361,7 @@ function saveSettings(e) {
     if (appState.tempLogo) {
         appState.settings.schoolLogo = appState.tempLogo;
     }
-    
+
     const shapeSelect = document.getElementById('settings-logo-shape');
     const bgInput = document.getElementById('settings-logo-bg');
     const colorInput = document.getElementById('settings-logo-color');
@@ -1354,12 +1404,12 @@ function saveSettings(e) {
     if (turnUserEl) appState.settings.turnUsername = turnUserEl.value.trim();
     if (turnCredEl) appState.settings.turnCredential = turnCredEl.value.trim();
     if (disablePublicStunEl) appState.settings.disablePublicStun = disablePublicStunEl.checked;
-    
+
     saveState('settings');
 
     const schoolNameEl = document.getElementById('nav-school-name');
     if (schoolNameEl) schoolNameEl.innerText = appState.settings.schoolName;
-    
+
     if (window.updateSchoolLogoUI) {
         window.updateSchoolLogoUI();
     }
@@ -1450,7 +1500,7 @@ function handleAttendanceSearchInput(val) {
 
 function renderStudentAttendanceAdminOnly(container) {
     let classes = appState.classes || [];
-    
+
     // Available subjects list (for teacher: filter by teacher's mapel)
     let availableSubjects = appState.subjects || [];
     if (appState.role === 'teacher') {
@@ -1489,7 +1539,7 @@ function renderStudentAttendanceAdminOnly(container) {
     appState.activeAttendanceDate = selectedDate;
 
     const searchKeyword = appState.activeAttendanceSearch || '';
-    
+
     let students = [];
     if (selectedClassId === 'ALL') {
         students = appState.students || [];
@@ -1569,7 +1619,7 @@ function renderStudentAttendanceAdminOnly(container) {
                     students.forEach(st => {
                         const att = (appState.attendance || []).slice().reverse().find(a => {
                             const sameStudent = (
-                                String(a.studentId) === String(st.id) || 
+                                String(a.studentId) === String(st.id) ||
                                 (a.studentId && st.id && String(a.studentId).toLowerCase().trim() === String(st.id).toLowerCase().trim()) ||
                                 (a.studentId && st.nis && String(a.studentId).toLowerCase().trim() === String(st.nis).toLowerCase().trim()) ||
                                 (a.studentId && st.name && String(a.studentId).toLowerCase().trim() === String(st.name).toLowerCase().trim()) ||
@@ -1688,7 +1738,7 @@ function renderStudentAttendanceAdminOnly(container) {
                                 ${students.map((st, idx) => {
                                     const att = (appState.attendance || []).slice().reverse().find(a => {
                                         const sameStudent = (
-                                            String(a.studentId) === String(st.id) || 
+                                            String(a.studentId) === String(st.id) ||
                                             (a.studentId && st.id && String(a.studentId).toLowerCase().trim() === String(st.id).toLowerCase().trim()) ||
                                             (a.studentId && st.nis && String(a.studentId).toLowerCase().trim() === String(st.nis).toLowerCase().trim()) ||
                                             (a.studentId && st.name && String(a.studentId).toLowerCase().trim() === String(st.name).toLowerCase().trim()) ||
@@ -2191,7 +2241,7 @@ function renderAttendanceModule(container) {
                         <i class="fa-solid fa-chalkboard-user"></i> Absensi Dewan Guru
                     </button>
                 </div>
-                
+
                 <div id="attendance-content-area" class="min-h-[400px]"></div>
             </div>
         `;
@@ -2323,7 +2373,7 @@ function getAttendanceRecapData(targetMonth) {
     const studentRows = students.map((st, idx) => {
         const studentAtts = monthAttendance.filter(a => {
             return (
-                String(a.studentId) === String(st.id) || 
+                String(a.studentId) === String(st.id) ||
                 (a.studentId && st.id && String(a.studentId).toLowerCase().trim() === String(st.id).toLowerCase().trim()) ||
                 (a.studentId && st.nis && String(a.studentId).toLowerCase().trim() === String(st.nis).toLowerCase().trim()) ||
                 (a.studentId && st.name && String(a.studentId).toLowerCase().trim() === String(st.name).toLowerCase().trim()) ||
@@ -3107,7 +3157,7 @@ function filterClassLeaderSubjects(query) {
     const subjects = appState.subjects || [];
     const q = (query || '').toLowerCase().trim();
     const filtered = subjects.filter(s => s.name.toLowerCase().includes(q));
-    
+
     const hiddenInput = document.getElementById('select-class-leader-subject');
     const currentSelectedId = hiddenInput ? hiddenInput.value : '';
 
@@ -3242,8 +3292,8 @@ function renderClassLeaderAttendance(container) {
             <div class="bg-white p-6 rounded-3xl shadow-sm border space-y-4">
                 <div class="space-y-2">
                     ${classStudents.map(st => {
-                        const existingAtt = (appState.attendance || []).find(a => 
-                            (String(a.studentId) === String(st.id) || a.studentId === st.name) && 
+                        const existingAtt = (appState.attendance || []).find(a =>
+                            (String(a.studentId) === String(st.id) || a.studentId === st.name) &&
                             String(a.date).substring(0, 10) === today &&
                             String(a.subjectId || '') === String(selectedSubjectId)
                         );
@@ -3309,8 +3359,8 @@ async function submitClassAttendance() {
         if (data.success) {
             if (!Array.isArray(appState.attendance)) appState.attendance = [];
             items.forEach(item => {
-                const idx = appState.attendance.findIndex(a => 
-                    String(a.studentId) === String(item.studentId) && 
+                const idx = appState.attendance.findIndex(a =>
+                    String(a.studentId) === String(item.studentId) &&
                     String(a.date).substring(0, 10) === today &&
                     String(a.subjectId || '') === String(subjectId)
                 );
@@ -3356,7 +3406,7 @@ async function loadDataFromServer() {
         });
         if (!response.ok) throw new Error('Bulk API response failed');
         const res = await response.json();
-        
+
         if (res.success) {
             if (res.teachers) {
                 appState.teachers = res.teachers;
@@ -3545,13 +3595,13 @@ async function loadDataFromServer() {
 // Theme Switcher Functions
 function updateThemeSelectionUI() {
     const selectedTheme = (appState.settings && appState.settings.theme) || 'emerald';
-    
+
     // Clear styles first
     document.querySelectorAll('.theme-card-btn').forEach(btn => {
         btn.classList.remove('ring-2', 'ring-offset-2', 'border-emerald-600', 'ring-emerald-500', 'border-blue-600', 'ring-blue-500', 'border-violet-600', 'ring-violet-500', 'border-rose-600', 'ring-rose-500', 'border-slate-800', 'ring-slate-700');
         btn.classList.add('border-slate-200');
     });
-    
+
     // Highlight active card
     const activeBtn = document.getElementById(`theme-btn-${selectedTheme}`);
     if (activeBtn) {
@@ -3563,7 +3613,7 @@ function updateThemeSelectionUI() {
                                selectedTheme === 'midnight' ? 'ring-slate-700 border-slate-800' : 'ring-emerald-500 border-emerald-600';
         activeBtn.classList.add('ring-2', 'ring-offset-2', ...colorRingClass.split(' '));
     }
-    
+
     // Toggle customizer
     const customBuilder = document.getElementById('custom-theme-builder');
     if (customBuilder) {
@@ -3574,12 +3624,12 @@ function updateThemeSelectionUI() {
                 borderRadius: 'large',
                 designStyle: 'flat'
             };
-            
+
             const colorInput = document.getElementById('theme-custom-color');
             const colorHex = document.getElementById('theme-custom-color-hex');
             const radiusSelect = document.getElementById('theme-custom-radius');
             const styleSelect = document.getElementById('theme-custom-style');
-            
+
             if (colorInput) colorInput.value = custom.primaryColor || '#059669';
             if (colorHex) colorHex.innerText = custom.primaryColor || '#059669';
             if (radiusSelect) radiusSelect.value = custom.borderRadius || 'large';
@@ -3593,11 +3643,11 @@ function updateThemeSelectionUI() {
 function selectSystemTheme(themeName) {
     if (!appState.settings) appState.settings = {};
     appState.settings.theme = themeName;
-    
+
     if (window.applyTheme) {
         window.applyTheme();
     }
-    
+
     updateThemeSelectionUI();
 }
 
@@ -3607,10 +3657,10 @@ function handleCustomColorChange(colorHex) {
         appState.settings.customTheme = {};
     }
     appState.settings.customTheme.primaryColor = colorHex;
-    
+
     const hexLabel = document.getElementById('theme-custom-color-hex');
     if (hexLabel) hexLabel.innerText = colorHex;
-    
+
     if (window.applyTheme) {
         window.applyTheme();
     }
@@ -3619,7 +3669,7 @@ function handleCustomColorChange(colorHex) {
 function setQuickCustomColor(colorHex) {
     const colorInput = document.getElementById('theme-custom-color');
     if (colorInput) colorInput.value = colorHex;
-    
+
     handleCustomColorChange(colorHex);
 }
 
@@ -3629,7 +3679,7 @@ function handleCustomRadiusChange(radius) {
         appState.settings.customTheme = {};
     }
     appState.settings.customTheme.borderRadius = radius;
-    
+
     if (window.applyTheme) {
         window.applyTheme();
     }
@@ -3641,7 +3691,7 @@ function handleCustomStyleChange(style) {
         appState.settings.customTheme = {};
     }
     appState.settings.customTheme.designStyle = style;
-    
+
     if (window.applyTheme) {
         window.applyTheme();
     }
@@ -3877,7 +3927,7 @@ async function forceSyncCloudToLocal() {
             headers: { 'Content-Type': 'application/json' }
         });
         const data = await res.json();
-        
+
         if (data.success) {
             if (statusResultEl) {
                 statusResultEl.innerHTML = `
@@ -3895,7 +3945,7 @@ async function forceSyncCloudToLocal() {
                 `;
             }
             showToast('Sinkronisasi data cloud berhasil!', 'success');
-            
+
             setTimeout(async () => {
                 if (window.loadDataFromServer) {
                     await window.loadDataFromServer();
@@ -3903,7 +3953,7 @@ async function forceSyncCloudToLocal() {
                     window.location.reload();
                 }
             }, 2500);
-            
+
         } else {
             if (statusResultEl) {
                 statusResultEl.innerHTML = `
@@ -4817,7 +4867,7 @@ function previewLoginPageCustomization() {
 async function runSmartPhotoCleanup() {
     const btn = document.querySelector('button[onclick="runSmartPhotoCleanup()"]');
     const statusContainer = document.getElementById('cleanup-status-container');
-    
+
     if (statusContainer) {
         statusContainer.classList.remove('hidden');
         statusContainer.innerHTML = `
@@ -4835,14 +4885,14 @@ async function runSmartPhotoCleanup() {
             headers: { 'Content-Type': 'application/json' }
         });
         const data = await res.json();
-        
+
         if (data.success) {
             showToast(data.message, 'success');
             if (statusContainer) {
                 const deleted = data.deletedCount || 0;
                 const remaining = data.remainingCount || 0;
                 const det = data.details || {};
-                
+
                 statusContainer.innerHTML = `
                     <div class="p-4 bg-white border border-indigo-100 rounded-2xl shadow-xs space-y-3">
                         <div class="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
@@ -4896,10 +4946,10 @@ async function runSmartPhotoCleanup() {
 
 async function runTeacherPhotoCleanup() {
     if (!confirm("Apakah Anda yakin ingin merapikan foto guru?\n\nSistem akan:\n1. Menyisakan 1 foto profil aktif setiap guru.\n2. Menyisakan 1 foto absensi terbaru setiap guru.\n3. Menghapus referensi foto riwayat/absensi ekstra dan aset Cloudinary yang tidak lagi dipakai.\n\nData teks absensi tidak dihapus. Lanjutkan?")) return;
-    
+
     const btn = document.querySelector('button[onclick="runTeacherPhotoCleanup()"]');
     const statusContainer = document.getElementById('cleanup-status-container');
-    
+
     if (statusContainer) {
         statusContainer.classList.remove('hidden');
         statusContainer.innerHTML = `
@@ -4917,7 +4967,7 @@ async function runTeacherPhotoCleanup() {
             headers: { 'Content-Type': 'application/json' }
         });
         const data = await res.json();
-        
+
         if (data.success) {
             showToast(data.message, 'success');
             if (statusContainer) {

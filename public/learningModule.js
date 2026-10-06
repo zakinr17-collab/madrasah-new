@@ -406,7 +406,7 @@ function learningAssetSrc(url) {
             parsed.hostname === 'res.cloudinary.com' &&
             parsed.pathname.includes('/madrasah_learning_assets/')
         ) {
-            if (/^\\/raw\\/upload\\/v\\d+\\/madrasah_learning_assets\\//i.test(parsed.pathname) && /\\.pdf$/i.test(parsed.pathname)) {
+            if (/^\/raw\/upload\/v\d+\/madrasah_learning_assets\//i.test(parsed.pathname) && /\.pdf$/i.test(parsed.pathname)) {
                 return '/api/learning-assets/inline-pdf?url=' + encodeURIComponent(raw);
             }
             return raw;
@@ -658,8 +658,25 @@ async function parseLearningUploadResponse(response, assetName) {
     return data;
 }
 
+async function rollbackLearningUploadedAssets(uploadedAssets = []) {
+    for (const asset of uploadedAssets) {
+        const url = String(asset?.url || '').trim();
+        if (!url) continue;
+        try {
+            await fetch('/api/learning/assets', {
+                method: 'DELETE',
+                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+                body: JSON.stringify({ url })
+            });
+        } catch (_) {
+            // Audit/cleanup server tetap dapat menemukan orphan bila jaringan putus.
+        }
+    }
+}
+
 async function uploadPendingLearningAssets() {
     const assets = learningEditorAssets();
+    const uploadedNow = [];
     for (let i = 0; i < assets.length; i++) {
         const asset = assets[i];
         if (!asset?.pending) continue;
@@ -676,7 +693,6 @@ async function uploadPendingLearningAssets() {
                 body: asset.file
             });
         } else {
-            // Jalur lama dipertahankan untuk gambar/video dan PDF pending legacy.
             response = await fetch('/api/learning/assets', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
@@ -694,8 +710,10 @@ async function uploadPendingLearningAssets() {
             pending: false,
             preview: data.asset.type === 'image' ? data.asset.url : ''
         };
+        uploadedNow.push({ url: assets[i].url, type: assets[i].type });
         renderLearningEditorAssets();
     }
+    return uploadedNow;
 }
 
 window.renderLearningTeacher = async function(container) {
@@ -931,8 +949,10 @@ window.saveLearningMaterial = async function(status) {
         button.classList.add('opacity-60', 'cursor-wait');
     });
 
+    let uploadedThisSave = [];
+    let materialSaveRejected = false;
     try {
-        await uploadPendingLearningAssets();
+        uploadedThisSave = await uploadPendingLearningAssets();
 
         const subjectId = document.getElementById('learning-subject')?.value || '';
         const subjectName = (learningState().subjects || []).find(subject => String(subject.id) === String(subjectId))?.name || '';
@@ -968,8 +988,11 @@ window.saveLearningMaterial = async function(status) {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
         });
-        const data = await response.json();
-        if (!response.ok || data.success === false) throw new Error(data.message || 'Gagal menyimpan materi.');
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success === false) {
+            materialSaveRejected = true;
+            throw new Error(data.message || 'Gagal menyimpan materi.');
+        }
 
         document.getElementById('learning-editor-modal')?.remove();
         window.__learningEditorAssets = [];
@@ -982,6 +1005,10 @@ window.saveLearningMaterial = async function(status) {
         learningToast(created.length ? `${baseMessage} ${created.join(' dan ')} dibuat dan belum terlihat oleh siswa.` : baseMessage, 'success');
         window.renderLearningTeacher(document.getElementById('view-container'));
     } catch (err) {
+        if (materialSaveRejected && uploadedThisSave.length) {
+            await rollbackLearningUploadedAssets(uploadedThisSave);
+            uploadedThisSave = [];
+        }
         learningToast(err.message || 'Gagal menyimpan materi.', 'error');
         saveButtons.forEach(button => {
             button.disabled = false;

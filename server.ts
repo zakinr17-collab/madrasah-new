@@ -269,6 +269,51 @@ function migrateLocalStoreEncryptionAtStartup() {
 
 migrateLocalStoreEncryptionAtStartup();
 
+const STUDENT_ADMIN_CREDENTIAL_KEY = crypto
+  .createHash('sha256')
+  .update('student-admin-credential-v1:' + LOCAL_STORE_SECRET)
+  .digest();
+
+function encryptStudentAdminPassword(value: any): string {
+  const plain = String(value || '').trim();
+  if (!plain) return '';
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', STUDENT_ADMIN_CREDENTIAL_KEY, iv);
+  const ciphertext = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return ['v1', iv.toString('base64url'), tag.toString('base64url'), ciphertext.toString('base64url')].join(':');
+}
+
+function decryptStudentAdminPassword(value: any): string {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  const parts = raw.split(':');
+  if (parts.length !== 4 || parts[0] !== 'v1') return '';
+  try {
+    const iv = Buffer.from(parts[1], 'base64url');
+    const tag = Buffer.from(parts[2], 'base64url');
+    const ciphertext = Buffer.from(parts[3], 'base64url');
+    if (iv.length !== 12 || tag.length !== 16 || !ciphertext.length) return '';
+    const decipher = crypto.createDecipheriv('aes-256-gcm', STUDENT_ADMIN_CREDENTIAL_KEY, iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString('utf8');
+  } catch {
+    return '';
+  }
+}
+
+function canAdminViewStudentPassword(req: any): boolean {
+  const role = String(req?.user?.role || getAuthUser(req)?.role || '').trim().toLowerCase();
+  return role === 'admin';
+}
+
+function sanitizeStudentForClient(student: any, includeAdminPassword = false): any {
+  if (!student || typeof student !== 'object') return student;
+  const { password, passwordRaw, passwordAdminCipher, ...safe } = student;
+  if (includeAdminPassword) safe.passwordDisplay = decryptStudentAdminPassword(passwordAdminCipher) || '';
+  return safe;
+}
+
 function verifyAndLockMadrasahTokens() {
   if (!Array.isArray(madrasahs)) return;
   let tampered = false;
@@ -3937,12 +3982,20 @@ async function runOneTimeMigrations() {
   if (Array.isArray(students)) {
     students.forEach((s: any) => {
       if (!s || typeof s !== 'object') return;
+      const legacyRaw = String(s.passwordRaw || '').trim();
+      if (legacyRaw && !String(s.passwordAdminCipher || '').trim()) {
+        s.passwordAdminCipher = encryptStudentAdminPassword(legacyRaw);
+        studentsChanged = true;
+      }
       if (Object.prototype.hasOwnProperty.call(s, 'passwordRaw')) {
         delete s.passwordRaw;
         studentsChanged = true;
       }
       const stored = String(s.password || '').trim();
       if (stored && !stored.startsWith('scrypt$') && !stored.startsWith('sha256$')) {
+        if (!String(s.passwordAdminCipher || '').trim()) {
+          s.passwordAdminCipher = encryptStudentAdminPassword(stored);
+        }
         s.password = hashPassword(stored);
         studentsChanged = true;
       }
@@ -5163,6 +5216,13 @@ function getLearningAuthUser(req: any): AuthSession | null {
 }
 
 function requireAuth(req: any, res: any, next: any) {
+  if (isOfflineMode && !isOfflineLicenseActive()) {
+    return res.status(403).json({
+      success: false,
+      code: 'OFFLINE_LICENSE_REQUIRED',
+      message: 'Lisensi instalasi offline tidak valid atau belum diaktivasi.'
+    });
+  }
   const authUser = req.user || getAuthUser(req);
   if (!authUser) {
     return res.status(401).json({ success: false, message: "Akses ditolak: Silakan login terlebih dahulu." });
@@ -5173,6 +5233,13 @@ function requireAuth(req: any, res: any, next: any) {
 
 function requireRole(allowedRoles: string[]) {
   return (req: any, res: any, next: any) => {
+    if (isOfflineMode && !isOfflineLicenseActive()) {
+      return res.status(403).json({
+        success: false,
+        code: 'OFFLINE_LICENSE_REQUIRED',
+        message: 'Lisensi instalasi offline tidak valid atau belum diaktivasi.'
+      });
+    }
     if (!req.user) {
       const authUser = getAuthUser(req);
       if (!authUser) {
@@ -5997,8 +6064,9 @@ app.get("/api/all-data", requireAuth, (req, res) => {
     photo: normalizePhotoReferenceForClient(rest.photo),
     photoHistory: normalizePhotoHistoryForClient(rest.photoHistory)
   }));
+  const exposeStudentPasswords = actorRole === 'admin';
   const sanitizedStudents = (isStudent ? filteredStudents : sortedStudents).map((st: any) => {
-    const { password, passwordRaw, ...rest } = st;
+    const rest = sanitizeStudentForClient(st, exposeStudentPasswords);
     return {
       ...rest,
       photo: normalizePhotoReferenceForClient(rest.photo),
@@ -8632,6 +8700,14 @@ app.post("/api/login", async (req, res) => {
     return res.status(400).json({ success: false, message: "Username dan password wajib diisi." });
   }
 
+  if (isOfflineMode && !isOfflineLicenseActive()) {
+    return res.status(403).json({
+      success: false,
+      code: 'OFFLINE_LICENSE_REQUIRED',
+      message: 'Instalasi offline belum memiliki lisensi BOSS yang valid. Aktivasi lisensi diperlukan sebelum akun apa pun dapat login.'
+    });
+  }
+
   const u = String(username).trim();
   const p = String(password).trim();
   const uLower = u.toLowerCase();
@@ -8717,7 +8793,7 @@ app.post("/api/login", async (req, res) => {
       madrasahs.find(m => m.id === "default" || m.slug === "default") ||
       madrasahs[0];
 
-    if (isOfflineMode && !offlineLicense?.payload?.licenseId) return res.status(403).json({ success: false, code: 'OFFLINE_LICENSE_REQUIRED', message: 'Aktivasi lisensi madrasah offline diperlukan sebelum Admin dapat login.' });
+    if (isOfflineMode && !isOfflineLicenseActive()) return res.status(403).json({ success: false, code: 'OFFLINE_LICENSE_REQUIRED', message: 'Aktivasi lisensi madrasah offline diperlukan sebelum Admin dapat login.' });
 
     if (isOnlineMode && defaultM && defaultM.isActive === false) {
       return res.status(403).json({
@@ -9329,62 +9405,147 @@ app.post('/api/offline-license/activate', async (req: any, res: any) => {
 });
 
 app.get('/api/offline-license/status', (_req: any, res: any) => {
-  if (!isOfflineMode) return res.json({ success: true, activated: false, mode: 'online' });
-  const activated = Boolean(offlineLicense?.payload?.licenseId && offlineLicense?.installationId);
-  return res.json({ success: true, activated, mode: 'offline', licenseId: activated ? offlineLicense.payload.licenseId : null, madrasahId: activated ? offlineLicense.payload.madrasahId : null, activatedAt: activated ? offlineLicense.activatedAt : null });
+  if (!isOfflineMode) return res.json({ success: true, activated: false, valid: false, mode: 'online' });
+  const activated = isOfflineLicenseActive();
+  return res.json({
+    success: true,
+    activated,
+    valid: activated,
+    mode: 'offline',
+    licenseId: activated ? offlineLicense.payload.licenseId : null,
+    madrasahId: activated ? offlineLicense.payload.madrasahId : null,
+    activatedAt: activated ? offlineLicense.activatedAt : null,
+    lastSyncedAt: activated ? (offlineLicense.lastSyncedAt || null) : null
+  });
 });
 
 app.post('/api/offline-license/sync', requireAuth, requireRole(['admin']), async (req: any, res: any) => {
   if (!isOfflineMode) return res.status(403).json({ success: false, message: 'Sinkronisasi lisensi ini khusus instalasi offline.' });
+  if (!isOfflineLicenseActive()) return res.status(400).json({ success: false, message: 'Lisensi offline belum aktif atau tidak valid.' });
   const envelope = getOfflineLicenseEnvelope();
   if (!envelope || !offlineLicense?.installationId) return res.status(400).json({ success: false, message: 'Lisensi offline belum diaktivasi.' });
   try {
     const syncUrl = String(envelope.payload.syncUrl || '').trim();
-    if (!/^https?:\/\//i.test(syncUrl)) return res.status(400).json({ success: false, message: 'Alamat server BOSS pada lisensi tidak valid.' });
+    if (!/^https:\/\//i.test(syncUrl)) return res.status(400).json({ success: false, message: 'Alamat server BOSS pada lisensi harus menggunakan HTTPS.' });
+
+    const authUser = req.user || getAuthUser(req);
+    const ownId = String(authUser?.madrasahId || authUser?.madrasahSlug || '').trim();
+    const localMadrasah = (madrasahs || []).find((m: any) =>
+      String(m.id || '') === ownId || String(m.slug || '') === ownId
+    ) || (madrasahs || [])[0] || {};
+    const profile = {
+      name: String(localMadrasah?.name || appSettings?.schoolName || 'Madrasah Offline').trim().slice(0, 120),
+      level: String(localMadrasah?.level || appSettings?.schoolLevel || 'MA').trim().slice(0, 20),
+      adminName: String(localMadrasah?.adminName || appSettings?.adminName || 'Administrator').trim().slice(0, 120),
+      adminUser: String(localMadrasah?.adminUser || appSettings?.adminUser || 'admin').trim().slice(0, 64),
+      phone: String(localMadrasah?.phone || appSettings?.phone || '').trim().slice(0, 40)
+    };
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 10000);
     try {
-      const response = await fetch(syncUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ envelope, installationId: offlineLicense.installationId }), signal: controller.signal });
+      const response = await fetch(syncUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ envelope, installationId: offlineLicense.installationId, madrasah: profile }),
+        signal: controller.signal
+      });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.success) return res.status(response.status || 502).json({ success: false, message: data.message || 'Server BOSS belum menerima sinkronisasi lisensi.' });
-      return res.json({ success: true, synced: true, madrasah: data.madrasah || null, message: data.message || 'Lisensi berhasil disinkronkan ke BOSS.' });
+      offlineLicense.lastSyncedAt = new Date().toISOString();
+      await saveData('offlineLicense', offlineLicense, true);
+      return res.json({ success: true, synced: true, madrasah: data.madrasah || null, lastSyncedAt: offlineLicense.lastSyncedAt, message: data.message || 'Lisensi berhasil disinkronkan ke BOSS.' });
     } finally { clearTimeout(timer); }
   } catch (_) { return res.status(503).json({ success: false, message: 'Internet/server BOSS belum dapat dihubungi. Lisensi lokal tetap aktif.', retryable: true }); }
 });
 
 app.post('/api/offline-licenses/register', async (req: any, res: any) => {
   if (!isBossRuntimeEnabled()) return res.status(503).json({ success: false, message: 'Runtime BOSS belum siap menerima sinkronisasi lisensi.' });
+  if (!enforceApiRateLimit(req, res, 'offline-license-register', 30, 60_000)) return;
   const verified = verifyOfflineLicenseEnvelope(req.body?.envelope);
   if (!verified.valid) return res.status(400).json({ success: false, message: verified.message || 'Lisensi tidak valid.' });
   const payload: any = verified.payload;
+  if (payload.expiresAt && Date.now() > Date.parse(String(payload.expiresAt))) return res.status(400).json({ success: false, message: 'Lisensi offline sudah kedaluwarsa.' });
+
   const installationId = String(req.body?.installationId || '').trim();
   if (!/^[A-Za-z0-9_-]{16,160}$/.test(installationId)) return res.status(400).json({ success: false, message: 'Identitas instalasi tidak valid.' });
+
+  const incoming = req.body?.madrasah && typeof req.body.madrasah === 'object' ? req.body.madrasah : {};
+  const safeName = String(incoming.name || '').trim().slice(0, 120);
+  const safeLevel = String(incoming.level || '').trim().replace(/[^A-Za-z0-9 ._-]/g, '').slice(0, 20);
+  const safeAdminName = String(incoming.adminName || '').trim().slice(0, 120);
+  const safeAdminUser = String(incoming.adminUser || '').trim();
+  const safePhone = String(incoming.phone || '').trim().replace(/[^0-9+(). -]/g, '').slice(0, 40);
+  if (safeAdminUser && !/^[A-Za-z0-9._-]{3,64}$/.test(safeAdminUser)) return res.status(400).json({ success: false, message: 'Username admin offline tidak valid.' });
+
   const list = Array.isArray(offlineLicenses) ? offlineLicenses : [];
   const idx = list.findIndex((x: any) => String(x.licenseId) === String(payload.licenseId));
   if (idx < 0) return res.status(404).json({ success: false, message: 'Lisensi tidak terdaftar pada BOSS. Minta key baru.' });
   const current = list[idx];
   if (current.signature !== verified.signature) return res.status(409).json({ success: false, message: 'Signature lisensi berbeda dengan data BOSS.' });
+  if (String(current.madrasahId || '') !== String(payload.madrasahId || '')) return res.status(409).json({ success: false, message: 'Identitas madrasah pada lisensi tidak cocok.' });
   if (current.installationId && String(current.installationId) !== installationId) return res.status(409).json({ success: false, message: 'Lisensi sudah terikat pada instalasi lain.' });
+
+  const syncedAt = new Date().toISOString();
   const nextList = list.map((x: any) => ({ ...x }));
   const target = nextList[idx];
   target.installationId = installationId;
   target.status = 'activated';
-  target.activatedAt = target.activatedAt || new Date().toISOString();
+  target.activatedAt = target.activatedAt || syncedAt;
+  target.lastSyncedAt = syncedAt;
+  if (safeName) target.name = safeName;
+
   let targetMadrasah = (madrasahs || []).find((m: any) => String(m.offlineLicenseId || '') === String(payload.licenseId));
   if (!targetMadrasah) {
     const slug = makeOfflineLicenseSlug(payload.licenseId);
-    targetMadrasah = { id: payload.madrasahId, name: 'Madrasah Offline', slug, level: 'MA', adminName: 'Administrator', adminUser: 'admin', adminPass: '', phone: '', cbtTokenBalance: 0, isActive: true, offlineLicenseId: payload.licenseId, offlineInstallationId: installationId, mode: 'offline', requiresSetup: false, createdAt: target.activatedAt };
+    targetMadrasah = {
+      id: payload.madrasahId,
+      name: safeName || 'Madrasah Offline',
+      slug,
+      level: safeLevel || 'MA',
+      adminName: safeAdminName || 'Administrator',
+      adminUser: safeAdminUser || 'admin',
+      adminPass: '',
+      phone: safePhone,
+      cbtTokenBalance: 0,
+      isActive: true,
+      offlineLicenseId: payload.licenseId,
+      offlineInstallationId: installationId,
+      offlineLastSyncAt: syncedAt,
+      mode: 'offline',
+      requiresSetup: false,
+      createdAt: target.activatedAt
+    };
     await saveDataBatch([{ key: 'offlineLicenses', value: nextList }, { key: 'madrasahs', value: [...madrasahs, targetMadrasah] }], true);
   } else {
+    targetMadrasah.name = safeName || targetMadrasah.name || 'Madrasah Offline';
+    targetMadrasah.level = safeLevel || targetMadrasah.level || 'MA';
+    targetMadrasah.adminName = safeAdminName || targetMadrasah.adminName || 'Administrator';
+    targetMadrasah.adminUser = safeAdminUser || targetMadrasah.adminUser || 'admin';
+    targetMadrasah.phone = safePhone || targetMadrasah.phone || '';
     targetMadrasah.offlineInstallationId = installationId;
+    targetMadrasah.offlineLastSyncAt = syncedAt;
+    targetMadrasah.mode = 'offline';
     targetMadrasah.isActive = true;
     await saveDataBatch([{ key: 'offlineLicenses', value: nextList }, { key: 'madrasahs', value: [...madrasahs] }], true);
   }
-  return res.json({ success: true, madrasah: sanitizeMadrasahAdminView(targetMadrasah), message: 'Madrasah offline berhasil ditambahkan ke data BOSS.' });
+  return res.json({ success: true, madrasah: sanitizeMadrasahAdminView(targetMadrasah), message: 'Data madrasah offline berhasil disinkronkan ke BOSS.' });
 });
 
 app.get('/api/boss/offline-licenses', requireAuth, requireRole(['bos', 'superadmin']), (_req: any, res: any) => {
-  return res.json({ success: true, licenses: (offlineLicenses || []).map((x: any) => ({ licenseId: x.licenseId, madrasahId: x.madrasahId, status: x.status, installationId: x.installationId, issuedAt: x.issuedAt, activatedAt: x.activatedAt, name: x.name || null })) });
+  return res.json({
+    success: true,
+    licenses: (offlineLicenses || []).map((x: any) => ({
+      licenseId: x.licenseId,
+      madrasahId: x.madrasahId,
+      status: x.status,
+      installationId: x.installationId,
+      issuedAt: x.issuedAt,
+      activatedAt: x.activatedAt,
+      lastSyncedAt: x.lastSyncedAt || null,
+      name: x.name || null
+    }))
+  });
 });
 
 // --- CRYPTOGRAPHIC OFFLINE ACTIVATION SYSTEM ---
@@ -10144,6 +10305,11 @@ function mergeTenantEntityListData(globalList: any[], incomingData: any[], req: 
     if ((kind === 'teacher' || kind === 'student') && existing?.password && !rawItem.password) {
       merged.password = existing.password;
     }
+    if (kind === 'student') {
+      delete merged.passwordDisplay;
+      if (existing?.passwordAdminCipher) merged.passwordAdminCipher = existing.passwordAdminCipher;
+      else delete merged.passwordAdminCipher;
+    }
     if (kind === 'student' && existing) {
       if (existing.name && existing.name !== existing.nis && (rawItem.name === rawItem.nis || !rawItem.name)) merged.name = existing.name;
       if (existing.no_hp && !rawItem.no_hp) merged.no_hp = existing.no_hp;
@@ -10628,6 +10794,9 @@ app.put("/api/teachers/:id/change-role", requireAuth, requireRole(['admin', 'bos
     convertedPassword = hashPassword(String(req.body.password).trim());
   }
 
+  const convertedPlainPassword = req.body.password && String(req.body.password).trim()
+    ? String(req.body.password).trim()
+    : '';
   const newStudent = tagNewRecord({
     id: "ST_" + Date.now(),
     nis: req.body.nis || t.nip || "100" + Date.now(),
@@ -10636,6 +10805,7 @@ app.put("/api/teachers/:id/change-role", requireAuth, requireRole(['admin', 'bos
     class_id: req.body.classId || filterByMadrasah(classes, req)[0]?.id || "C1",
     username: req.body.username || t.username,
     password: convertedPassword,
+    passwordAdminCipher: convertedPlainPassword ? encryptStudentAdminPassword(convertedPlainPassword) : '',
     photo: req.body.photo || "",
     no_hp: req.body.no_hp || "",
     role: normalizeStudentStoredRole(req.body.role)
@@ -10646,7 +10816,7 @@ app.put("/api/teachers/:id/change-role", requireAuth, requireRole(['admin', 'bos
     { key: 'teachers', value: nextTeachers },
     { key: 'students', value: nextStudents }
   ], true);
-  const { password: _, ...sanitizedNewStudent } = newStudent;
+  const sanitizedNewStudent = sanitizeStudentForClient(newStudent, canAdminViewStudentPassword(req));
   res.json({ success: true, student: sanitizedNewStudent });
 });
 
@@ -10736,11 +10906,15 @@ app.get("/api/students", requireAuth, requireRole(['teacher', 'guru', 'admin', '
     const nisB = String(b.nis || b.no_urut || b.id || '').trim();
     return nisA.localeCompare(nisB, undefined, { numeric: true, sensitivity: 'base' });
   });
-  const sanitized = sortedStudents.map(({ password, passwordRaw, ...rest }: any) => ({
-    ...rest,
-    photo: normalizePhotoReferenceForClient(rest.photo),
-    photoHistory: normalizePhotoHistoryForClient(rest.photoHistory)
-  }));
+  const exposePassword = canAdminViewStudentPassword(req);
+  const sanitized = sortedStudents.map((student: any) => {
+    const rest = sanitizeStudentForClient(student, exposePassword);
+    return {
+      ...rest,
+      photo: normalizePhotoReferenceForClient(rest.photo),
+      photoHistory: normalizePhotoHistoryForClient(rest.photoHistory)
+    };
+  });
   res.json({ success: true, students: sanitized });
 });
 
@@ -10774,6 +10948,7 @@ app.post("/api/students", requireAuth, requireRole(['admin', 'bos', 'superadmin'
     class_id: classId || "C1",
     username,
     password: hashed,
+    passwordAdminCipher: encryptStudentAdminPassword(rawPassword),
     photo: photo || "",
     no_hp: no_hp || "",
     role: normalizeStudentStoredRole(req.body.role)
@@ -10787,7 +10962,7 @@ app.post("/api/students", requireAuth, requireRole(['admin', 'bos', 'superadmin'
     temporaryPassword: rawPassword
   }];
 
-  const { password: _, passwordRaw: __, ...sanitizedNewStudent } = newStudent;
+  const sanitizedNewStudent = sanitizeStudentForClient(newStudent, canAdminViewStudentPassword(req));
   res.json({ success: true, student: sanitizedNewStudent, credentials });
 });
 
@@ -10829,6 +11004,7 @@ app.post("/api/students/import", requireAuth, requireRole(['admin', 'bos', 'supe
       class_id: item.classId || defaultClassId,
       username: item.username || ("siswa_" + itemNis),
       password: hashed,
+      passwordAdminCipher: encryptStudentAdminPassword(rawPassword),
       photo: item.photo || "",
       no_hp: item.no_hp || "",
       role: "student"
@@ -10969,7 +11145,7 @@ app.put("/api/student/profile", requireAuth, requireRole(['student', 'siswa', 'c
     }
   };
   const token = createAuthToken(sessionUser, student.password);
-  const { password: _, passwordRaw: __, ...safeStudent } = student;
+  const { password: _, passwordRaw: __, passwordAdminCipher: ___, ...safeStudent } = student;
   const clientStudent = {
     ...safeStudent,
     photo: normalizePhotoReferenceForClient(safeStudent.photo),
@@ -11013,9 +11189,12 @@ app.put("/api/students/:id", requireAuth, requireRole(['admin', 'bos', 'superadm
   const st = resolvedStudent.item;
 
   let updatedPassword = st.password;
+  let updatedPasswordAdminCipher = st.passwordAdminCipher || '';
   const credentials: any[] = [];
   if (password && String(password).trim().length > 0) {
-    updatedPassword = hashPassword(password);
+    const plainPassword = String(password).trim();
+    updatedPassword = hashPassword(plainPassword);
+    updatedPasswordAdminCipher = encryptStudentAdminPassword(plainPassword);
     credentials.push({
       studentId: String(id),
       username: req.body.username ?? st.username,
@@ -11029,6 +11208,7 @@ app.put("/api/students/:id", requireAuth, requireRole(['admin', 'bos', 'superadm
     name: req.body.name ?? st.name,
     username: req.body.username ?? st.username,
     password: updatedPassword,
+    passwordAdminCipher: updatedPasswordAdminCipher,
     classId: req.body.classId ?? st.classId,
     class_id: req.body.classId ?? st.class_id,
     photo: req.body.photo !== undefined ? photo : st.photo,
@@ -11039,7 +11219,7 @@ app.put("/api/students/:id", requireAuth, requireRole(['admin', 'bos', 'superadm
   delete (updatedStudent as any).passwordRaw;
   students[idx] = updatedStudent;
   await saveData('students', students);
-  const { password: _, passwordRaw: __, ...sanitizedUpdatedStudent } = students[idx];
+  const sanitizedUpdatedStudent = sanitizeStudentForClient(students[idx], canAdminViewStudentPassword(req));
   res.json({ success: true, student: sanitizedUpdatedStudent, credentials });
 });
 
@@ -11099,7 +11279,7 @@ app.post("/api/students/:id/set-profile-photo", requireAuth, requireRole(['stude
   };
 
   await saveData('students', students);
-  const { password: _, ...sanitizedStudent } = students[idx];
+  const sanitizedStudent = sanitizeStudentForClient(students[idx], false);
   res.json({ success: true, student: sanitizedStudent, message: "Foto profil berhasil diperbarui." });
 });
 
@@ -11192,7 +11372,7 @@ app.delete("/api/students/:id/photo-history", requireAuth, requireRole(['student
   };
 
   await saveData('students', students);
-  const { password: _, ...sanitizedStudent } = students[idx];
+  const sanitizedStudent = sanitizeStudentForClient(students[idx], false);
   res.json({ success: true, student: sanitizedStudent, message: "Foto riwayat berhasil dihapus." });
 });
 
@@ -18936,6 +19116,52 @@ async function getGoogleDriveFolderId(accessToken: string): Promise<string> {
   return String(created.id);
 }
 
+async function streamLearningPdfFromGoogleDrive(fileId: string, res: any): Promise<void> {
+  const safeFileId = String(fileId || '').trim();
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(safeFileId)) {
+    res.status(400).end();
+    return;
+  }
+
+  const accessToken = await getGoogleDriveAccessToken();
+  const response = await fetch(
+    'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(safeFileId) + '?alt=media',
+    {
+      headers: { Authorization: 'Bearer ' + accessToken },
+      redirect: 'error'
+    }
+  );
+
+  if (!response.ok) {
+    console.warn('[Google Drive PDF] Download gagal:', response.status);
+    res.status(response.status === 404 ? 404 : 502).end();
+    return;
+  }
+
+  const declaredLength = Number(response.headers.get('content-length') || 0);
+  if (declaredLength > MAX_LEARNING_PDF_BYTES) {
+    res.status(413).end();
+    return;
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!buffer.length || buffer.length > MAX_LEARNING_PDF_BYTES) {
+    res.status(413).end();
+    return;
+  }
+  if (buffer.length < 5 || buffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    res.status(415).end();
+    return;
+  }
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Length', String(buffer.length));
+  res.setHeader('Content-Disposition', 'inline');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.send(buffer);
+}
+
 app.post(
   "/api/learning/assets/pdf",
   requireAuth,
@@ -19117,6 +19343,39 @@ app.post("/api/learning/assets", requireAuth, requireRole(['teacher', 'guru', 'a
   }
 });
 
+app.delete("/api/learning/assets", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req: any, res: any) => {
+  try {
+    const url = String(req.body?.url || '').trim();
+    if (!url) return res.status(400).json({ success: false, message: 'URL aset wajib diisi.' });
+
+    if (isOfflineMode) {
+      const match = url.match(/^\/api\/learning-assets\/([A-Za-z0-9._-]{20,180})$/);
+      if (!match) return res.status(400).json({ success: false, message: 'Aset lokal tidak valid.' });
+      const root = path.resolve(learningAssetsDir) + path.sep;
+      const filePath = path.resolve(learningAssetsDir, match[1]);
+      if (!filePath.startsWith(root)) return res.status(400).json({ success: false, message: 'Aset lokal tidak valid.' });
+      try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch {}
+      return res.json({ success: true, deleted: true });
+    }
+
+    const tenantHash = crypto.createHash('sha256').update(String(getRequestMadrasahId(req) || 'default')).digest('hex').slice(0, 12);
+    let parsedUrl: URL;
+    try { parsedUrl = new URL(url); } catch { return res.status(400).json({ success: false, message: 'URL aset tidak valid.' }); }
+    if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname !== 'res.cloudinary.com' || !parsedUrl.pathname.includes('/madrasah_learning_assets/' + tenantHash + '/')) {
+      return res.status(403).json({ success: false, message: 'Aset bukan milik madrasah ini.' });
+    }
+    const refs = extractLearningCloudinaryRefs(url);
+    const asset = refs.values().next().value;
+    if (!asset) return res.status(400).json({ success: false, message: 'Aset Cloudinary tidak dikenali.' });
+    const outcome = await destroyCloudinaryLearningAsset(asset);
+    if (outcome === 'failed') return res.status(502).json({ success: false, message: 'Aset belum dapat dihapus dari Cloudinary.' });
+    return res.json({ success: true, deleted: true });
+  } catch (err: any) {
+    console.warn('[Learning Asset Rollback] Failed:', err?.message || err);
+    return res.status(500).json({ success: false, message: safeServerError(err, 'Rollback aset Materi gagal.') });
+  }
+});
+
 app.get("/api/learning-assets/drive-pdf", async (req: any, res: any) => {
   try {
     // Prefer the normal application auth headers. The query-token fallback exists
@@ -19144,34 +19403,40 @@ app.get("/api/learning-assets/inline-pdf", async (req: any, res: any) => {
 
     const rawUrl = String(req.query?.url || '').trim();
     const url = new URL(rawUrl);
-    if (url.protocol !== 'https:' || url.hostname !== 'res.cloudinary.com' ||
-        !url.pathname.includes('/madrasah_learning_assets/') ||
-        !/^\/raw\/upload\/v\d+\/madrasah_learning_assets\//i.test(url.pathname)) {
+    const routeMatch = url.pathname.match(/^\/(raw|image)\/upload\/v\d+\/madrasah_learning_assets\//i);
+    if (url.protocol !== 'https:' || url.hostname !== 'res.cloudinary.com' || !routeMatch || !/\.pdf(?:$|[?#])/i.test(url.pathname)) {
       return res.status(400).end();
     }
+    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) return res.status(503).end();
 
+    const resourceType = String(routeMatch[1]).toLowerCase() === 'raw' ? 'raw' : 'image';
     const pathParts = url.pathname.split('/').filter(Boolean);
     const versionIndex = pathParts.findIndex((part) => /^v\d+$/.test(part));
     if (versionIndex < 0 || pathParts[versionIndex + 1] !== 'madrasah_learning_assets') return res.status(400).end();
-    const assetPart = pathParts.slice(versionIndex + 2).join('/');
-    const publicId = assetPart.replace(/\.pdf$/i, '');
+    const rawPublicId = pathParts.slice(versionIndex + 1).join('/');
+    const publicId = resourceType === 'raw' ? rawPublicId : rawPublicId.replace(/\.pdf$/i, '');
     if (!publicId || publicId.length > 500 || !/^[A-Za-z0-9_./-]+$/.test(publicId)) return res.status(400).end();
 
-    const signedDownloadUrl = cloudinary.utils.private_download_url(publicId, 'pdf', {
-      resource_type: 'raw',
-      type: 'upload',
-      expires_at: Math.floor(Date.now() / 1000) + 300
-    });
-    const response = await fetch(signedDownloadUrl, { redirect: 'error' });
+    const downloadUrl = resourceType === 'raw'
+      ? rawUrl
+      : cloudinary.utils.private_download_url(publicId, 'pdf', {
+          resource_type: 'image',
+          type: 'upload',
+          expires_at: Math.floor(Date.now() / 1000) + 300
+        });
+    const response = await fetch(downloadUrl, { redirect: 'error' });
     if (!response.ok) {
       console.warn(`[Learning PDF] Cloudinary signed download gagal: ${response.status}`);
       return res.status(response.status).end();
     }
+
     const buffer = Buffer.from(await response.arrayBuffer());
     if (!buffer.length || buffer.length > MAX_LEARNING_PDF_BYTES) return res.status(413).end();
+    if (buffer.length < 5 || buffer.subarray(0, 5).toString('ascii') !== '%PDF-') return res.status(415).end();
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Length', String(buffer.length));
     res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, no-store');
     return res.send(buffer);
   } catch (err: any) {
@@ -19249,74 +19514,6 @@ app.get("/api/learning-assets/serve", async (req: any, res: any) => {
     return res.send(buffer);
   } catch (err: any) {
     console.error('[Learning Asset] Gagal mengambil asset Cloudinary:', err?.message || err);
-    return res.status(400).end();
-  }
-});
-
-app.get("/api/learning-assets/inline-pdf", async (req: any, res: any) => {
-  const rawUrl = String(req.query?.url || '').trim();
-  try {
-    const url = new URL(rawUrl);
-    if (
-      url.protocol !== 'https:' ||
-      url.hostname !== 'res.cloudinary.com' ||
-      !url.pathname.includes('/madrasah_learning_assets/') ||
-      !/^\/image\/upload\/v\d+\/madrasah_learning_assets\//i.test(url.pathname) ||
-      !/\.pdf(?:$|[?#])/i.test(url.pathname)
-    ) {
-      return res.status(400).end();
-    }
-
-    if (!process.env.CLOUDINARY_CLOUD_NAME ||
-        !process.env.CLOUDINARY_API_KEY ||
-        !process.env.CLOUDINARY_API_SECRET) {
-      console.error('[Learning PDF] Cloudinary credential tidak lengkap.');
-      return res.status(503).end();
-    }
-
-    // PDF yang dibatasi Cloudinary tidak dapat diambil lewat URL delivery biasa.
-    // Gunakan private_download_url agar server menandatangani permintaan dengan
-    // API secret tanpa pernah membocorkannya ke browser/siswa.
-    const pathParts = url.pathname.split('/').filter(Boolean);
-    const versionIndex = pathParts.findIndex((part) => /^v\d+$/.test(part));
-    if (versionIndex < 0 || pathParts[versionIndex + 1] !== 'madrasah_learning_assets') {
-      return res.status(400).end();
-    }
-    const publicId = pathParts
-      .slice(versionIndex + 1)
-      .join('/')
-      .replace(/\.pdf$/i, '');
-    if (!publicId || publicId.length > 500) return res.status(400).end();
-
-    const signedDownloadUrl = cloudinary.utils.private_download_url(
-      publicId,
-      'pdf',
-      {
-        resource_type: 'image',
-        type: 'upload',
-        expires_at: Math.floor(Date.now() / 1000) + 300
-      }
-    );
-
-    const response = await fetch(signedDownloadUrl, { redirect: 'error' });
-    if (!response.ok) {
-      console.warn(`[Learning PDF] Cloudinary signed download gagal: ${response.status}`);
-      return res.status(response.status).end();
-    }
-
-    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
-    if (!contentType.includes('application/pdf')) return res.status(415).end();
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-    if (!buffer.length || buffer.length > MAX_LEARNING_PDF_BYTES) return res.status(413).end();
-
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'private, max-age=300');
-    return res.send(buffer);
-  } catch (err: any) {
-    console.error('[Learning PDF] Gagal mengambil PDF dari Cloudinary:', err?.message || err);
     return res.status(400).end();
   }
 });
@@ -19559,23 +19756,27 @@ app.put("/api/learning/materials/:id/publish", requireAuth, requireRole(['teache
 });
 
 
-function normalizeLearningCloudinaryId(value: string): string {
-  return String(value || '').split(/[?#]/)[0].replace(/\.(?:pdf|jpe?g|png|webp|gif|mp4|webm|ogg|mov)$/i, '');
+function normalizeLearningCloudinaryId(value: string, resourceType = ''): string {
+  const clean = String(value || '').split(/[?#]/)[0];
+  return String(resourceType || '').toLowerCase() === 'raw'
+    ? clean
+    : clean.replace(/\.(?:pdf|jpe?g|png|webp|gif|mp4|webm|ogg|mov)$/i, '');
 }
 function addLearningCloudinaryRef(out: Map<string, any>, publicIdValue: any, resourceTypeValue: any, urlValue?: any) {
   const rawPublicId = String(publicIdValue || '').trim();
   if (!rawPublicId || !rawPublicId.includes('madrasah_learning_assets/')) return;
-  const publicId = normalizeLearningCloudinaryId(rawPublicId);
-  if (!publicId) return;
 
   let resourceType = String(resourceTypeValue || '').toLowerCase().trim();
   const url = String(urlValue || '').trim();
-  if (resourceType !== 'image' && resourceType !== 'video') {
-    if (/\/video\//i.test(url)) resourceType = 'video';
+  if (!['image', 'video', 'raw'].includes(resourceType)) {
+    if (/\/raw\//i.test(url)) resourceType = 'raw';
+    else if (/\/video\//i.test(url)) resourceType = 'video';
     else if (/\/image\//i.test(url)) resourceType = 'image';
   }
-  if (resourceType !== 'image' && resourceType !== 'video') return;
+  if (!['image', 'video', 'raw'].includes(resourceType)) return;
 
+  const publicId = normalizeLearningCloudinaryId(rawPublicId, resourceType);
+  if (!publicId) return;
   out.set(resourceType + ':' + publicId, { publicId, resourceType, url });
 }
 
@@ -19586,9 +19787,11 @@ function extractLearningCloudinaryRefs(value: any, out = new Map<string, any>(),
     if (!value.includes('res.cloudinary.com') || !value.includes('/madrasah_learning_assets/')) return out;
     try {
       const url = new URL(value);
-      const match = url.pathname.match(/^\/(?:image|video)\/upload\/(?:[^/]+\/)*((?:madrasah_learning_assets)\/.+)$/i);
+      const match = url.pathname.match(/^\/(?:image|video|raw)\/upload\/(?:[^/]+\/)*((?:madrasah_learning_assets)\/.+)$/i);
       if (!match) return out;
-      const resourceType = /^\/video\//i.test(url.pathname) ? 'video' : 'image';
+      const resourceType = /^\/raw\//i.test(url.pathname)
+        ? 'raw'
+        : (/^\/video\//i.test(url.pathname) ? 'video' : 'image');
       addLearningCloudinaryRef(out, match[1], resourceType, value);
     } catch (_) {}
     return out;
@@ -19614,13 +19817,13 @@ async function listActualCloudinaryLearningAssets(req: any): Promise<Map<string,
   const tenantHash = crypto.createHash('sha256').update(String(getRequestMadrasahId(req) || 'default')).digest('hex').slice(0, 12);
   const prefix = 'madrasah_learning_assets/' + tenantHash;
   const assets = new Map<string, any>();
-  for (const resourceType of ['image', 'video'] as const) {
+  for (const resourceType of ['image', 'video', 'raw'] as const) {
     let nextCursor: string | null = null;
     do {
       const response: any = await cloudinary.api.resources({ type: 'upload', resource_type: resourceType, prefix, max_results: 500, next_cursor: nextCursor || undefined });
       for (const item of (Array.isArray(response?.resources) ? response.resources : [])) {
         if (!item?.public_id) continue;
-        const publicId = normalizeLearningCloudinaryId(String(item.public_id));
+        const publicId = normalizeLearningCloudinaryId(String(item.public_id), resourceType);
         if (publicId) assets.set(resourceType + ':' + publicId, { publicId, resourceType, url: String(item.secure_url || item.url || '') });
       }
       nextCursor = response?.next_cursor || null;
@@ -19683,7 +19886,44 @@ async function destroyCloudinaryLearningAsset(asset: any): Promise<'deleted' | '
     return 'failed';
   }
 }
+function extractLocalLearningAssetIds(value: any, out = new Set<string>(), depth = 0): Set<string> {
+  if (depth > 12 || value == null) return out;
+  if (typeof value === 'string') {
+    const match = value.match(/^\/api\/learning-assets\/([A-Za-z0-9._-]{20,180})$/);
+    if (match?.[1]) out.add(match[1]);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) extractLocalLearningAssetIds(item, out, depth + 1);
+    return out;
+  }
+  if (typeof value === 'object') {
+    for (const item of Object.values(value)) extractLocalLearningAssetIds(item, out, depth + 1);
+  }
+  return out;
+}
+
+function cleanupLocalLearningAssetsForDeletedMaterial(material: any) {
+  const candidates = extractLocalLearningAssetIds(material);
+  const protectedIds = extractLocalLearningAssetIds([lessonPlans || [], lkpdList || [], exams || [], generatedExams || [], eduGames || [], appSettings || {}]);
+  let deleted = 0, protectedCount = 0, failed = 0;
+  const root = path.resolve(learningAssetsDir) + path.sep;
+  for (const assetId of candidates) {
+    if (protectedIds.has(assetId)) { protectedCount++; continue; }
+    const filePath = path.resolve(learningAssetsDir, assetId);
+    if (!filePath.startsWith(root)) { failed++; continue; }
+    try {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      deleted++;
+    } catch {
+      failed++;
+    }
+  }
+  return { deleted, protected: protectedCount, failed };
+}
+
 async function cleanupLearningAssetsForDeletedMaterial(material: any) {
+  if (isOfflineMode) return cleanupLocalLearningAssetsForDeletedMaterial(material);
   if (!process.env.CLOUDINARY_CLOUD_NAME) return { deleted: 0, protected: 0, failed: 0 };
   const candidates = extractLearningCloudinaryRefs(material);
   const protectedRefs = collectReferencedLearningCloudinaryAssets();
@@ -22880,7 +23120,11 @@ app.post("/api/admin/reset-student-passwords-bulk", requireAuth, requireRole(['a
     const id = String(students[i]?.id || '');
     if (!wanted.has(id)) continue;
     if (!allowedIds.has(id)) { skipped++; continue; }
-    students[i] = { ...students[i], password: hashPassword(newPassword) };
+    students[i] = {
+      ...students[i],
+      password: hashPassword(newPassword),
+      passwordAdminCipher: encryptStudentAdminPassword(newPassword)
+    };
     updated++;
   }
   if (updated > 0) await saveData('students', students);
@@ -22889,13 +23133,20 @@ app.post("/api/admin/reset-student-passwords-bulk", requireAuth, requireRole(['a
 });
 
 // System Backup & Restore API
-app.get("/api/system/backup", (req, res) => {
+app.get("/api/system/backup", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), (req: any, res) => {
+  const backupStudents = (filterByMadrasah(students, req) || []).map((student: any) =>
+    sanitizeStudentForClient(student, false)
+  );
+  const backupTeachers = (filterByMadrasah(teachers, req) || []).map((teacher: any) => {
+    const { password, passwordRaw, ...safeTeacher } = teacher || {};
+    return safeTeacher;
+  });
   const backupData = {
     version: "2.3",
     timestamp: new Date().toISOString(),
     schoolName: appSettings.schoolName || "Sekolah Menengah",
-    students: filterByMadrasah(students, req),
-    teachers: filterByMadrasah(teachers, req),
+    students: backupStudents,
+    teachers: backupTeachers,
     classes: filterByMadrasah(classes, req),
     subjects: filterByMadrasah(subjects, req),
     schedules: filterByMadrasah(schedules, req),
