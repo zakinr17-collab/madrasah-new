@@ -406,7 +406,7 @@ function learningAssetSrc(url) {
             parsed.hostname === 'res.cloudinary.com' &&
             parsed.pathname.includes('/madrasah_learning_assets/')
         ) {
-            if (/^\\/raw\\/upload\\/v\\d+\\/madrasah_learning_assets\\//i.test(parsed.pathname) && /\\.pdf$/i.test(parsed.pathname)) {
+            if (/^\/raw\/upload\/v\d+\/madrasah_learning_assets\//i.test(parsed.pathname) && /\\.pdf$/i.test(parsed.pathname)) {
                 return '/api/learning-assets/inline-pdf?url=' + encodeURIComponent(raw);
             }
             return raw;
