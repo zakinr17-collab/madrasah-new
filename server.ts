@@ -19454,16 +19454,11 @@ app.post(
       console.warn('[Learning PDF Upload] Failed:', err?.code || err?.http_code || err?.name || '', detail || err);
 
       if (err?.code === 'GOOGLE_DRIVE_CONNECTION_REQUIRED') {
-        const connect = googleDriveConnectPayload(req);
         return res.status(428).json({
           success: false,
           code: 'GOOGLE_DRIVE_CONNECTION_REQUIRED',
           requiresGoogleDriveConnection: true,
-          canConnectGoogleDrive: connect.canConnect,
-          authorizationUrl: connect.authorizationUrl,
-          message: connect.canConnect
-            ? 'Google Drive belum terhubung. Hubungkan Google Drive, lalu klik Simpan/Publikasikan lagi.'
-            : 'Google Drive belum terhubung. Administrator harus menghubungkan Google Drive terlebih dahulu.'
+          message: 'Google Drive belum terhubung untuk madrasah ini. Hubungkan melalui menu Pengaturan → Google Drive Materi Pembelajaran.'
         });
       }
 
@@ -24939,19 +24934,6 @@ function getGoogleDriveOAuthRedirectUri(req: any): string {
 }
 
 
-function googleDriveConnectPayload(req: any): { authorizationUrl: string; canConnect: boolean } {
-  const role = String(req.user?.role || '').toLowerCase();
-  const canConnect = ['admin', 'administrator', 'bos', 'superadmin'].includes(role) && googleDriveOAuthServerConfigured(req);
-  if (!canConnect) return { authorizationUrl: '', canConnect: false };
-  try {
-    const madrasahId = canonicalGoogleDriveTenantId(req.query?.madrasahId || req.headers?.['x-madrasah-id'] || req.user?.madrasahId || 'default');
-    const state = createGoogleDriveOAuthState(req.user, madrasahId);
-    return { authorizationUrl: buildGoogleDriveOAuthAuthorizationUrl(req, state), canConnect: true };
-  } catch (_) {
-    return { authorizationUrl: '', canConnect: false };
-  }
-}
-
 function buildGoogleDriveOAuthAuthorizationUrl(req: any, state: string): string {
   const clientId = String(process.env.GOOGLE_DRIVE_OAUTH_CLIENT_ID || '').trim();
   const redirectUri = getGoogleDriveOAuthRedirectUri(req);
@@ -25006,16 +24988,14 @@ app.get('/api/google-drive/status', requireAuth, async (req: any, res: any) => {
     const hasStoredRefreshToken = Boolean(connection && connection.refreshToken);
     const hasConfiguredServiceAccount = Boolean(getConfiguredGoogleServiceAccount());
     const runtimeServiceAccountEnabled = String(process.env.GOOGLE_DRIVE_USE_RUNTIME_SERVICE_ACCOUNT || '').trim().toLowerCase() === 'true';
-    const connect = ['admin', 'administrator', 'bos', 'superadmin'].includes(role)
-      ? googleDriveConnectPayload(req)
-      : { authorizationUrl: '', canConnect: false };
+    const oauthConfigured = googleDriveOAuthServerConfigured(req);
+    const canConnectGoogleDrive = ['admin', 'administrator', 'bos', 'superadmin'].includes(role) && oauthConfigured;
     return res.json({
       success: true,
       connected: hasStoredRefreshToken || hasConfiguredServiceAccount || runtimeServiceAccountEnabled,
       storage: 'google-drive',
-      oauthConfigured: googleDriveOAuthServerConfigured(req),
-      canConnectGoogleDrive: connect.canConnect,
-      authorizationUrl: connect.authorizationUrl,
+      oauthConfigured,
+      canConnectGoogleDrive,
       folderName: String(connection?.folderName || 'Madrasah Bisa')
     });
   } catch (error: any) {
@@ -25023,7 +25003,7 @@ app.get('/api/google-drive/status', requireAuth, async (req: any, res: any) => {
   }
 });
 
-app.get('/api/google-drive/oauth/start', requireAuth, requireRole(['admin', 'bos', 'superadmin']), (req: any, res: any) => {
+app.get('/api/google-drive/oauth/start', requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), (req: any, res: any) => {
   try {
     const madrasahId = canonicalGoogleDriveTenantId(req.query?.madrasahId || req.headers?.['x-madrasah-id'] || req.user?.madrasahId || 'default');
     const state = createGoogleDriveOAuthState(req.user, madrasahId);
@@ -25078,7 +25058,7 @@ app.get('/api/google-drive/oauth/callback', async (req: any, res: any) => {
       folderName: 'Madrasah Bisa'
     });
 
-    return res.status(200).send(`<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Google Drive Terhubung</title><meta http-equiv="refresh" content="3;url=/"></head><body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f8fafc;padding:30px;color:#0f172a"><div style="max-width:760px;margin:auto;background:white;border:1px solid #e2e8f0;border-radius:18px;padding:28px;box-shadow:0 10px 30px rgba(15,23,42,.08)"><h2 style="margin-top:0">Google Drive berhasil terhubung</h2><p>Koneksi Google Drive sudah <b>tersimpan permanen di database server</b>. Refresh token tidak ditampilkan di browser.</p><p>Silakan kembali ke Madrasah Bisa. Anda tidak perlu memasukkan refresh token ke environment Cloud Run.</p><p style="color:#64748b;font-size:13px">Halaman akan kembali otomatis dalam beberapa detik.</p></div></body></html>`);
+    return res.status(200).send(`<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Google Drive Terhubung</title><meta http-equiv="refresh" content="3;url=/"></head><body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f8fafc;padding:30px;color:#0f172a"><div style="max-width:760px;margin:auto;background:white;border:1px solid #e2e8f0;border-radius:18px;padding:28px;box-shadow:0 10px 30px rgba(15,23,42,.08)"><h2 style="margin-top:0">Google Drive berhasil terhubung</h2><p>Koneksi Google Drive sudah <b>tersimpan permanen di database server</b>. Refresh token tidak ditampilkan di browser.</p><p>Silakan kembali ke Madrasah Bisa dan buka menu <b>Pengaturan</b>. Status Google Drive akan tampil sebagai <b>Terhubung</b>.</p><p style="color:#64748b;font-size:13px">Halaman akan kembali otomatis dalam beberapa detik.</p></div></body></html>`);
   } catch (error: any) {
     console.error('[Google Drive OAuth] Callback failed:', error?.message || error);
     return res.status(500).send('<!doctype html><html lang="id"><meta charset="utf-8"><title>Google Drive</title><body style="font-family:system-ui;padding:40px"><h2>Gagal menghubungkan Google Drive</h2><p>' + escapeGoogleDriveOAuthHtml(error?.message || 'Terjadi kesalahan saat OAuth Google.') + '</p></body></html>');
