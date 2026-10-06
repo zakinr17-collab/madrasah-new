@@ -10305,6 +10305,11 @@ function mergeTenantEntityListData(globalList: any[], incomingData: any[], req: 
     if ((kind === 'teacher' || kind === 'student') && existing?.password && !rawItem.password) {
       merged.password = existing.password;
     }
+    if (kind === 'student') {
+      delete merged.passwordDisplay;
+      if (existing?.passwordAdminCipher) merged.passwordAdminCipher = existing.passwordAdminCipher;
+      else delete merged.passwordAdminCipher;
+    }
     if (kind === 'student' && existing) {
       if (existing.name && existing.name !== existing.nis && (rawItem.name === rawItem.nis || !rawItem.name)) merged.name = existing.name;
       if (existing.no_hp && !rawItem.no_hp) merged.no_hp = existing.no_hp;
@@ -10789,6 +10794,9 @@ app.put("/api/teachers/:id/change-role", requireAuth, requireRole(['admin', 'bos
     convertedPassword = hashPassword(String(req.body.password).trim());
   }
 
+  const convertedPlainPassword = req.body.password && String(req.body.password).trim()
+    ? String(req.body.password).trim()
+    : '';
   const newStudent = tagNewRecord({
     id: "ST_" + Date.now(),
     nis: req.body.nis || t.nip || "100" + Date.now(),
@@ -10797,6 +10805,7 @@ app.put("/api/teachers/:id/change-role", requireAuth, requireRole(['admin', 'bos
     class_id: req.body.classId || filterByMadrasah(classes, req)[0]?.id || "C1",
     username: req.body.username || t.username,
     password: convertedPassword,
+    passwordAdminCipher: convertedPlainPassword ? encryptStudentAdminPassword(convertedPlainPassword) : '',
     photo: req.body.photo || "",
     no_hp: req.body.no_hp || "",
     role: normalizeStudentStoredRole(req.body.role)
@@ -10807,7 +10816,7 @@ app.put("/api/teachers/:id/change-role", requireAuth, requireRole(['admin', 'bos
     { key: 'teachers', value: nextTeachers },
     { key: 'students', value: nextStudents }
   ], true);
-  const { password: _, ...sanitizedNewStudent } = newStudent;
+  const sanitizedNewStudent = sanitizeStudentForClient(newStudent, canAdminViewStudentPassword(req));
   res.json({ success: true, student: sanitizedNewStudent });
 });
 
@@ -11270,7 +11279,7 @@ app.post("/api/students/:id/set-profile-photo", requireAuth, requireRole(['stude
   };
 
   await saveData('students', students);
-  const { password: _, ...sanitizedStudent } = students[idx];
+  const sanitizedStudent = sanitizeStudentForClient(students[idx], false);
   res.json({ success: true, student: sanitizedStudent, message: "Foto profil berhasil diperbarui." });
 });
 
@@ -11363,7 +11372,7 @@ app.delete("/api/students/:id/photo-history", requireAuth, requireRole(['student
   };
 
   await saveData('students', students);
-  const { password: _, ...sanitizedStudent } = students[idx];
+  const sanitizedStudent = sanitizeStudentForClient(students[idx], false);
   res.json({ success: true, student: sanitizedStudent, message: "Foto riwayat berhasil dihapus." });
 });
 
@@ -23068,7 +23077,11 @@ app.post("/api/admin/reset-student-passwords-bulk", requireAuth, requireRole(['a
     const id = String(students[i]?.id || '');
     if (!wanted.has(id)) continue;
     if (!allowedIds.has(id)) { skipped++; continue; }
-    students[i] = { ...students[i], password: hashPassword(newPassword) };
+    students[i] = {
+      ...students[i],
+      password: hashPassword(newPassword),
+      passwordAdminCipher: encryptStudentAdminPassword(newPassword)
+    };
     updated++;
   }
   if (updated > 0) await saveData('students', students);
@@ -23077,13 +23090,20 @@ app.post("/api/admin/reset-student-passwords-bulk", requireAuth, requireRole(['a
 });
 
 // System Backup & Restore API
-app.get("/api/system/backup", (req, res) => {
+app.get("/api/system/backup", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), (req: any, res) => {
+  const backupStudents = (filterByMadrasah(students, req) || []).map((student: any) =>
+    sanitizeStudentForClient(student, false)
+  );
+  const backupTeachers = (filterByMadrasah(teachers, req) || []).map((teacher: any) => {
+    const { password, passwordRaw, ...safeTeacher } = teacher || {};
+    return safeTeacher;
+  });
   const backupData = {
     version: "2.3",
     timestamp: new Date().toISOString(),
     schoolName: appSettings.schoolName || "Sekolah Menengah",
-    students: filterByMadrasah(students, req),
-    teachers: filterByMadrasah(teachers, req),
+    students: backupStudents,
+    teachers: backupTeachers,
     classes: filterByMadrasah(classes, req),
     subjects: filterByMadrasah(subjects, req),
     schedules: filterByMadrasah(schedules, req),
