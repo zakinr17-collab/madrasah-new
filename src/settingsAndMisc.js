@@ -91,7 +91,7 @@ function renderSettingModule(container) {
                     <p class="text-xs text-slate-400 mt-0.5">Kelola nama sekolah, logo, geotagging, dan akun pengguna</p>
                 </div>
 
-                
+
                 <!-- Google Drive OAuth -->
                 <div class="border-t border-slate-100 pt-6">
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border border-blue-100 bg-blue-50/60">
