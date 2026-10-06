@@ -50,7 +50,70 @@ window.compressBase64Image = async (dataUrl, maxWidth = 800, maxHeight = 800, qu
     });
 };
 
-// Google Drive OAuth connection for AI Studio/Cloud Run.
+// Google Drive is connected only from Settings.
+// Learning/Materi consumes this tenant-scoped connection but never starts OAuth itself.
+async function refreshGoogleDriveSettingsStatus() {
+    const statusBadge = document.getElementById('google-drive-settings-status');
+    const detail = document.getElementById('google-drive-settings-detail');
+    const button = document.getElementById('google-drive-connect-button');
+    if (!statusBadge || !detail || !button) return;
+
+    const offlineMode = window.isOfflineMode === true || appState?.isOfflineMode === true;
+    if (offlineMode) {
+        statusBadge.className = 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-600';
+        statusBadge.innerHTML = '<i class="fa-solid fa-hard-drive"></i>Mode Offline';
+        detail.textContent = 'PDF disimpan di komputer lokal. Google Drive tidak diperlukan pada mode offline.';
+        button.classList.add('hidden');
+        return;
+    }
+
+    button.classList.remove('hidden');
+    statusBadge.className = 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-500';
+    statusBadge.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>Memeriksa';
+    detail.textContent = 'Memeriksa koneksi Google Drive untuk madrasah ini...';
+    button.disabled = true;
+
+    try {
+        const response = await fetch('/api/google-drive/status', {
+            method: 'GET',
+            headers: { 'Accept': 'application/json' }
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success) {
+            throw new Error(data?.message || 'Status Google Drive tidak dapat diperiksa.');
+        }
+
+        if (data.connected) {
+            statusBadge.className = 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700';
+            statusBadge.innerHTML = '<i class="fa-solid fa-circle-check"></i>Terhubung';
+            const folderName = String(data.folderName || 'Madrasah Bisa').trim();
+            detail.textContent = 'PDF Materi Pembelajaran akan disimpan ke Google Drive madrasah ini' + (folderName ? ' (folder: ' + folderName + ').' : '.');
+            button.innerHTML = '<i class="fa-brands fa-google-drive mr-1"></i>Hubungkan Ulang';
+        } else {
+            statusBadge.className = 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700';
+            statusBadge.innerHTML = '<i class="fa-solid fa-triangle-exclamation"></i>Belum Terhubung';
+            detail.textContent = data.oauthConfigured === false
+                ? 'Konfigurasi OAuth Google Drive di server belum lengkap.'
+                : 'Hubungkan Google Drive sekali. Setelah itu guru dapat mengunggah PDF Materi tanpa proses OAuth lagi.';
+            button.innerHTML = '<i class="fa-brands fa-google-drive mr-1"></i>Hubungkan Google Drive';
+        }
+
+        button.disabled = !data.canConnectGoogleDrive;
+        if (!data.canConnectGoogleDrive) {
+            button.title = 'Hanya administrator madrasah yang dapat menghubungkan Google Drive.';
+        } else {
+            button.removeAttribute('title');
+        }
+    } catch (error) {
+        console.error('[Google Drive] Status check failed:', error);
+        statusBadge.className = 'inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700';
+        statusBadge.innerHTML = '<i class="fa-solid fa-circle-xmark"></i>Status Gagal';
+        detail.textContent = error?.message || 'Status Google Drive tidak dapat diperiksa.';
+        button.disabled = false;
+    }
+}
+window.refreshGoogleDriveSettingsStatus = refreshGoogleDriveSettingsStatus;
+
 async function connectGoogleDriveOAuth(button) {
     const btn = button || null;
     const originalHtml = btn ? btn.innerHTML : '';
@@ -92,7 +155,31 @@ function renderSettingModule(container) {
                 </div>
 
 
-                <!-- Google Drive OAuth -->
+                <!-- Google Drive OAuth: canonical connection surface for online PDF storage -->
+                <div class="border-t border-slate-100 pt-6">
+                    <div id="google-drive-settings-card" class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border border-blue-100 bg-blue-50/60">
+                        <div class="flex items-start gap-3 min-w-0">
+                            <div class="w-10 h-10 rounded-xl bg-white border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
+                                <i class="fa-brands fa-google-drive text-lg"></i>
+                            </div>
+                            <div class="min-w-0">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <h2 class="text-base font-bold text-slate-800">Google Drive Materi Pembelajaran</h2>
+                                    <span id="google-drive-settings-status" class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-slate-100 text-slate-500">
+                                        <i class="fa-solid fa-spinner fa-spin"></i>Memeriksa
+                                    </span>
+                                </div>
+                                <p id="google-drive-settings-detail" class="text-xs text-slate-500 mt-1 leading-relaxed">
+                                    Memeriksa koneksi Google Drive untuk madrasah ini...
+                                </p>
+                            </div>
+                        </div>
+                        <button id="google-drive-connect-button" type="button" onclick="connectGoogleDriveOAuth(this)"
+                            class="shrink-0 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-sm transition">
+                            <i class="fa-brands fa-google-drive mr-1"></i>Hubungkan Google Drive
+                        </button>
+                    </div>
+                </div>
                 <div class="border-t border-slate-100 pt-6">
                     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border border-blue-100 bg-blue-50/60">
                         <div class="flex items-start gap-3">
@@ -947,7 +1034,7 @@ function renderSettingModule(container) {
     loadSchoolLocationSettings();
     updateSettingsLogoPreview();
     searchUserAccounts('');
-    setTimeout(() => {
+    refreshGoogleDriveSettingsStatus();    setTimeout(() => {
         if (window.updateThemeSelectionUI) {
             window.updateThemeSelectionUI();
         }

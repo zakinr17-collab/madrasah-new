@@ -728,33 +728,26 @@ window.moveLearningEditorAsset = function(index, delta) {
     assets.splice(target, 0, item);
     renderLearningEditorAssets();
 };
-window.openLearningGoogleDriveOAuth = function(button) {
-    const authorizationUrl = String(button?.dataset?.driveUrl || '').trim();
-    if (!/^https:\/\/accounts\.google\.com\//i.test(authorizationUrl)) {
-        return learningToast('URL koneksi Google Drive tidak valid.', 'error');
-    }
-    window.open(authorizationUrl, '_blank', 'noopener,noreferrer');
-};
+async function ensureLearningGoogleDriveReadyForPdf() {
+    const localOfflineMode = learningState().isOfflineMode === true || window.isOfflineMode === true;
+    if (localOfflineMode) return true;
 
-function showLearningGoogleDriveConnectPrompt(authorizationUrl, message) {
-    const existing = document.getElementById('learning-drive-connect-modal');
-    if (existing) existing.remove();
-    const safeMessage = learningEsc(message || 'Google Drive belum terhubung.');
-    const canConnect = /^https:\/\/accounts\.google\.com\//i.test(String(authorizationUrl || ''));
-    document.body.insertAdjacentHTML('beforeend', `
-        <div id="learning-drive-connect-modal" class="fixed inset-0 z-[180] bg-slate-950/70 backdrop-blur-sm p-4 flex items-center justify-center">
-            <div class="w-full max-w-md rounded-3xl bg-white shadow-2xl border border-slate-200 p-6">
-                <div class="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-xl mb-4"><i class="fa-brands fa-google-drive"></i></div>
-                <div class="text-lg font-black text-slate-900">Hubungkan Google Drive</div>
-                <div class="text-sm text-slate-600 mt-2 leading-relaxed">${safeMessage}</div>
-                <div class="text-xs text-slate-500 mt-3">PDF yang dipilih tetap berada di editor. Setelah Drive terhubung, kembali ke halaman ini lalu tekan Simpan/Publikasikan lagi.</div>
-                <div class="mt-5 flex flex-col sm:flex-row gap-2">
-                    ${canConnect ? `<button type="button" data-drive-url="${learningAttr(String(authorizationUrl))}" onclick="openLearningGoogleDriveOAuth(this)" class="flex-1 px-4 py-3 rounded-2xl bg-emerald-600 text-white text-sm font-black"><i class="fa-brands fa-google-drive mr-2"></i>Hubungkan Google Drive</button>` : ''}
-                    <button type="button" onclick="document.getElementById('learning-drive-connect-modal')?.remove()" class="flex-1 px-4 py-3 rounded-2xl bg-slate-100 text-slate-700 text-sm font-bold">Tutup</button>
-                </div>
-            </div>
-        </div>
-    `);
+    const response = await fetch('/api/google-drive/status', {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+    });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.success) {
+        throw new Error(data?.message || 'Status Google Drive tidak dapat diperiksa.');
+    }
+    if (!data.connected) {
+        throw new Error(
+            data.oauthConfigured === false
+                ? 'Google Drive belum siap karena konfigurasi OAuth server belum lengkap. Hubungi administrator.'
+                : 'Google Drive belum terhubung untuk madrasah ini. Administrator harus menghubungkannya melalui menu Pengaturan → Google Drive Materi Pembelajaran.'
+        );
+    }
+    return true;
 }
 
 async function parseLearningUploadResponse(response, assetName) {
@@ -765,9 +758,6 @@ async function parseLearningUploadResponse(response, assetName) {
     }
     const hasAssetLocation = Boolean(data?.asset?.url || data?.asset?.driveFileId);
     if (!response.ok || data.success === false || !hasAssetLocation) {
-        if (data?.code === 'GOOGLE_DRIVE_CONNECTION_REQUIRED') {
-            showLearningGoogleDriveConnectPrompt(data.authorizationUrl || '', data.message || '');
-        }
         let fallback = `Gagal mengunggah ${assetName || 'lampiran'}.`;
         if (response.status === 413) fallback = `${assetName || 'PDF'} terlalu besar. Batas PDF adalah 15 MB.`;
         else if (response.status === 415) fallback = `${assetName || 'File'} bukan PDF yang valid atau formatnya tidak didukung.`;
@@ -801,6 +791,11 @@ async function uploadPendingLearningAssets() {
     const assets = learningEditorAssets();
     const uploadedNow = [];
     const localOfflineMode = learningState().isOfflineMode === true || window.isOfflineMode === true;
+    const hasPendingPdf = assets.some((asset) => asset?.pending && asset?.type === 'pdf' && asset?.file instanceof Blob);
+
+    if (!localOfflineMode && hasPendingPdf) {
+        await ensureLearningGoogleDriveReadyForPdf();
+    }
 
     for (let i = 0; i < assets.length; i++) {
         const asset = assets[i];
