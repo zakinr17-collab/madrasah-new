@@ -19282,24 +19282,48 @@ app.delete("/api/learning/assets", requireAuth, requireRole(['teacher', 'guru', 
     if (isOfflineMode) {
       const match = url.match(/^\/api\/learning-assets\/([A-Za-z0-9._-]{20,180})$/);
       if (!match) return res.status(400).json({ success: false, message: 'Aset lokal tidak valid.' });
+
       const root = path.resolve(learningAssetsDir) + path.sep;
       const filePath = path.resolve(learningAssetsDir, match[1]);
       if (!filePath.startsWith(root)) return res.status(400).json({ success: false, message: 'Aset lokal tidak valid.' });
-      try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch {}
+
+      try {
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      } catch (err: any) {
+        console.warn('[Learning Asset Rollback] Local delete failed:', err?.message || err);
+        return res.status(500).json({ success: false, message: 'Aset lokal belum dapat dihapus.' });
+      }
       return res.json({ success: true, deleted: true });
     }
 
-    const tenantHash = crypto.createHash('sha256').update(String(getRequestMadrasahId(req) || 'default')).digest('hex').slice(0, 12);
+    const tenantHash = crypto.createHash('sha256')
+      .update(String(getRequestMadrasahId(req) || 'default'))
+      .digest('hex')
+      .slice(0, 12);
+
     let parsedUrl: URL;
-    try { parsedUrl = new URL(url); } catch { return res.status(400).json({ success: false, message: 'URL aset tidak valid.' }); }
-    if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname !== 'res.cloudinary.com' || !parsedUrl.pathname.includes('/madrasah_learning_assets/' + tenantHash + '/')) {
+    try {
+      parsedUrl = new URL(url);
+    } catch {
+      return res.status(400).json({ success: false, message: 'URL aset tidak valid.' });
+    }
+
+    if (
+      parsedUrl.protocol !== 'https:' ||
+      parsedUrl.hostname !== 'res.cloudinary.com' ||
+      !parsedUrl.pathname.includes('/madrasah_learning_assets/' + tenantHash + '/')
+    ) {
       return res.status(403).json({ success: false, message: 'Aset bukan milik madrasah ini.' });
     }
+
     const refs = extractLearningCloudinaryRefs(url);
     const asset = refs.values().next().value;
     if (!asset) return res.status(400).json({ success: false, message: 'Aset Cloudinary tidak dikenali.' });
+
     const outcome = await destroyCloudinaryLearningAsset(asset);
-    if (outcome === 'failed') return res.status(502).json({ success: false, message: 'Aset belum dapat dihapus dari Cloudinary.' });
+    if (outcome === 'failed') {
+      return res.status(502).json({ success: false, message: 'Aset belum dapat dihapus dari Cloudinary.' });
+    }
     return res.json({ success: true, deleted: true });
   } catch (err: any) {
     console.warn('[Learning Asset Rollback] Failed:', err?.message || err);
@@ -19309,8 +19333,6 @@ app.delete("/api/learning/assets", requireAuth, requireRole(['teacher', 'guru', 
 
 app.get("/api/learning-assets/drive-pdf", async (req: any, res: any) => {
   try {
-    // Prefer the normal application auth headers. The query-token fallback exists
-    // only for older browsers/proxies that strip Authorization headers from GETs.
     let authUser = req.user || getLearningAuthUser(req);
     if (!authUser) {
       const queryToken = String(req.query?.auth || '').trim();
@@ -19320,6 +19342,7 @@ app.get("/api/learning-assets/drive-pdf", async (req: any, res: any) => {
     if (!authUser) {
       return res.status(401).json({ success: false, message: "Akses ditolak: Silakan login terlebih dahulu." });
     }
+
     await streamLearningPdfFromGoogleDrive(String(req.query?.id || '').trim(), res);
   } catch (err: any) {
     console.warn('[Google Drive PDF] Failed:', err?.message || err);
@@ -19330,28 +19353,74 @@ app.get("/api/learning-assets/drive-pdf", async (req: any, res: any) => {
 app.get("/api/learning-assets/inline-pdf", async (req: any, res: any) => {
   try {
     const authUser = req.user || getLearningAuthUser(req);
-    if (!authUser) return res.status(401).json({ success: false, message: 'Akses ditolak: Silakan login terlebih dahulu.' });
+    if (!authUser) {
+      return res.status(401).json({ success: false, message: 'Akses ditolak: Silakan login terlebih dahulu.' });
+    }
 
     const rawUrl = String(req.query?.url || '').trim();
     const url = new URL(rawUrl);
     const routeMatch = url.pathname.match(/^\/(raw|image)\/upload\/v\d+\/madrasah_learning_assets\//i);
-    if (url.protocol !== 'https:' || url.hostname !== 'res.cloudinary.com' || !routeMatch || !/\.pdf(?:$|[?#])/i.test(url.pathname)) {
+
+    if (
+      url.protocol !== 'https:' ||
+      url.hostname !== 'res.cloudinary.com' ||
+      !routeMatch ||
+      !/\.pdf$/i.test(url.pathname)
+    ) {
       return res.status(400).end();
     }
-    if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) return res.status(503).end();
+
+    if (
+      !process.env.CLOUDINARY_CLOUD_NAME ||
+      !process.env.CLOUDINARY_API_KEY ||
+      !process.env.CLOUDINARY_API_SECRET
+    ) {
+      return res.status(503).end();
+    }
 
     const resourceType = String(routeMatch[1]).toLowerCase() === 'raw' ? 'raw' : 'image';
     const pathParts = url.pathname.split('/').filter(Boolean);
     const versionIndex = pathParts.findIndex((part) => /^v\d+$/.test(part));
-    if (versionIndex < 0 || pathParts[versionIndex + 1] !== 'madrasah_learning_assets') return res.status(400).end();
-    const publicId = pathParts.slice(versionIndex + 1).join('/').replace(/\.pdf$/i, '');
-    if (!publicId || publicId.length > 500 || !/^[A-Za-z0-9_./-]+$/.test(publicId)) return res.status(400).end();
+    if (versionIndex < 0 || pathParts[versionIndex + 1] !== 'madrasah_learning_assets') {
+      return res.status(400).end();
+    }
+
+    const publicId = pathParts
+      .slice(versionIndex + 1)
+      .join('/')
+      .replace(/\.pdf$/i, '');
+    if (!publicId || publicId.length > 500 || !/^[A-Za-z0-9_./-]+$/.test(publicId)) {
+      return res.status(400).end();
+    }
 
     const signedDownloadUrl = cloudinary.utils.private_download_url(publicId, 'pdf', {
       resource_type: resourceType,
       type: 'upload',
       expires_at: Math.floor(Date.now() / 1000) + 300
     });
+
+    const response = await fetch(signedDownloadUrl, { redirect: 'error' });
+    if (!response.ok) {
+      console.warn(`[Learning PDF] Cloudinary signed download gagal: ${response.status}`);
+      return res.status(response.status).end();
+    }
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    if (!buffer.length || buffer.length > MAX_LEARNING_PDF_BYTES) return res.status(413).end();
+    if (buffer.length < 5 || buffer.subarray(0, 5).toString('ascii') !== '%PDF-') return res.status(415).end();
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', String(buffer.length));
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, no-store');
+    return res.send(buffer);
+  } catch (err: any) {
+    console.warn('[Learning PDF inline] Failed:', err?.message || err);
+    if (!res.headersSent) res.status(400).end();
+  }
+});
+
 app.get("/api/learning-assets/serve", async (req: any, res: any) => {
   const rawUrl = String(req.query?.url || '').trim();
   try {
@@ -19365,9 +19434,11 @@ app.get("/api/learning-assets/serve", async (req: any, res: any) => {
       return res.status(400).end();
     }
 
-    if (!process.env.CLOUDINARY_CLOUD_NAME ||
-        !process.env.CLOUDINARY_API_KEY ||
-        !process.env.CLOUDINARY_API_SECRET) {
+    if (
+      !process.env.CLOUDINARY_CLOUD_NAME ||
+      !process.env.CLOUDINARY_API_KEY ||
+      !process.env.CLOUDINARY_API_SECRET
+    ) {
       return res.status(503).end();
     }
 
@@ -19383,9 +19454,10 @@ app.get("/api/learning-assets/serve", async (req: any, res: any) => {
     const publicId = assetPart.replace(/\.[A-Za-z0-9]+$/, '');
     if (!publicId || publicId.length > 500) return res.status(400).end();
 
-    const resourceType = format === 'mp4' || format === 'webm' || format === 'ogv' || format === 'ogg'
-      ? 'video'
-      : 'image';
+    const resourceType =
+      format === 'mp4' || format === 'webm' || format === 'ogv' || format === 'ogg'
+        ? 'video'
+        : 'image';
 
     const signedDownloadUrl = cloudinary.utils.private_download_url(
       publicId,
@@ -19409,12 +19481,14 @@ app.get("/api/learning-assets/serve", async (req: any, res: any) => {
 
     const isPdf = format === 'pdf' || contentType.includes('application/pdf');
     const isVideo = resourceType === 'video' || contentType.startsWith('video/');
-    const safeContentType = isPdf ? 'application/pdf'
-      : isVideo ? (contentType.startsWith('video/') ? contentType : `video/${format || 'mp4'}`)
-      : (contentType.startsWith('image/') ? contentType : `image/${format || 'jpeg'}`);
+    const safeContentType = isPdf
+      ? 'application/pdf'
+      : isVideo
+        ? (contentType.startsWith('video/') ? contentType : `video/${format || 'mp4'}`)
+        : (contentType.startsWith('image/') ? contentType : `image/${format || 'jpeg'}`);
 
     res.setHeader('Content-Type', safeContentType);
-    res.setHeader('Content-Disposition', isPdf ? 'inline' : 'inline');
+    res.setHeader('Content-Disposition', 'inline');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'private, max-age=300');
     res.setHeader('Content-Length', String(buffer.length));
@@ -19424,7 +19498,6 @@ app.get("/api/learning-assets/serve", async (req: any, res: any) => {
     return res.status(400).end();
   }
 });
-
 
 app.get("/api/learning-assets/:assetId", (req, res) => {
   if (!isOfflineMode) return res.status(404).end();
