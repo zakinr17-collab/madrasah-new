@@ -175,7 +175,7 @@ assert.match(server, /meta\?\.sanSignature === sanSignature/);
   assert.match(server, /function isTrustedLearningAssetUrl\(/);
   assert.match(server, /app\.post\("\/api\/learning\/assets", requireAuth, requireRole/);
   assert.match(server, /app\.get\("\/api\/learning-assets\/:assetId"/);
-  assert.match(server, /resource_type: isPdf \? 'raw' : 'image'/);
+  assert.match(server, /resource_type: isPdf \? 'raw' : \(isVideo \? 'video' : 'image'\)/);
   assert.match(server, /type === 'image' \|\| type === 'pdf'/);
   assert.match(learningModule, /handleLearningAssetSelection/);
   assert.match(learningModule, /uploadPendingLearningAssets/);
