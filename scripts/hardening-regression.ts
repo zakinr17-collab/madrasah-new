@@ -182,7 +182,7 @@ assert.match(server, /meta\?\.sanSignature === sanSignature/);
   assert.match(learningModule, /accept="image\/jpeg,image\/png,image\/webp,application\/pdf,video\/mp4,video\/webm,video\/ogg"/);
   assert.match(learningModule, /type === 'image'/);
   assert.match(learningModule, /type === 'pdf'/);
-  assert.match(learningModule, /Buka PDF/);
+  assert.match(learningModule, /<iframe src="\$\{learningAttr\(frameSrc\)\}"/);
   assert.match(app, /function navigateBack\(/);
   assert.match(app, /appState\.navigationHistory/);
   assert.match(app, /window\.stopLearningTrackerForNavigation/);
