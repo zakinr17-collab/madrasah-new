@@ -19116,6 +19116,52 @@ async function getGoogleDriveFolderId(accessToken: string): Promise<string> {
   return String(created.id);
 }
 
+async function streamLearningPdfFromGoogleDrive(fileId: string, res: any): Promise<void> {
+  const safeFileId = String(fileId || '').trim();
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(safeFileId)) {
+    res.status(400).end();
+    return;
+  }
+
+  const accessToken = await getGoogleDriveAccessToken();
+  const response = await fetch(
+    'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(safeFileId) + '?alt=media',
+    {
+      headers: { Authorization: 'Bearer ' + accessToken },
+      redirect: 'error'
+    }
+  );
+
+  if (!response.ok) {
+    console.warn('[Google Drive PDF] Download gagal:', response.status);
+    res.status(response.status === 404 ? 404 : 502).end();
+    return;
+  }
+
+  const declaredLength = Number(response.headers.get('content-length') || 0);
+  if (declaredLength > MAX_LEARNING_PDF_BYTES) {
+    res.status(413).end();
+    return;
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (!buffer.length || buffer.length > MAX_LEARNING_PDF_BYTES) {
+    res.status(413).end();
+    return;
+  }
+  if (buffer.length < 5 || buffer.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    res.status(415).end();
+    return;
+  }
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Length', String(buffer.length));
+  res.setHeader('Content-Disposition', 'inline');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.send(buffer);
+}
+
 app.post(
   "/api/learning/assets/pdf",
   requireAuth,
