@@ -24925,7 +24925,7 @@ async function exchangeGoogleDriveOAuthCode(req: any, code: string) {
   return payload;
 }
 
-app.get('/api/google-drive/status', requireAuth, (req: any, res: any) => {
+app.get('/api/google-drive/status', requireAuth, async (req: any, res: any) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
     const connection = await getStoredGoogleDriveOAuthConnection();
