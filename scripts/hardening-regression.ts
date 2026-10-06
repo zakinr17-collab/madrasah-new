@@ -175,14 +175,14 @@ assert.match(server, /meta\?\.sanSignature === sanSignature/);
   assert.match(server, /function isTrustedLearningAssetUrl\(/);
   assert.match(server, /app\.post\("\/api\/learning\/assets", requireAuth, requireRole/);
   assert.match(server, /app\.get\("\/api\/learning-assets\/:assetId"/);
-  assert.match(server, /resource_type: isPdf \? 'raw' : \(isVideo \? 'video' : 'image'\)/);
+  assert.match(server, /resource_type: isPdf \? 'raw' : 'image'/);
   assert.match(server, /type === 'image' \|\| type === 'pdf'/);
   assert.match(learningModule, /handleLearningAssetSelection/);
   assert.match(learningModule, /uploadPendingLearningAssets/);
-  assert.match(learningModule, /accept="image\/jpeg,image\/png,image\/webp,application\/pdf,video\/mp4,video\/webm,video\/ogg"/);
+  assert.match(learningModule, /accept="image\/jpeg,image\/png,image\/webp,application\/pdf"/);
   assert.match(learningModule, /type === 'image'/);
   assert.match(learningModule, /type === 'pdf'/);
-  assert.match(learningModule, /<iframe src="\$\{learningAttr\(frameSrc\)\}"/);
+  assert.match(learningModule, /Buka PDF/);
   assert.match(app, /function navigateBack\(/);
   assert.match(app, /appState\.navigationHistory/);
   assert.match(app, /window\.stopLearningTrackerForNavigation/);
@@ -278,7 +278,7 @@ assert.match(server, /meta\?\.sanSignature === sanSignature/);
   assert.match(server, /TEACHER_MONITOR_SCOPE_V2/);
   assert.match(server, /TEACHER_LIVECAM_SCOPE_V1/);
   assert.match(server, /function teacherCanMonitorStudentRealtime\(/);
-  // The current runtime is stricter than assignment-scoped teacher livecam:
+  // Runtime policy is stricter than assignment-scoped teacher livecam:
   // only admin/BOS roles can enter the livecam signaling path.
   assert.match(server, /function isLivecamMonitorRole\(role: string\).*admin.*administrator.*bos.*superadmin/);
   assert.match(server, /Livecam hanya dapat diakses oleh admin\./);
