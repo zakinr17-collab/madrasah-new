@@ -179,7 +179,7 @@ assert.match(server, /meta\?\.sanSignature === sanSignature/);
   assert.match(server, /type === 'image' \|\| type === 'pdf'/);
   assert.match(learningModule, /handleLearningAssetSelection/);
   assert.match(learningModule, /uploadPendingLearningAssets/);
-  assert.match(learningModule, /accept="image\/jpeg,image\/png,image\/webp,application\/pdf"/);
+  assert.match(learningModule, /accept="image\/jpeg,image\/png,image\/webp,application\/pdf,video\/mp4,video\/webm,video\/ogg"/);
   assert.match(learningModule, /type === 'image'/);
   assert.match(learningModule, /type === 'pdf'/);
   assert.match(learningModule, /Buka PDF/);
