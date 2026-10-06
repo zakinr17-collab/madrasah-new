@@ -1,0 +1,35 @@
+name: Temporary Non-CBT Validation
+
+on:
+  push:
+    branches:
+      - fix/dual-mode-hardening-clean
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.14.0'
+          cache: npm
+      - run: npm ci
+      - name: High critical dependency audit
+        run: npm audit --audit-level=high
+      - name: Hardening regression
+        run: npm run hardening:regression
+      - name: Frontend handler audit
+        run: npm run frontend:handler-audit
+      - name: Runtime regression
+        run: npm run runtime:regression
+      - name: TypeScript check
+        run: npm run lint
+      - name: Production build
+        run: npm run build
+      - name: Font audit
+        run: npm run font:asset-audit
