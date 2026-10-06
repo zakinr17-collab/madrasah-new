@@ -19417,13 +19417,22 @@ app.get("/api/learning-assets/inline-pdf", async (req: any, res: any) => {
     const publicId = resourceType === 'raw' ? rawPublicId : rawPublicId.replace(/\.pdf$/i, '');
     if (!publicId || publicId.length > 500 || !/^[A-Za-z0-9_./-]+$/.test(publicId)) return res.status(400).end();
 
-    const downloadUrl = resourceType === 'raw'
-      ? rawUrl
-      : cloudinary.utils.private_download_url(publicId, 'pdf', {
-          resource_type: 'image',
-          type: 'upload',
-          expires_at: Math.floor(Date.now() / 1000) + 300
-        });
+    // Enforce tenant ownership before proxying any Cloudinary document.
+    const tenantHash = crypto.createHash('sha256')
+      .update(String(getRequestMadrasahId(req) || 'default'))
+      .digest('hex')
+      .slice(0, 12);
+    const expectedPrefix = `madrasah_learning_assets/${tenantHash}/`;
+    if (!publicId.startsWith(expectedPrefix)) return res.status(403).end();
+
+    // Never fetch the public raw/upload URL directly. Some Cloudinary environments
+    // intentionally return 401 for PDF/raw delivery. Generate a short-lived signed
+    // API download URL instead, then stream the bytes through our authenticated app.
+    const downloadUrl = cloudinary.utils.private_download_url(publicId, 'pdf', {
+      resource_type: resourceType,
+      type: 'upload',
+      expires_at: Math.floor(Date.now() / 1000) + 300
+    });
     const response = await fetch(downloadUrl, { redirect: 'error' });
     if (!response.ok) {
       console.warn(`[Learning PDF] Cloudinary signed download gagal: ${response.status}`);
