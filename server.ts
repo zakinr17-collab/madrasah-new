@@ -9442,9 +9442,26 @@ function getRequestOrigin(req: any): string {
   const host = String(req.headers?.host || '').trim();
   return host ? `${proto}://${host}` : '';
 }
+function serializeOfflineLicensePayload(payload: any): string {
+  // OFFLINE_LICENSE_CANONICAL_V1:
+  // Keep the exact original V1 field order used when licenses were first issued.
+  // This makes verification stable after JSON/JSONB persistence, where object key
+  // order may change even though the signed values are identical.
+  const canonical = {
+    type: payload?.type,
+    licenseId: payload?.licenseId,
+    madrasahId: payload?.madrasahId,
+    issuedAt: payload?.issuedAt,
+    syncUrl: payload?.syncUrl,
+    expiresAt: payload?.expiresAt ?? null,
+    version: payload?.version
+  };
+  return JSON.stringify(canonical);
+}
+
 function signOfflineLicensePayload(payload: any, privateKey: string): string {
   const signer = crypto.createSign('SHA256');
-  signer.update(JSON.stringify(payload));
+  signer.update(serializeOfflineLicensePayload(payload));
   signer.end();
   return signer.sign(formatPrivateKeyPem(privateKey), 'base64');
 }
@@ -9454,7 +9471,7 @@ function verifyOfflineLicenseEnvelope(envelope: any): { valid: boolean; payload?
   if (payload.type !== 'MADRASAH_OFFLINE_LICENSE_V1' || !payload.licenseId || !payload.madrasahId) return { valid: false, message: 'Lisensi offline tidak dikenali.' };
   try {
     const verify = crypto.createVerify('SHA256');
-    verify.update(JSON.stringify(payload));
+    verify.update(serializeOfflineLicensePayload(payload));
     verify.end();
     if (!verify.verify(formatPublicKeyPem(process.env.LICENSE_PUBLIC_KEY || LICENSE_PUBLIC_KEY), String(envelope.signature), 'base64')) return { valid: false, message: 'Tanda tangan lisensi tidak cocok.' };
     return { valid: true, payload, signature: String(envelope.signature) };
