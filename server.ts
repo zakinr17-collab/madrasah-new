@@ -9359,6 +9359,55 @@ app.post("/api/token-requests/:id/approve", requireAuth, requireRole(['bos', 'su
     nextReqItem.status = 'approved';
     nextReqItem.approvedQuantity = addQty;
     nextReqItem.approvedAt = new Date().toISOString();
+
+    const isOfflineTarget = String(nextTarget.mode || '').toLowerCase() === 'offline' || Boolean(nextTarget.offlineLicenseId);
+    if (isOfflineTarget) {
+      const licenseIndex = (offlineLicenses || []).findIndex((lic: any) =>
+        String(lic.licenseId || '') === String(nextTarget.offlineLicenseId || '') ||
+        String(lic.madrasahId || '') === String(nextTarget.id || '')
+      );
+      if (licenseIndex < 0) {
+        return res.status(409).json({
+          success: false,
+          message: 'Lisensi madrasah offline tidak ditemukan. Sinkronkan instalasi offline sebelum menyetujui top-up.'
+        });
+      }
+
+      const nextLicenses = (offlineLicenses || []).map((lic: any) => ({
+        ...lic,
+        tokenGrants: Array.isArray(lic?.tokenGrants) ? lic.tokenGrants.map((g: any) => ({ ...g })) : []
+      }));
+      const targetLicense = nextLicenses[licenseIndex];
+      const grant = createOfflineTokenGrant(
+        String(targetLicense.licenseId),
+        String(targetLicense.madrasahId || nextTarget.id),
+        addQty
+      );
+      targetLicense.tokenGrants = [...(targetLicense.tokenGrants || []), grant];
+
+      const pendingCredits = targetLicense.tokenGrants
+        .filter((g: any) => !g?.acknowledgedAt)
+        .reduce((sum: number, g: any) => sum + Math.max(0, Number(g?.quantity || 0)), 0);
+
+      nextTarget.offlinePendingTokenCredits = pendingCredits;
+      nextTarget.offlineTokenGrantUpdatedAt = grant.issuedAt;
+      nextReqItem.offlineGrantId = grant.grantId;
+      nextReqItem.deliveryStatus = 'pending_sync';
+
+      await saveDataBatch([
+        { key: 'tokenRequests', value: nextTokenRequests },
+        { key: 'offlineLicenses', value: nextLicenses },
+        { key: 'madrasahs', value: nextMadrasahs }
+      ], true);
+
+      return res.json({
+        success: true,
+        queued: true,
+        grantId: grant.grantId,
+        message: `Permintaan Top-Up disetujui. +${addQty} Token untuk ${nextReqItem.madrasahName} akan masuk saat instalasi offline melakukan sinkronisasi.`
+      });
+    }
+
     nextTarget.cbtTokenBalance = Number(nextTarget.cbtTokenBalance || 0) + addQty;
     delete nextTarget.tokenSignatureInvalid;
     nextTarget.tokenSignature = calculateTokenSignature(nextTarget.id, nextTarget.cbtTokenBalance);
@@ -9404,8 +9453,81 @@ app.post("/api/madrasahs/:id/update-tokens", requireAuth, requireRole(['bos', 's
     const { newBalance, deltaTokens } = req.body;
     const targetIndex = madrasahs.findIndex(m => String(m.id) === String(id) || String(m.slug) === String(id));
     if (targetIndex < 0) return res.status(404).json({ success: false, message: "Madrasah tidak ditemukan." });
+
     const nextMadrasahs = madrasahs.map((item: any) => ({ ...item }));
     const targetM = nextMadrasahs[targetIndex];
+    const isOfflineTarget = String(targetM.mode || '').toLowerCase() === 'offline' || Boolean(targetM.offlineLicenseId);
+
+    if (isOfflineTarget) {
+      const licenseIndex = (offlineLicenses || []).findIndex((lic: any) =>
+        String(lic.licenseId || '') === String(targetM.offlineLicenseId || '') ||
+        String(lic.madrasahId || '') === String(targetM.id || '')
+      );
+      if (licenseIndex < 0) {
+        return res.status(409).json({
+          success: false,
+          message: 'Lisensi madrasah offline tidak ditemukan. Sinkronkan lisensi dari komputer madrasah terlebih dahulu.'
+        });
+      }
+
+      const nextLicenses = (offlineLicenses || []).map((lic: any) => ({
+        ...lic,
+        tokenGrants: Array.isArray(lic?.tokenGrants) ? lic.tokenGrants.map((g: any) => ({ ...g })) : []
+      }));
+      const targetLicense = nextLicenses[licenseIndex];
+      const pendingCredits = (targetLicense.tokenGrants || [])
+        .filter((g: any) => !g?.acknowledgedAt)
+        .reduce((sum: number, g: any) => sum + Math.max(0, Number(g?.quantity || 0)), 0);
+      const reportedBalance = Math.max(0, Number(targetM.cbtTokenBalance || 0));
+      const effectiveBalance = reportedBalance + pendingCredits;
+
+      let addQty = 0;
+      if (deltaTokens !== undefined) {
+        const parsedDelta = Number(deltaTokens);
+        if (!Number.isFinite(parsedDelta) || parsedDelta <= 0 || parsedDelta > 1000000) {
+          return res.status(400).json({ success: false, message: 'Top-up madrasah offline harus berupa penambahan 1-1.000.000 token.' });
+        }
+        addQty = Math.trunc(parsedDelta);
+      } else if (newBalance !== undefined) {
+        const desired = Number(newBalance);
+        if (!Number.isFinite(desired) || desired < 0 || desired > 100000000) {
+          return res.status(400).json({ success: false, message: 'Saldo token tidak valid.' });
+        }
+        addQty = Math.trunc(desired) - Math.trunc(effectiveBalance);
+        if (addQty <= 0) {
+          return res.status(400).json({
+            success: false,
+            message: 'Saldo madrasah offline tidak boleh diturunkan dari BOSS. Gunakan Tambah Token; pemakaian token akan dilaporkan saat sinkronisasi.'
+          });
+        }
+      } else {
+        return res.status(400).json({ success: false, message: 'Jumlah token yang akan ditambahkan wajib diisi.' });
+      }
+
+      const grant = createOfflineTokenGrant(
+        String(targetLicense.licenseId),
+        String(targetLicense.madrasahId || targetM.id),
+        addQty
+      );
+      targetLicense.tokenGrants = [...(targetLicense.tokenGrants || []), grant];
+      targetM.offlinePendingTokenCredits = pendingCredits + addQty;
+      targetM.offlineTokenGrantUpdatedAt = grant.issuedAt;
+
+      await saveDataBatch([
+        { key: 'offlineLicenses', value: nextLicenses },
+        { key: 'madrasahs', value: nextMadrasahs }
+      ], true);
+
+      return res.json({
+        success: true,
+        queued: true,
+        grantId: grant.grantId,
+        quantity: addQty,
+        pendingTokenCredits: targetM.offlinePendingTokenCredits,
+        madrasah: sanitizeMadrasahAdminView(targetM),
+        message: `+${addQty} Token dijadwalkan untuk ${targetM.name}. Token akan masuk otomatis saat instalasi offline melakukan sinkronisasi.`
+      });
+    }
 
     if (newBalance !== undefined) {
       const parsed = Number(newBalance);
@@ -9457,6 +9579,72 @@ function serializeOfflineLicensePayload(payload: any): string {
     version: payload?.version
   };
   return JSON.stringify(canonical);
+}
+
+function serializeOfflineTokenGrantPayload(grant: any): string {
+  const canonical = {
+    type: grant?.type,
+    grantId: grant?.grantId,
+    licenseId: grant?.licenseId,
+    madrasahId: grant?.madrasahId,
+    quantity: Number(grant?.quantity || 0),
+    issuedAt: grant?.issuedAt,
+    version: grant?.version
+  };
+  return JSON.stringify(canonical);
+}
+
+function signOfflineTokenGrantPayload(grant: any, privateKey: string): string {
+  const signer = crypto.createSign('SHA256');
+  signer.update(serializeOfflineTokenGrantPayload(grant));
+  signer.end();
+  return signer.sign(formatPrivateKeyPem(privateKey), 'base64');
+}
+
+function verifyOfflineTokenGrant(grant: any): { valid: boolean; grant?: any; message?: string } {
+  if (!grant || typeof grant !== 'object' || !grant.signature) {
+    return { valid: false, message: 'Format grant token tidak valid.' };
+  }
+  if (
+    grant.type !== 'MADRASAH_OFFLINE_TOKEN_GRANT_V1' ||
+    !grant.grantId ||
+    !grant.licenseId ||
+    !grant.madrasahId ||
+    !Number.isFinite(Number(grant.quantity)) ||
+    Number(grant.quantity) <= 0
+  ) {
+    return { valid: false, message: 'Grant token offline tidak dikenali.' };
+  }
+  try {
+    const verifier = crypto.createVerify('SHA256');
+    verifier.update(serializeOfflineTokenGrantPayload(grant));
+    verifier.end();
+    const valid = verifier.verify(
+      formatPublicKeyPem(process.env.LICENSE_PUBLIC_KEY || LICENSE_PUBLIC_KEY),
+      String(grant.signature),
+      'base64'
+    );
+    return valid
+      ? { valid: true, grant }
+      : { valid: false, message: 'Tanda tangan grant token tidak cocok.' };
+  } catch (_) {
+    return { valid: false, message: 'Grant token offline gagal diverifikasi.' };
+  }
+}
+
+function createOfflineTokenGrant(licenseId: string, madrasahId: string, quantity: number): any {
+  const issuedAt = new Date().toISOString();
+  const grant: any = {
+    type: 'MADRASAH_OFFLINE_TOKEN_GRANT_V1',
+    grantId: 'OFFTOK_' + Date.now().toString(36).toUpperCase() + '_' + crypto.randomBytes(6).toString('hex').toUpperCase(),
+    licenseId,
+    madrasahId,
+    quantity: Math.trunc(quantity),
+    issuedAt,
+    version: 1
+  };
+  grant.signature = signOfflineTokenGrantPayload(grant, process.env.LICENSE_PRIVATE_KEY!);
+  return grant;
 }
 
 function signOfflineLicensePayload(payload: any, privateKey: string): string {
@@ -9578,7 +9766,7 @@ app.post('/api/boss/generate-offline-madrasah-license', requireAuth, requireRole
     const syncUrl = getRequestOrigin(req) + '/api/offline-licenses/register';
     const payload = { type: 'MADRASAH_OFFLINE_LICENSE_V1', licenseId, madrasahId, issuedAt, syncUrl, expiresAt: null, version: 1 };
     const signature = signOfflineLicensePayload(payload, process.env.LICENSE_PRIVATE_KEY!);
-    const record = { ...payload, signature, status: 'pending', installationId: null, activatedAt: null, name: null, createdAt: issuedAt };
+    const record = { ...payload, signature, status: 'pending', installationId: null, activatedAt: null, name: null, tokenGrants: [], createdAt: issuedAt };
     await saveData('offlineLicenses', [...(offlineLicenses || []), record], true);
     const activationKey = Buffer.from(JSON.stringify({ payload, signature, algorithm: 'RSA-SHA256' }), 'utf8').toString('base64');
     return res.json({ success: true, licenseId, activationKey, status: 'pending', message: 'Key lisensi madrasah offline berhasil dibuat.' });
@@ -9692,18 +9880,22 @@ app.post('/api/offline-license/sync', requireAuth, requireRole(['admin', 'admini
   if (!isOfflineLicenseActive()) return res.status(400).json({ success: false, message: 'Lisensi offline belum aktif atau tidak valid.' });
   const envelope = getOfflineLicenseEnvelope();
   if (!envelope || !offlineLicense?.installationId) return res.status(400).json({ success: false, message: 'Lisensi offline belum diaktivasi.' });
+
   try {
     const syncUrl = String(envelope.payload.syncUrl || '').trim();
-    if (!/^https:\/\//i.test(syncUrl)) return res.status(400).json({ success: false, message: 'Alamat server BOSS pada lisensi harus menggunakan HTTPS.' });
+    if (!/^https:\/\//i.test(syncUrl)) {
+      return res.status(400).json({ success: false, message: 'Alamat server BOSS pada lisensi harus menggunakan HTTPS.' });
+    }
 
     const authUser = req.user || getAuthUser(req);
     const ownId = String(authUser?.madrasahId || authUser?.madrasahSlug || '').trim();
-    const localMadrasah = (madrasahs || []).find((m: any) =>
+    const localIndex = (madrasahs || []).findIndex((m: any) =>
       String(m.id || '') === ownId || String(m.slug || '') === ownId
-    ) || (madrasahs || [])[0] || {};
-    // For an offline installation, the Settings profile is the authoritative
-    // identity shown to BOSS. The local default madrasah row may still contain
-    // legacy placeholders such as "MADRASAH" from an older bootstrap.
+    );
+    const resolvedIndex = localIndex >= 0 ? localIndex : ((madrasahs || []).length ? 0 : -1);
+    const localMadrasah = resolvedIndex >= 0 ? madrasahs[resolvedIndex] : {};
+
+    // For an offline installation, Settings is the authoritative profile identity.
     const profile = {
       name: String(appSettings?.schoolName || localMadrasah?.name || 'Madrasah Offline').trim().slice(0, 120),
       level: String(appSettings?.schoolLevel || localMadrasah?.level || 'MA').trim().slice(0, 20),
@@ -9712,34 +9904,162 @@ app.post('/api/offline-license/sync', requireAuth, requireRole(['admin', 'admini
       phone: String(appSettings?.phone || localMadrasah?.phone || '').trim().slice(0, 40)
     };
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
-    try {
-      const response = await fetch(syncUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ envelope, installationId: offlineLicense.installationId, madrasah: profile }),
-        signal: controller.signal
+    const appliedGrantIds = Array.from(new Set(
+      (Array.isArray(offlineLicense?.appliedTokenGrantIds) ? offlineLicense.appliedTokenGrantIds : [])
+        .map((id: any) => String(id || '').trim())
+        .filter((id: string) => /^OFFTOK_[A-Z0-9_]+$/.test(id))
+    ));
+    const initialBalance = Math.max(0, Math.trunc(Number(localMadrasah?.cbtTokenBalance || 0)));
+
+    const postSync = async (balance: number, appliedIds: string[]) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000);
+      try {
+        const response = await fetch(syncUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            envelope,
+            installationId: offlineLicense.installationId,
+            madrasah: profile,
+            tokenState: {
+              balance: Math.max(0, Math.trunc(balance)),
+              appliedGrantIds: appliedIds
+            }
+          }),
+          signal: controller.signal
+        });
+        const data = await response.json().catch(() => ({}));
+        return { response, data };
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    const first = await postSync(initialBalance, appliedGrantIds);
+    if (!first.response.ok || !first.data.success) {
+      return res.status(first.response.status || 502).json({
+        success: false,
+        message: first.data.message || 'Server BOSS belum menerima sinkronisasi lisensi.'
       });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.success) return res.status(response.status || 502).json({ success: false, message: data.message || 'Server BOSS belum menerima sinkronisasi lisensi.' });
-      offlineLicense.lastSyncedAt = new Date().toISOString();
-      await saveData('offlineLicense', offlineLicense, true);
-      return res.json({ success: true, synced: true, madrasah: data.madrasah || null, lastSyncedAt: offlineLicense.lastSyncedAt, message: data.message || 'Lisensi berhasil disinkronkan ke BOSS.' });
-    } finally { clearTimeout(timer); }
-  } catch (_) { return res.status(503).json({ success: false, message: 'Internet/server BOSS belum dapat dihubungi. Lisensi lokal tetap aktif.', retryable: true }); }
+    }
+
+    const pendingGrants = Array.isArray(first.data.tokenGrants) ? first.data.tokenGrants : [];
+    const appliedSet = new Set(appliedGrantIds);
+    let tokenCreditsApplied = 0;
+    const newlyAppliedGrantIds: string[] = [];
+
+    for (const grant of pendingGrants) {
+      const checked = verifyOfflineTokenGrant(grant);
+      if (!checked.valid) {
+        return res.status(502).json({
+          success: false,
+          message: checked.message || 'Grant token dari BOSS tidak valid.'
+        });
+      }
+      if (
+        String(grant.licenseId || '') !== String(envelope.payload.licenseId || '') ||
+        String(grant.madrasahId || '') !== String(envelope.payload.madrasahId || '')
+      ) {
+        return res.status(502).json({
+          success: false,
+          message: 'Grant token tidak ditujukan untuk lisensi madrasah ini.'
+        });
+      }
+
+      const grantId = String(grant.grantId || '');
+      if (appliedSet.has(grantId)) continue;
+      const qty = Math.trunc(Number(grant.quantity || 0));
+      if (!Number.isFinite(qty) || qty <= 0 || qty > 1000000) {
+        return res.status(502).json({ success: false, message: 'Jumlah grant token dari BOSS tidak valid.' });
+      }
+      tokenCreditsApplied += qty;
+      appliedSet.add(grantId);
+      newlyAppliedGrantIds.push(grantId);
+    }
+
+    const syncedAt = new Date().toISOString();
+    let finalBalance = initialBalance;
+    let finalData = first.data;
+    let tokenAckPending = false;
+
+    if (tokenCreditsApplied > 0) {
+      if (resolvedIndex < 0) {
+        return res.status(409).json({ success: false, message: 'Data madrasah lokal tidak ditemukan untuk menerima token.' });
+      }
+
+      const nextMadrasahs = madrasahs.map((m: any) => ({ ...m }));
+      const nextLocal = nextMadrasahs[resolvedIndex];
+      finalBalance = initialBalance + tokenCreditsApplied;
+      nextLocal.cbtTokenBalance = finalBalance;
+      delete nextLocal.tokenSignatureInvalid;
+      nextLocal.tokenSignature = calculateTokenSignature(nextLocal.id, finalBalance);
+
+      const nextOfflineLicense = {
+        ...offlineLicense,
+        lastSyncedAt: syncedAt,
+        appliedTokenGrantIds: Array.from(appliedSet)
+      };
+
+      await saveDataBatch([
+        { key: 'madrasahs', value: nextMadrasahs },
+        { key: 'offlineLicense', value: nextOfflineLicense }
+      ], true);
+
+      // ACK immediately. If this call fails, the locally stored grant IDs prevent
+      // duplicate credit and the next normal sync will acknowledge them safely.
+      try {
+        const ack = await postSync(finalBalance, Array.from(appliedSet));
+        if (ack.response.ok && ack.data.success) {
+          finalData = ack.data;
+        } else {
+          tokenAckPending = true;
+        }
+      } catch (_) {
+        tokenAckPending = true;
+      }
+    } else {
+      const nextOfflineLicense = { ...offlineLicense, lastSyncedAt: syncedAt };
+      await saveData('offlineLicense', nextOfflineLicense, true);
+    }
+
+    return res.json({
+      success: true,
+      synced: true,
+      madrasah: finalData.madrasah || first.data.madrasah || null,
+      lastSyncedAt: syncedAt,
+      tokenCreditsApplied,
+      tokenBalance: finalBalance,
+      appliedGrantIds: newlyAppliedGrantIds,
+      tokenAckPending,
+      message: tokenCreditsApplied > 0
+        ? `Sinkronisasi berhasil. +${tokenCreditsApplied} Token dari BOSS telah diterapkan. Saldo lokal: ${finalBalance} Token.`
+        : (finalData.message || first.data.message || 'Lisensi berhasil disinkronkan ke BOSS.')
+    });
+  } catch (_) {
+    return res.status(503).json({
+      success: false,
+      message: 'Internet/server BOSS belum dapat dihubungi. Lisensi lokal tetap aktif.',
+      retryable: true
+    });
+  }
 });
 
 app.post('/api/offline-licenses/register', async (req: any, res: any) => {
   if (!isBossRuntimeEnabled()) return res.status(503).json({ success: false, message: 'Runtime BOSS belum siap menerima sinkronisasi lisensi.' });
   if (!enforceApiRateLimit(req, res, 'offline-license-register', 30, 60_000)) return;
+
   const verified = verifyOfflineLicenseEnvelope(req.body?.envelope);
   if (!verified.valid) return res.status(400).json({ success: false, message: verified.message || 'Lisensi tidak valid.' });
   const payload: any = verified.payload;
-  if (payload.expiresAt && Date.now() > Date.parse(String(payload.expiresAt))) return res.status(400).json({ success: false, message: 'Lisensi offline sudah kedaluwarsa.' });
+  if (payload.expiresAt && Date.now() > Date.parse(String(payload.expiresAt))) {
+    return res.status(400).json({ success: false, message: 'Lisensi offline sudah kedaluwarsa.' });
+  }
 
   const installationId = String(req.body?.installationId || '').trim();
-  if (!/^[A-Za-z0-9_-]{16,160}$/.test(installationId)) return res.status(400).json({ success: false, message: 'Identitas instalasi tidak valid.' });
+  if (!/^[A-Za-z0-9_-]{16,160}$/.test(installationId)) {
+    return res.status(400).json({ success: false, message: 'Identitas instalasi tidak valid.' });
+  }
 
   const incoming = req.body?.madrasah && typeof req.body.madrasah === 'object' ? req.body.madrasah : {};
   const safeName = String(incoming.name || '').trim().slice(0, 120);
@@ -9747,26 +10067,37 @@ app.post('/api/offline-licenses/register', async (req: any, res: any) => {
   const safeAdminName = String(incoming.adminName || '').trim().slice(0, 120);
   const safeAdminUser = String(incoming.adminUser || '').trim();
   const safePhone = String(incoming.phone || '').trim().replace(/[^0-9+(). -]/g, '').slice(0, 40);
-  if (safeAdminUser && !/^[A-Za-z0-9._-]{3,64}$/.test(safeAdminUser)) return res.status(400).json({ success: false, message: 'Username admin offline tidak valid.' });
+  if (safeAdminUser && !/^[A-Za-z0-9._-]{3,64}$/.test(safeAdminUser)) {
+    return res.status(400).json({ success: false, message: 'Username admin offline tidak valid.' });
+  }
+
+  const tokenState = req.body?.tokenState && typeof req.body.tokenState === 'object' ? req.body.tokenState : {};
+  const reportedBalanceRaw = Number(tokenState.balance);
+  const hasReportedBalance = Number.isFinite(reportedBalanceRaw) && reportedBalanceRaw >= 0 && reportedBalanceRaw <= 100000000;
+  const reportedBalance = hasReportedBalance ? Math.trunc(reportedBalanceRaw) : null;
+  const appliedGrantIds = new Set(
+    (Array.isArray(tokenState.appliedGrantIds) ? tokenState.appliedGrantIds : [])
+      .slice(0, 10000)
+      .map((id: any) => String(id || '').trim())
+      .filter((id: string) => /^OFFTOK_[A-Z0-9_]+$/.test(id))
+  );
 
   const list = Array.isArray(offlineLicenses) ? offlineLicenses : [];
   let idx = list.findIndex((x: any) => String(x.licenseId) === String(payload.licenseId));
+  let nextList = list.map((x: any) => ({
+    ...x,
+    tokenGrants: Array.isArray(x?.tokenGrants) ? x.tokenGrants.map((g: any) => ({ ...g })) : []
+  }));
 
-  // A cryptographically valid signed license is authoritative proof that BOSS
-  // issued it. If an older pending record disappeared from Cloud SQL/store before
-  // the first sync, reconstruct it instead of permanently invalidating the key.
-  // The first successful sync still binds the license to exactly one installation.
-  let nextList = list.map((x: any) => ({ ...x }));
+  // A valid BOSS signature proves this license was issued by the platform. Recover
+  // a missing pending record without changing its permanent license/madrasah IDs.
   if (idx < 0) {
     const conflictingLicense = nextList.find((x: any) =>
       String(x.madrasahId || '') === String(payload.madrasahId || '') &&
       String(x.licenseId || '') !== String(payload.licenseId || '')
     );
     if (conflictingLicense) {
-      return res.status(409).json({
-        success: false,
-        message: 'Identitas madrasah pada lisensi sudah digunakan oleh lisensi BOSS lain.'
-      });
+      return res.status(409).json({ success: false, message: 'Identitas madrasah pada lisensi sudah digunakan oleh lisensi BOSS lain.' });
     }
 
     const conflictingMadrasah = (madrasahs || []).find((m: any) =>
@@ -9775,10 +10106,7 @@ app.post('/api/offline-licenses/register', async (req: any, res: any) => {
       String(m.offlineLicenseId || '') !== String(payload.licenseId || '')
     );
     if (conflictingMadrasah) {
-      return res.status(409).json({
-        success: false,
-        message: 'Identitas madrasah pada lisensi sudah terikat pada lisensi lain.'
-      });
+      return res.status(409).json({ success: false, message: 'Identitas madrasah pada lisensi sudah terikat pada lisensi lain.' });
     }
 
     nextList.push({
@@ -9795,6 +10123,7 @@ app.post('/api/offline-licenses/register', async (req: any, res: any) => {
       activatedAt: null,
       lastSyncedAt: null,
       name: null,
+      tokenGrants: [],
       createdAt: payload.issuedAt || new Date().toISOString(),
       recoveredAt: new Date().toISOString()
     });
@@ -9802,9 +10131,15 @@ app.post('/api/offline-licenses/register', async (req: any, res: any) => {
   }
 
   const current = nextList[idx];
-  if (current.signature !== verified.signature) return res.status(409).json({ success: false, message: 'Signature lisensi berbeda dengan data BOSS.' });
-  if (String(current.madrasahId || '') !== String(payload.madrasahId || '')) return res.status(409).json({ success: false, message: 'Identitas madrasah pada lisensi tidak cocok.' });
-  if (current.installationId && String(current.installationId) !== installationId) return res.status(409).json({ success: false, message: 'Lisensi sudah terikat pada instalasi lain.' });
+  if (current.signature !== verified.signature) {
+    return res.status(409).json({ success: false, message: 'Signature lisensi berbeda dengan data BOSS.' });
+  }
+  if (String(current.madrasahId || '') !== String(payload.madrasahId || '')) {
+    return res.status(409).json({ success: false, message: 'Identitas madrasah pada lisensi tidak cocok.' });
+  }
+  if (current.installationId && String(current.installationId) !== installationId) {
+    return res.status(409).json({ success: false, message: 'Lisensi sudah terikat pada instalasi lain.' });
+  }
 
   const syncedAt = new Date().toISOString();
   const target = nextList[idx];
@@ -9813,6 +10148,19 @@ app.post('/api/offline-licenses/register', async (req: any, res: any) => {
   target.activatedAt = target.activatedAt || syncedAt;
   target.lastSyncedAt = syncedAt;
   if (safeName) target.name = safeName;
+
+  target.tokenGrants = (Array.isArray(target.tokenGrants) ? target.tokenGrants : []).map((grant: any) => {
+    const nextGrant = { ...grant };
+    if (appliedGrantIds.has(String(nextGrant.grantId || '')) && !nextGrant.acknowledgedAt) {
+      nextGrant.acknowledgedAt = syncedAt;
+    }
+    return nextGrant;
+  });
+  const pendingTokenGrants = target.tokenGrants.filter((grant: any) => !grant?.acknowledgedAt);
+  const pendingTokenCredits = pendingTokenGrants.reduce(
+    (sum: number, grant: any) => sum + Math.max(0, Number(grant?.quantity || 0)),
+    0
+  );
 
   let targetMadrasah = (madrasahs || []).find((m: any) => String(m.offlineLicenseId || '') === String(payload.licenseId));
   if (!targetMadrasah) {
@@ -9826,7 +10174,9 @@ app.post('/api/offline-licenses/register', async (req: any, res: any) => {
       adminUser: safeAdminUser || 'admin',
       adminPass: '',
       phone: safePhone,
-      cbtTokenBalance: 0,
+      cbtTokenBalance: reportedBalance ?? 0,
+      offlinePendingTokenCredits: pendingTokenCredits,
+      offlineLastTokenReportAt: hasReportedBalance ? syncedAt : null,
       isActive: true,
       offlineLicenseId: payload.licenseId,
       offlineInstallationId: installationId,
@@ -9835,26 +10185,43 @@ app.post('/api/offline-licenses/register', async (req: any, res: any) => {
       requiresSetup: false,
       createdAt: target.activatedAt
     };
-    await saveDataBatch([{ key: 'offlineLicenses', value: nextList }, { key: 'madrasahs', value: [...madrasahs, targetMadrasah] }], true);
+    await saveDataBatch([
+      { key: 'offlineLicenses', value: nextList },
+      { key: 'madrasahs', value: [...madrasahs, targetMadrasah] }
+    ], true);
   } else {
     targetMadrasah.name = safeName || targetMadrasah.name || 'Madrasah Offline';
     targetMadrasah.level = safeLevel || targetMadrasah.level || 'MA';
     targetMadrasah.adminName = safeAdminName || targetMadrasah.adminName || 'Administrator';
     targetMadrasah.adminUser = safeAdminUser || targetMadrasah.adminUser || 'admin';
     targetMadrasah.phone = safePhone || targetMadrasah.phone || '';
+    if (hasReportedBalance) {
+      targetMadrasah.cbtTokenBalance = reportedBalance;
+      targetMadrasah.offlineLastTokenReportAt = syncedAt;
+    }
+    targetMadrasah.offlinePendingTokenCredits = pendingTokenCredits;
     targetMadrasah.offlineInstallationId = installationId;
     targetMadrasah.offlineLastSyncAt = syncedAt;
     targetMadrasah.mode = 'offline';
     targetMadrasah.isActive = true;
-    await saveDataBatch([{ key: 'offlineLicenses', value: nextList }, { key: 'madrasahs', value: [...madrasahs] }], true);
+    await saveDataBatch([
+      { key: 'offlineLicenses', value: nextList },
+      { key: 'madrasahs', value: [...madrasahs] }
+    ], true);
   }
+
   return res.json({
     success: true,
     recoveredLicenseRecord: Boolean(target.recoveredAt),
+    tokenGrants: pendingTokenGrants,
+    pendingTokenCredits,
+    reportedTokenBalance: hasReportedBalance ? reportedBalance : null,
     madrasah: sanitizeMadrasahAdminView(targetMadrasah),
-    message: target.recoveredAt
-      ? 'Record lisensi BOSS dipulihkan dari signature valid dan data madrasah offline berhasil disinkronkan.'
-      : 'Data madrasah offline berhasil disinkronkan ke BOSS.'
+    message: pendingTokenCredits > 0
+      ? `Sinkronisasi diterima. Ada +${pendingTokenCredits} Token menunggu diterapkan di instalasi offline.`
+      : (target.recoveredAt
+        ? 'Record lisensi BOSS dipulihkan dari signature valid dan data madrasah offline berhasil disinkronkan.'
+        : 'Data madrasah offline berhasil disinkronkan ke BOSS.')
   });
 });
 
