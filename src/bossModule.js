@@ -817,7 +817,7 @@ window.submitChangeCbtTokenPrice = submitChangeCbtTokenPrice;
 window.changeCbtTokenPrice = changeCbtTokenPrice;
 
 // In-App Modal for Editing Madrasah Token Balance (Akun Bos)
-function openEditMadrasahTokenModal(madrasahId, madrasahName, currentBalance) {
+function openEditMadrasahTokenModal(madrasahId, madrasahName, currentBalance, isOffline = false, pendingCredits = 0) {
     let modal = document.getElementById('edit-madrasah-token-modal');
     if (!modal) {
         modal = document.createElement('div');
@@ -825,16 +825,21 @@ function openEditMadrasahTokenModal(madrasahId, madrasahName, currentBalance) {
         document.body.appendChild(modal);
     }
 
+    const offline = isOffline === true || String(isOffline) === 'true';
+    const pending = Math.max(0, Number(pendingCredits || 0));
+    modal.dataset.offline = offline ? 'true' : 'false';
+    modal.dataset.currentBalance = String(Math.max(0, Number(currentBalance || 0)));
+
     modal.className = 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto';
     modal.innerHTML = `
         <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-100 p-6 sm:p-7 space-y-5 animate-in fade-in zoom-in-95 duration-200">
             <div class="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div class="flex items-center gap-3">
                     <div class="w-11 h-11 bg-purple-100 text-purple-800 rounded-2xl flex items-center justify-center font-black text-xl shadow-sm">
-                        <i class="fa-solid fa-sliders"></i>
+                        <i class="fa-solid fa-coins"></i>
                     </div>
                     <div>
-                        <h3 class="text-base font-bold text-slate-800">Edit Saldo Token Ujian</h3>
+                        <h3 class="text-base font-bold text-slate-800">${offline ? 'Tambah Token Madrasah Offline' : 'Edit Saldo Token Ujian'}</h3>
                         <p class="text-xs text-slate-400 truncate max-w-[220px]">${madrasahName}</p>
                     </div>
                 </div>
@@ -843,11 +848,19 @@ function openEditMadrasahTokenModal(madrasahId, madrasahName, currentBalance) {
                 </button>
             </div>
 
+            ${offline ? `
+                <div class="p-3.5 bg-sky-50 border border-sky-100 rounded-2xl text-[11px] text-sky-800 leading-relaxed">
+                    <div class="font-extrabold mb-1"><i class="fa-solid fa-arrows-rotate mr-1"></i> Token dikirim melalui sinkronisasi</div>
+                    BOSS membuat grant token khusus untuk lisensi madrasah ini. Token masuk ke server lokal saat komputer madrasah terhubung internet dan melakukan sync.
+                </div>
+            ` : ''}
+
             <form onsubmit="submitEditMadrasahTokenBalance(event, '${madrasahId}')" class="space-y-4">
                 <div class="p-3 bg-purple-50/70 border border-purple-100 rounded-2xl flex items-center justify-between">
                     <div>
-                        <span class="text-[10px] uppercase font-bold text-purple-700 block">Saldo Saat Ini</span>
+                        <span class="text-[10px] uppercase font-bold text-purple-700 block">${offline ? 'Saldo Terakhir Dilaporkan Lokal' : 'Saldo Saat Ini'}</span>
                         <span class="text-lg font-black text-purple-950">${currentBalance} Token</span>
+                        ${offline && pending > 0 ? `<span class="block text-[10px] font-bold text-indigo-600 mt-0.5">+${pending} Token masih menunggu sync</span>` : ''}
                     </div>
                     <div class="w-8 h-8 rounded-xl bg-purple-200 text-purple-800 flex items-center justify-center text-sm">
                         <i class="fa-solid fa-coins"></i>
@@ -855,22 +868,22 @@ function openEditMadrasahTokenModal(madrasahId, madrasahName, currentBalance) {
                 </div>
 
                 <div>
-                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1.5">Shortcut Tambah / Kurang Cepat</label>
+                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1.5">${offline ? 'Tambah Token Cepat' : 'Shortcut Tambah / Kurang Cepat'}</label>
                     <div class="grid grid-cols-4 gap-1.5 mb-3">
-                        <button type="button" onclick="adjustEditTokenInput(${currentBalance}, 5)" class="px-2 py-1.5 bg-slate-50 hover:bg-purple-50 hover:border-purple-300 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 transition">+5</button>
-                        <button type="button" onclick="adjustEditTokenInput(${currentBalance}, 10)" class="px-2 py-1.5 bg-slate-50 hover:bg-purple-50 hover:border-purple-300 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 transition">+10</button>
-                        <button type="button" onclick="adjustEditTokenInput(${currentBalance}, 20)" class="px-2 py-1.5 bg-slate-50 hover:bg-purple-50 hover:border-purple-300 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 transition">+20</button>
-                        <button type="button" onclick="adjustEditTokenInput(${currentBalance}, 50)" class="px-2 py-1.5 bg-slate-50 hover:bg-purple-50 hover:border-purple-300 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 transition">+50</button>
+                        <button type="button" onclick="adjustEditTokenInput(${offline ? 0 : currentBalance}, 5)" class="px-2 py-1.5 bg-slate-50 hover:bg-purple-50 hover:border-purple-300 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 transition">+5</button>
+                        <button type="button" onclick="adjustEditTokenInput(${offline ? 0 : currentBalance}, 10)" class="px-2 py-1.5 bg-slate-50 hover:bg-purple-50 hover:border-purple-300 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 transition">+10</button>
+                        <button type="button" onclick="adjustEditTokenInput(${offline ? 0 : currentBalance}, 20)" class="px-2 py-1.5 bg-slate-50 hover:bg-purple-50 hover:border-purple-300 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 transition">+20</button>
+                        <button type="button" onclick="adjustEditTokenInput(${offline ? 0 : currentBalance}, 50)" class="px-2 py-1.5 bg-slate-50 hover:bg-purple-50 hover:border-purple-300 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 transition">+50</button>
                     </div>
 
-                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">Set Total Saldo Baru (Token) *</label>
-                    <input type="number" id="input-edit-token-balance" min="0" value="${currentBalance}" required class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-black text-slate-800 focus:bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none">
+                    <label class="block text-xs font-bold uppercase text-slate-500 mb-1">${offline ? 'Jumlah Token yang Ditambahkan *' : 'Set Total Saldo Baru (Token) *'}</label>
+                    <input type="number" id="input-edit-token-balance" min="${offline ? 1 : 0}" value="${offline ? 10 : currentBalance}" required class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-black text-slate-800 focus:bg-white focus:ring-2 focus:ring-purple-500 focus:outline-none">
                 </div>
 
                 <div class="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
                     <button type="button" onclick="closeEditMadrasahTokenModal()" class="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-2xl text-xs font-semibold transition">Batal</button>
                     <button type="submit" id="btn-save-edit-token" class="px-5 py-2.5 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-2xl text-xs shadow-md shadow-purple-700/20 transition flex items-center gap-1.5 cursor-pointer">
-                        <i class="fa-solid fa-check"></i> <span>Simpan Saldo</span>
+                        <i class="fa-solid fa-check"></i> <span>${offline ? 'Kirim Saat Sync' : 'Simpan Saldo'}</span>
                     </button>
                 </div>
             </form>
@@ -886,18 +899,27 @@ function closeEditMadrasahTokenModal() {
 
 function adjustEditTokenInput(current, delta) {
     const el = document.getElementById('input-edit-token-balance');
-    if (el) {
-        const val = parseInt(el.value, 10) || current;
-        el.value = Math.max(0, val + delta);
+    if (!el) return;
+    const modal = document.getElementById('edit-madrasah-token-modal');
+    const offline = modal?.dataset?.offline === 'true';
+    if (offline) {
+        const val = parseInt(el.value, 10) || 0;
+        el.value = Math.max(1, val + delta);
+    } else {
+        const val = parseInt(el.value, 10);
+        el.value = Math.max(0, (Number.isFinite(val) ? val : current) + delta);
     }
 }
 
 async function submitEditMadrasahTokenBalance(e, madrasahId) {
     if (e) e.preventDefault();
     const el = document.getElementById('input-edit-token-balance');
-    const newBalance = parseInt(el ? el.value : '0', 10);
-    if (isNaN(newBalance) || newBalance < 0) {
-        if (window.showToast) window.showToast('Saldo token tidak valid!', 'error');
+    const value = parseInt(el ? el.value : '0', 10);
+    const modal = document.getElementById('edit-madrasah-token-modal');
+    const offline = modal?.dataset?.offline === 'true';
+
+    if (isNaN(value) || value < (offline ? 1 : 0)) {
+        if (window.showToast) window.showToast(offline ? 'Jumlah top-up token tidak valid!' : 'Saldo token tidak valid!', 'error');
         return;
     }
 
@@ -908,37 +930,36 @@ async function submitEditMadrasahTokenBalance(e, madrasahId) {
     }
 
     try {
+        const payload = offline ? { deltaTokens: value } : { newBalance: value };
         const res = await fetch(`/api/madrasahs/${madrasahId}/update-tokens`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ newBalance })
+            body: JSON.stringify(payload)
         });
-        const data = await res.json();
-        if (data.success) {
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.success) {
             if (data.madrasah && appState.madrasahs) {
                 const idx = appState.madrasahs.findIndex(m => String(m.id) === String(madrasahId) || String(m.slug) === String(madrasahId));
-                if (idx !== -1) {
-                    appState.madrasahs[idx] = data.madrasah;
-                }
+                if (idx !== -1) appState.madrasahs[idx] = data.madrasah;
             }
             closeEditMadrasahTokenModal();
-            if (window.showToast) window.showToast(data.message || 'Saldo token berhasil diperbarui!', 'success');
+            if (window.showToast) window.showToast(data.message || (offline ? 'Token dijadwalkan untuk sinkronisasi.' : 'Saldo token berhasil diperbarui!'), 'success');
             renderBossDashboard(document.getElementById('view-container'), 'madrasahs');
         } else {
-            if (window.showToast) window.showToast(data.message || 'Gagal memperbarui saldo.', 'error');
+            if (window.showToast) window.showToast(data.message || 'Gagal memperbarui token.', 'error');
         }
     } catch(err) {
-        if (window.showToast) window.showToast('Gagal memperbarui saldo.', 'error');
+        if (window.showToast) window.showToast('Gagal memperbarui token.', 'error');
     } finally {
         if (btn) {
             btn.disabled = false;
-            btn.innerHTML = '<i class="fa-solid fa-check"></i> <span>Simpan Saldo</span>';
+            btn.innerHTML = `<i class="fa-solid fa-check"></i> <span>${offline ? 'Kirim Saat Sync' : 'Simpan Saldo'}</span>`;
         }
     }
 }
 
 function editMadrasahTokenBalance(madrasahId, madrasahName, currentBalance) {
-    openEditMadrasahTokenModal(madrasahId, madrasahName, currentBalance);
+    openEditMadrasahTokenModal(madrasahId, madrasahName, currentBalance, false, 0);
 }
 window.openEditMadrasahTokenModal = openEditMadrasahTokenModal;
 window.closeEditMadrasahTokenModal = closeEditMadrasahTokenModal;
@@ -1549,9 +1570,15 @@ function renderBossMadrasahsTab(container) {
                                         <span class="text-[10px] text-slate-400 font-mono">user: ${m.adminUser || 'admin'}</span>
                                     </td>
                                     <td class="p-3.5">
-                                        <span class="px-3 py-1 bg-amber-50 border border-amber-200 text-amber-900 font-extrabold rounded-xl text-xs inline-flex items-center gap-1">
-                                            <i class="fa-solid fa-coins text-amber-500"></i> ${m.cbtTokenBalance || 0}
-                                        </span>
+                                        <div class="inline-flex flex-col gap-1">
+                                            <span class="px-3 py-1 bg-amber-50 border border-amber-200 text-amber-900 font-extrabold rounded-xl text-xs inline-flex items-center gap-1">
+                                                <i class="fa-solid fa-coins text-amber-500"></i> ${m.cbtTokenBalance || 0}
+                                            </span>
+                                            ${isOfflineMadrasah && Number(m.offlinePendingTokenCredits || 0) > 0 ? `
+                                                <span class="text-[9px] font-bold text-indigo-600">+${Number(m.offlinePendingTokenCredits || 0)} menunggu sync</span>
+                                            ` : ''}
+                                            ${isOfflineMadrasah ? '<span class="text-[9px] text-slate-400">saldo terakhir dari lokal</span>' : ''}
+                                        </div>
                                     </td>
                                     <td class="p-3.5 text-center">
                                         <div class="flex items-center justify-center gap-1.5 flex-wrap">
@@ -1565,8 +1592,8 @@ function renderBossMadrasahsTab(container) {
                                                 </span>
                                             `}
                                             <button type="button" onclick="renameMadrasahFromBoss('${m.id}', '${safeName}')" class="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-[10px] transition shadow-sm inline-flex items-center gap-1 cursor-pointer" title="Ganti nama madrasah"><i class="fa-solid fa-pen"></i> Rename</button>
-                                            <button type="button" onclick="openEditMadrasahTokenModal('${m.id}', '${safeName}', ${m.cbtTokenBalance || 0})" class="px-2.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-xl text-[10px] transition shadow-sm inline-flex items-center gap-1 cursor-pointer" title="Edit saldo token">
-                                                <i class="fa-solid fa-coins"></i> Token
+                                            <button type="button" onclick="openEditMadrasahTokenModal('${m.id}', '${safeName}', ${m.cbtTokenBalance || 0}, ${isOfflineMadrasah ? 'true' : 'false'}, ${Number(m.offlinePendingTokenCredits || 0)})" class="px-2.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-xl text-[10px] transition shadow-sm inline-flex items-center gap-1 cursor-pointer" title="${isOfflineMadrasah ? 'Tambah token untuk dikirim saat sinkronisasi' : 'Edit saldo token'}">
+                                                <i class="fa-solid fa-coins"></i> ${isOfflineMadrasah ? 'Tambah Token' : 'Token'}
                                             </button>
                                             <button type="button" onclick="toggleMadrasahStatus('${m.id}')" class="px-2.5 py-1.5 ${isActive ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white font-bold rounded-xl text-[10px] transition shadow-sm inline-flex items-center gap-1 cursor-pointer" title="${isActive ? 'Nonaktifkan madrasah' : 'Aktifkan madrasah'}">
                                                 <i class="fa-solid ${isActive ? 'fa-ban' : 'fa-check'}"></i> ${isActive ? 'Nonaktifkan' : 'Aktifkan'}
