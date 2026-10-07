@@ -321,7 +321,7 @@ function openTopUpTokenModal() {
                 <div class="space-y-2.5">
                     <input type="text" id="offline-activation-key-input" placeholder="Tempel Kode Aktivasi Token di sini..." class="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-mono focus:bg-white focus:outline-none focus:border-amber-500 shadow-xs" />
                     <button type="button" onclick="submitOfflineActivationKey()" class="w-full py-2.5 bg-amber-600 hover:bg-amber-700 active:scale-98 text-white font-bold text-xs rounded-2xl transition flex items-center justify-center gap-2 shadow-md shadow-amber-600/10 cursor-pointer">
-                        <i class="fa-solid fa-circle-check"></i> Aktivasi Token Sekarang
+                        <i class="fa-solid fa-circle-check"></i> Gunakan Kode Token Sekarang
                     </button>
                 </div>
             </div>
@@ -340,7 +340,7 @@ function openTopUpTokenModal() {
                         <i class="fa-solid fa-coins"></i>
                     </div>
                     <div>
-                        <h3 class="text-base font-bold text-slate-800">Top-Up Token Luring</h3>
+                        <h3 class="text-base font-bold text-slate-800">Top-Up Token Offline</h3>
                         <p class="text-[11px] text-slate-500">Isi ulang token via lisensi offline</p>
                     </div>
                 </div>
@@ -355,7 +355,7 @@ function openTopUpTokenModal() {
                     <span class="text-xs font-bold text-emerald-800 uppercase tracking-wider">Hubungi Admin / Bos</span>
                 </div>
                 <p class="text-[11px] text-emerald-700 leading-relaxed">
-                    Untuk melakukan isi ulang token pada aplikasi luring (offline) ini, silakan hubungi WhatsApp ke nomor berikut:
+                    Untuk isi ulang saldo madrasah, minta Kode Token khusus madrasah dari BOSS. Kode dapat digunakan langsung di PC ini tanpa internet.
                 </p>
                 <div class="flex items-center gap-2 bg-white rounded-xl p-3 border border-emerald-200 shadow-sm">
                     <div class="flex-1 font-mono text-sm font-bold text-slate-800">085746719790</div>
@@ -363,17 +363,7 @@ function openTopUpTokenModal() {
                         Chat WA <i class="fa-solid fa-arrow-up-right-from-square"></i>
                     </a>
                 </div>
-                <p class="text-[10px] text-emerald-600 font-semibold italic">Admin akan memberikan Kunci Aktivasi / Kode Lisensi.</p>
-            </div>
-
-            <div class="bg-indigo-50 border border-indigo-100 rounded-2xl p-3.5 space-y-1.5">
-                <span class="block text-[10px] font-bold text-indigo-700 uppercase tracking-wider">ID Madrasah Anda (Kirim ke WA Bos):</span>
-                <div class="flex gap-2">
-                    <input type="text" id="offline-my-madrasah-id-field" readonly value="${(appState.currentUser && appState.currentUser.madrasahId) || 'DEFAULT'}" class="flex-1 bg-white border border-indigo-200 rounded-xl px-3 py-1.5 text-xs font-mono font-bold text-indigo-900 focus:outline-none" />
-                    <button type="button" onclick="const f=document.getElementById('offline-my-madrasah-id-field'); f.select(); navigator.clipboard.writeText(f.value); window.showToast ? window.showToast('ID Madrasah berhasil disalin!', 'success') : alert('ID disalin!');" class="px-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs rounded-xl font-bold transition flex items-center gap-1 cursor-pointer">
-                        <i class="fa-solid fa-copy"></i> Salin
-                    </button>
-                </div>
+                <p class="text-[10px] text-emerald-600 font-semibold italic">BOSS akan memberikan Kode Token OFFTOK1 khusus untuk madrasah ini.</p>
             </div>
 
             <div class="pt-2">
@@ -381,12 +371,12 @@ function openTopUpTokenModal() {
                     <div class="w-7 h-7 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center text-xs shadow-sm">
                         <i class="fa-solid fa-key text-[10px]"></i>
                     </div>
-                    <h4 class="text-xs font-extrabold text-slate-800 uppercase tracking-wider">Aktivasi Kunci Lisensi</h4>
+                    <h4 class="text-xs font-extrabold text-slate-800 uppercase tracking-wider">Masukkan Kode Token</h4>
                 </div>
                 <div class="space-y-2">
-                    <p class="text-[11px] text-slate-500">Masukkan Kode Aktivasi / Lisensi yang diberikan oleh Admin ke dalam kolom di bawah ini untuk mengisi token secara instan.</p>
+                    <p class="text-[11px] text-slate-500">Tempel Kode Token yang dibuat BOSS untuk madrasah ini. Verifikasi dilakukan lokal dengan RSA, jadi tidak memerlukan internet.</p>
                     <div class="flex gap-2">
-                        <input type="text" id="offline-activation-key-input" placeholder="Tempel Kode Aktivasi di sini..." class="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-[11px] font-mono focus:bg-white focus:outline-none focus:border-amber-500" />
+                        <input type="text" id="offline-activation-key-input" placeholder="Tempel Kode Token OFFTOK1_... di sini..." class="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-[11px] font-mono focus:bg-white focus:outline-none focus:border-amber-500" />
                         <button type="button" onclick="submitOfflineActivationKey()" class="px-4 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-2xl transition flex items-center gap-1.5 shadow-md shadow-amber-600/10 active:scale-95">
                             <i class="fa-solid fa-circle-check"></i> Aktivasi
                         </button>
@@ -850,8 +840,8 @@ function openEditMadrasahTokenModal(madrasahId, madrasahName, currentBalance, is
 
             ${offline ? `
                 <div class="p-3.5 bg-sky-50 border border-sky-100 rounded-2xl text-[11px] text-sky-800 leading-relaxed">
-                    <div class="font-extrabold mb-1"><i class="fa-solid fa-arrows-rotate mr-1"></i> Token dikirim melalui sinkronisasi</div>
-                    BOSS membuat grant token khusus untuk lisensi madrasah ini. Token masuk ke server lokal saat komputer madrasah terhubung internet dan melakukan sync.
+                    <div class="font-extrabold mb-1"><i class="fa-solid fa-key mr-1"></i> Kode token khusus madrasah</div>
+                    BOSS membuat kode token RSA yang hanya berlaku untuk lisensi madrasah ini. Admin dapat memasukkannya pada PC offline tanpa koneksi internet.
                 </div>
             ` : ''}
 
@@ -860,7 +850,6 @@ function openEditMadrasahTokenModal(madrasahId, madrasahName, currentBalance, is
                     <div>
                         <span class="text-[10px] uppercase font-bold text-purple-700 block">${offline ? 'Saldo Terakhir Dilaporkan Lokal' : 'Saldo Saat Ini'}</span>
                         <span class="text-lg font-black text-purple-950">${currentBalance} Token</span>
-                        ${offline && pending > 0 ? `<span class="block text-[10px] font-bold text-indigo-600 mt-0.5">+${pending} Token masih menunggu sync</span>` : ''}
                     </div>
                     <div class="w-8 h-8 rounded-xl bg-purple-200 text-purple-800 flex items-center justify-center text-sm">
                         <i class="fa-solid fa-coins"></i>
@@ -883,7 +872,7 @@ function openEditMadrasahTokenModal(madrasahId, madrasahName, currentBalance, is
                 <div class="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
                     <button type="button" onclick="closeEditMadrasahTokenModal()" class="px-4 py-2.5 text-slate-600 hover:bg-slate-100 rounded-2xl text-xs font-semibold transition">Batal</button>
                     <button type="submit" id="btn-save-edit-token" class="px-5 py-2.5 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-2xl text-xs shadow-md shadow-purple-700/20 transition flex items-center gap-1.5 cursor-pointer">
-                        <i class="fa-solid fa-check"></i> <span>${offline ? 'Kirim Saat Sync' : 'Simpan Saldo'}</span>
+                        <i class="fa-solid fa-check"></i> <span>${offline ? 'Buat Kode Token' : 'Simpan Saldo'}</span>
                     </button>
                 </div>
             </form>
@@ -911,6 +900,35 @@ function adjustEditTokenInput(current, delta) {
     }
 }
 
+function showOfflineTokenCodeResult(tokenCode, quantity) {
+    const modal = document.getElementById('edit-madrasah-token-modal');
+    if (!modal || !tokenCode) return;
+    let result = document.getElementById('offline-token-code-result');
+    if (!result) {
+        result = document.createElement('div');
+        result.id = 'offline-token-code-result';
+        result.className = 'p-4 bg-emerald-50 border border-emerald-200 rounded-2xl space-y-2';
+        const form = modal.querySelector('form');
+        if (form) form.insertAdjacentElement('afterend', result);
+    }
+    result.innerHTML = `
+        <div class="flex items-center gap-2 text-xs font-extrabold text-emerald-800"><i class="fa-solid fa-circle-check"></i> Kode Token +${Number(quantity || 0)} Siap</div>
+        <p class="text-[10px] text-emerald-700">Salin kode berikut dan kirim ke Admin madrasah. Kode dapat dipakai tanpa internet dan hanya berlaku untuk madrasah ini.</p>
+        <div class="flex gap-2">
+            <textarea id="offline-token-code-field" readonly rows="4" class="flex-1 min-w-0 bg-white border border-emerald-200 rounded-xl px-3 py-2 text-[10px] font-mono text-emerald-900 focus:outline-none resize-none">${tokenCode}</textarea>
+            <button type="button" onclick="copyOfflineTokenCode()" class="self-stretch px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-bold"><i class="fa-solid fa-copy"></i> Salin</button>
+        </div>`;
+}
+
+function copyOfflineTokenCode() {
+    const field = document.getElementById('offline-token-code-field');
+    if (!field || !field.value) return;
+    const done = () => { if (window.showToast) window.showToast('Kode token berhasil disalin.', 'success'); };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(field.value).then(done).catch(() => { field.select(); document.execCommand('copy'); done(); });
+    else { field.select(); document.execCommand('copy'); done(); }
+}
+window.copyOfflineTokenCode = copyOfflineTokenCode;
+window.showOfflineTokenCodeResult = showOfflineTokenCodeResult;
 async function submitEditMadrasahTokenBalance(e, madrasahId) {
     if (e) e.preventDefault();
     const el = document.getElementById('input-edit-token-balance');
@@ -942,9 +960,14 @@ async function submitEditMadrasahTokenBalance(e, madrasahId) {
                 const idx = appState.madrasahs.findIndex(m => String(m.id) === String(madrasahId) || String(m.slug) === String(madrasahId));
                 if (idx !== -1) appState.madrasahs[idx] = data.madrasah;
             }
-            closeEditMadrasahTokenModal();
-            if (window.showToast) window.showToast(data.message || (offline ? 'Token dijadwalkan untuk sinkronisasi.' : 'Saldo token berhasil diperbarui!'), 'success');
-            renderBossDashboard(document.getElementById('view-container'), 'madrasahs');
+            if (offline && data.tokenCode) {
+                showOfflineTokenCodeResult(data.tokenCode, data.quantity || value);
+                if (window.showToast) window.showToast(data.message || 'Kode token offline berhasil dibuat.', 'success');
+            } else {
+                closeEditMadrasahTokenModal();
+                if (window.showToast) window.showToast(data.message || 'Saldo token berhasil diperbarui!', 'success');
+                renderBossDashboard(document.getElementById('view-container'), 'madrasahs');
+            }
         } else {
             if (window.showToast) window.showToast(data.message || 'Gagal memperbarui token.', 'error');
         }
@@ -953,7 +976,7 @@ async function submitEditMadrasahTokenBalance(e, madrasahId) {
     } finally {
         if (btn) {
             btn.disabled = false;
-            btn.innerHTML = `<i class="fa-solid fa-check"></i> <span>${offline ? 'Kirim Saat Sync' : 'Simpan Saldo'}</span>`;
+            btn.innerHTML = `<i class="fa-solid fa-check"></i> <span>${offline ? 'Buat Kode Token' : 'Simpan Saldo'}</span>`;
         }
     }
 }
@@ -1325,8 +1348,8 @@ function renderBossTokenRequestsTab(container) {
                     <i class="fa-solid fa-key"></i>
                 </div>
                 <div>
-                    <h3 class="text-xs font-bold uppercase text-slate-800 tracking-wider">Hasilkan Kunci Aktivasi Luring (Offline CBT License)</h3>
-                    <p class="text-[11px] text-slate-500">Gunakan fitur ini untuk membuat kode aktivasi jika madrasah menginstal secara luring/offline di localhost. Setelah mereka transfer, buatkan kode ini untuk mereka masukkan luring.</p>
+                    <h3 class="text-xs font-bold uppercase text-slate-800 tracking-wider">Kode Token Guru Offline (Kompatibilitas)</h3>
+                    <p class="text-[11px] text-slate-500">Generator lama ini khusus saldo akun Guru pada instalasi offline. Untuk saldo MADRASAH offline, buka tab Daftar Madrasah lalu klik Tambah Token agar kode terikat ke lisensi madrasah.</p>
                 </div>
             </div>
             
@@ -1337,13 +1360,13 @@ function renderBossTokenRequestsTab(container) {
                 </div>
                 <div>
                     <button type="button" onclick="generateOfflineActivationKey()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold p-2.5 text-xs rounded-2xl shadow-sm transition flex items-center justify-center gap-2">
-                        <i class="fa-solid fa-wand-magic-sparkles"></i> Hasilkan Kunci Aktivasi
+                        <i class="fa-solid fa-wand-magic-sparkles"></i> Buat Kode Guru
                     </button>
                 </div>
             </div>
             
             <div id="offline-act-result" class="mt-4 hidden">
-                <label class="block text-[10px] font-bold text-emerald-700 uppercase mb-1">Kode Aktivasi Berhasil Dibuat (Salin & Kirim ke Madrasah):</label>
+                <label class="block text-[10px] font-bold text-emerald-700 uppercase mb-1">Kode Guru Berhasil Dibuat:</label>
                 <div class="flex gap-2">
                     <input type="text" id="offline-act-key-field" readonly class="flex-1 bg-emerald-50 border border-emerald-200 rounded-2xl p-3 text-[11px] font-mono text-emerald-800 focus:outline-none" />
                     <button type="button" onclick="copyOfflineActivationKey()" class="px-5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-2xl transition flex items-center gap-1">
@@ -1491,7 +1514,7 @@ function renderBossMadrasahsTab(container) {
     container.innerHTML = `
         <div class="mb-5 bg-indigo-50 border border-indigo-100 rounded-3xl p-5 shadow-sm">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div><div class="flex items-center gap-2 text-indigo-900 font-extrabold text-sm"><i class="fa-solid fa-key"></i> Aktivasi Madrasah Offline</div><p class="text-[11px] text-indigo-700 mt-1 max-w-2xl">Buat key khusus untuk instalasi offline. Setelah Admin memasukkan key dan melakukan sinkronisasi saat internet tersedia, madrasah otomatis masuk ke daftar.</p></div>
+                <div><div class="flex items-center gap-2 text-indigo-900 font-extrabold text-sm"><i class="fa-solid fa-key"></i> Aktivasi Madrasah Offline</div><p class="text-[11px] text-indigo-700 mt-1 max-w-2xl">Key ini hanya untuk aktivasi awal instalasi offline. Setelah identitas madrasah pernah terdaftar di BOSS, top-up berikutnya memakai Kode Token dan tidak memerlukan internet pada PC offline.</p></div>
                 <button type="button" id="btn-generate-offline-madrasah-license" onclick="generateOfflineMadrasahLicense()" class="shrink-0 px-4 py-2.5 bg-indigo-700 hover:bg-indigo-800 text-white rounded-2xl text-xs font-bold shadow-sm transition flex items-center gap-2"><i class="fa-solid fa-key"></i> Buat Key Aktivasi</button>
             </div>
             <div id="offline-madrasah-license-result" class="hidden mt-4 bg-white border border-indigo-100 rounded-2xl p-3"><div class="flex items-center justify-between gap-2 mb-2"><span class="text-[10px] uppercase font-bold text-slate-500">License ID</span><span id="offline-madrasah-license-id" class="font-mono font-bold text-indigo-800 text-[11px]">-</span></div><div class="flex gap-2"><input id="offline-madrasah-license-key" readonly class="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-mono text-slate-700"><button type="button" onclick="copyOfflineMadrasahLicenseKey()" class="px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-bold"><i class="fa-solid fa-copy"></i> Salin</button></div></div>
@@ -1574,10 +1597,7 @@ function renderBossMadrasahsTab(container) {
                                             <span class="px-3 py-1 bg-amber-50 border border-amber-200 text-amber-900 font-extrabold rounded-xl text-xs inline-flex items-center gap-1">
                                                 <i class="fa-solid fa-coins text-amber-500"></i> ${m.cbtTokenBalance || 0}
                                             </span>
-                                            ${isOfflineMadrasah && Number(m.offlinePendingTokenCredits || 0) > 0 ? `
-                                                <span class="text-[9px] font-bold text-indigo-600">+${Number(m.offlinePendingTokenCredits || 0)} menunggu sync</span>
-                                            ` : ''}
-                                            ${isOfflineMadrasah ? '<span class="text-[9px] text-slate-400">saldo terakhir dari lokal</span>' : ''}
+                                            ${isOfflineMadrasah ? '<span class="text-[9px] text-slate-400">saldo lokal terakhir yang pernah dilaporkan</span>' : ''}
                                         </div>
                                     </td>
                                     <td class="p-3.5 text-center">
@@ -1592,7 +1612,7 @@ function renderBossMadrasahsTab(container) {
                                                 </span>
                                             `}
                                             <button type="button" onclick="renameMadrasahFromBoss('${m.id}', '${safeName}')" class="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-[10px] transition shadow-sm inline-flex items-center gap-1 cursor-pointer" title="Ganti nama madrasah"><i class="fa-solid fa-pen"></i> Rename</button>
-                                            <button type="button" onclick="openEditMadrasahTokenModal('${m.id}', '${safeName}', ${m.cbtTokenBalance || 0}, ${isOfflineMadrasah ? 'true' : 'false'}, ${Number(m.offlinePendingTokenCredits || 0)})" class="px-2.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-xl text-[10px] transition shadow-sm inline-flex items-center gap-1 cursor-pointer" title="${isOfflineMadrasah ? 'Tambah token untuk dikirim saat sinkronisasi' : 'Edit saldo token'}">
+                                            <button type="button" onclick="openEditMadrasahTokenModal('${m.id}', '${safeName}', ${m.cbtTokenBalance || 0}, ${isOfflineMadrasah ? 'true' : 'false'}, ${Number(m.offlinePendingTokenCredits || 0)})" class="px-2.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-xl text-[10px] transition shadow-sm inline-flex items-center gap-1 cursor-pointer" title="${isOfflineMadrasah ? 'Buat kode token yang dapat dipakai tanpa internet' : 'Edit saldo token'}">
                                                 <i class="fa-solid fa-coins"></i> ${isOfflineMadrasah ? 'Tambah Token' : 'Token'}
                                             </button>
                                             <button type="button" onclick="toggleMadrasahStatus('${m.id}')" class="px-2.5 py-1.5 ${isActive ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white font-bold rounded-xl text-[10px] transition shadow-sm inline-flex items-center gap-1 cursor-pointer" title="${isActive ? 'Nonaktifkan madrasah' : 'Aktifkan madrasah'}">
