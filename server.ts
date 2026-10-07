@@ -9359,6 +9359,55 @@ app.post("/api/token-requests/:id/approve", requireAuth, requireRole(['bos', 'su
     nextReqItem.status = 'approved';
     nextReqItem.approvedQuantity = addQty;
     nextReqItem.approvedAt = new Date().toISOString();
+
+    const isOfflineTarget = String(nextTarget.mode || '').toLowerCase() === 'offline' || Boolean(nextTarget.offlineLicenseId);
+    if (isOfflineTarget) {
+      const licenseIndex = (offlineLicenses || []).findIndex((lic: any) =>
+        String(lic.licenseId || '') === String(nextTarget.offlineLicenseId || '') ||
+        String(lic.madrasahId || '') === String(nextTarget.id || '')
+      );
+      if (licenseIndex < 0) {
+        return res.status(409).json({
+          success: false,
+          message: 'Lisensi madrasah offline tidak ditemukan. Sinkronkan instalasi offline sebelum menyetujui top-up.'
+        });
+      }
+
+      const nextLicenses = (offlineLicenses || []).map((lic: any) => ({
+        ...lic,
+        tokenGrants: Array.isArray(lic?.tokenGrants) ? lic.tokenGrants.map((g: any) => ({ ...g })) : []
+      }));
+      const targetLicense = nextLicenses[licenseIndex];
+      const grant = createOfflineTokenGrant(
+        String(targetLicense.licenseId),
+        String(targetLicense.madrasahId || nextTarget.id),
+        addQty
+      );
+      targetLicense.tokenGrants = [...(targetLicense.tokenGrants || []), grant];
+
+      const pendingCredits = targetLicense.tokenGrants
+        .filter((g: any) => !g?.acknowledgedAt)
+        .reduce((sum: number, g: any) => sum + Math.max(0, Number(g?.quantity || 0)), 0);
+
+      nextTarget.offlinePendingTokenCredits = pendingCredits;
+      nextTarget.offlineTokenGrantUpdatedAt = grant.issuedAt;
+      nextReqItem.offlineGrantId = grant.grantId;
+      nextReqItem.deliveryStatus = 'pending_sync';
+
+      await saveDataBatch([
+        { key: 'tokenRequests', value: nextTokenRequests },
+        { key: 'offlineLicenses', value: nextLicenses },
+        { key: 'madrasahs', value: nextMadrasahs }
+      ], true);
+
+      return res.json({
+        success: true,
+        queued: true,
+        grantId: grant.grantId,
+        message: `Permintaan Top-Up disetujui. +${addQty} Token untuk ${nextReqItem.madrasahName} akan masuk saat instalasi offline melakukan sinkronisasi.`
+      });
+    }
+
     nextTarget.cbtTokenBalance = Number(nextTarget.cbtTokenBalance || 0) + addQty;
     delete nextTarget.tokenSignatureInvalid;
     nextTarget.tokenSignature = calculateTokenSignature(nextTarget.id, nextTarget.cbtTokenBalance);
