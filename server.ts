@@ -9701,12 +9701,15 @@ app.post('/api/offline-license/sync', requireAuth, requireRole(['admin', 'admini
     const localMadrasah = (madrasahs || []).find((m: any) =>
       String(m.id || '') === ownId || String(m.slug || '') === ownId
     ) || (madrasahs || [])[0] || {};
+    // For an offline installation, the Settings profile is the authoritative
+    // identity shown to BOSS. The local default madrasah row may still contain
+    // legacy placeholders such as "MADRASAH" from an older bootstrap.
     const profile = {
-      name: String(localMadrasah?.name || appSettings?.schoolName || 'Madrasah Offline').trim().slice(0, 120),
-      level: String(localMadrasah?.level || appSettings?.schoolLevel || 'MA').trim().slice(0, 20),
-      adminName: String(localMadrasah?.adminName || appSettings?.adminName || 'Administrator').trim().slice(0, 120),
-      adminUser: String(localMadrasah?.adminUser || appSettings?.adminUser || 'admin').trim().slice(0, 64),
-      phone: String(localMadrasah?.phone || appSettings?.phone || '').trim().slice(0, 40)
+      name: String(appSettings?.schoolName || localMadrasah?.name || 'Madrasah Offline').trim().slice(0, 120),
+      level: String(appSettings?.schoolLevel || localMadrasah?.level || 'MA').trim().slice(0, 20),
+      adminName: String(appSettings?.adminName || localMadrasah?.adminName || 'Administrator').trim().slice(0, 120),
+      adminUser: String(appSettings?.adminUser || localMadrasah?.adminUser || 'admin').trim().slice(0, 64),
+      phone: String(appSettings?.phone || localMadrasah?.phone || '').trim().slice(0, 40)
     };
 
     const controller = new AbortController();
