@@ -9362,37 +9362,30 @@ app.post("/api/token-requests/:id/approve", requireAuth, requireRole(['bos', 'su
 
     const isOfflineTarget = String(nextTarget.mode || '').toLowerCase() === 'offline' || Boolean(nextTarget.offlineLicenseId);
     if (isOfflineTarget) {
+      const keyPairStatus = validateConfiguredLicenseKeyPair();
+      if (!keyPairStatus.valid) return res.status(503).json({ success: false, code: 'LICENSE_KEYPAIR_MISMATCH', message: keyPairStatus.message });
+
       const licenseIndex = (offlineLicenses || []).findIndex((lic: any) =>
         String(lic.licenseId || '') === String(nextTarget.offlineLicenseId || '') ||
         String(lic.madrasahId || '') === String(nextTarget.id || '')
       );
-      if (licenseIndex < 0) {
-        return res.status(409).json({
-          success: false,
-          message: 'Lisensi madrasah offline tidak ditemukan. Sinkronkan instalasi offline sebelum menyetujui top-up.'
-        });
-      }
+      if (licenseIndex < 0) return res.status(409).json({ success: false, message: 'Lisensi madrasah offline tidak ditemukan.' });
 
       const nextLicenses = (offlineLicenses || []).map((lic: any) => ({
         ...lic,
-        tokenGrants: Array.isArray(lic?.tokenGrants) ? lic.tokenGrants.map((g: any) => ({ ...g })) : []
+        tokenGrants: Array.isArray(lic?.tokenGrants) ? lic.tokenGrants.map((g: any) => ({ ...g })) : [],
+        manualTokenGrants: Array.isArray(lic?.manualTokenGrants) ? lic.manualTokenGrants.map((g: any) => ({ ...g })) : []
       }));
       const targetLicense = nextLicenses[licenseIndex];
-      const grant = createOfflineTokenGrant(
-        String(targetLicense.licenseId),
-        String(targetLicense.madrasahId || nextTarget.id),
-        addQty
-      );
-      targetLicense.tokenGrants = [...(targetLicense.tokenGrants || []), grant];
-
-      const pendingCredits = targetLicense.tokenGrants
-        .filter((g: any) => !g?.acknowledgedAt)
-        .reduce((sum: number, g: any) => sum + Math.max(0, Number(g?.quantity || 0)), 0);
-
-      nextTarget.offlinePendingTokenCredits = pendingCredits;
-      nextTarget.offlineTokenGrantUpdatedAt = grant.issuedAt;
+      const grant = createOfflineTokenGrant(String(targetLicense.licenseId), String(targetLicense.madrasahId || nextTarget.id), addQty);
+      const tokenCode = encodeOfflineTokenCode(grant);
+      targetLicense.manualTokenGrants = [
+        ...(targetLicense.manualTokenGrants || []),
+        { ...grant, tokenCode, deliveryStatus: 'manual_code', createdAt: grant.issuedAt }
+      ].slice(-5000);
+      nextTarget.offlineTokenCodeUpdatedAt = grant.issuedAt;
       nextReqItem.offlineGrantId = grant.grantId;
-      nextReqItem.deliveryStatus = 'pending_sync';
+      nextReqItem.deliveryStatus = 'manual_code';
 
       await saveDataBatch([
         { key: 'tokenRequests', value: nextTokenRequests },
@@ -9402,12 +9395,13 @@ app.post("/api/token-requests/:id/approve", requireAuth, requireRole(['bos', 'su
 
       return res.json({
         success: true,
-        queued: true,
+        offline: true,
+        tokenCode,
         grantId: grant.grantId,
-        message: `Permintaan Top-Up disetujui. +${addQty} Token untuk ${nextReqItem.madrasahName} akan masuk saat instalasi offline melakukan sinkronisasi.`
+        quantity: addQty,
+        message: `Top-Up disetujui. Kode token +${addQty} untuk ${nextReqItem.madrasahName} siap disalin dan dapat dipakai tanpa internet.`
       });
     }
-
     nextTarget.cbtTokenBalance = Number(nextTarget.cbtTokenBalance || 0) + addQty;
     delete nextTarget.tokenSignatureInvalid;
     nextTarget.tokenSignature = calculateTokenSignature(nextTarget.id, nextTarget.cbtTokenBalance);
