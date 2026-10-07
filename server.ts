@@ -3584,7 +3584,8 @@ app.use((req: any, res, next) => {
     (method === 'GET' && p === '/api/learning-assets/serve') ||
     (method === 'GET' && p === '/api/google-drive/oauth/callback') ||
     (method === 'GET' && p === '/api/offline-license/status') ||
-    (method === 'POST' && p === '/api/offline-license/activate');
+    (method === 'POST' && p === '/api/offline-license/activate') ||
+    (method === 'POST' && p === '/api/offline-licenses/register');
 
   if (publicApi) {
     if (method === 'POST' && p === '/api/login') {
