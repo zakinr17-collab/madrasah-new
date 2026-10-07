@@ -9747,15 +9747,63 @@ app.post('/api/offline-licenses/register', async (req: any, res: any) => {
   if (safeAdminUser && !/^[A-Za-z0-9._-]{3,64}$/.test(safeAdminUser)) return res.status(400).json({ success: false, message: 'Username admin offline tidak valid.' });
 
   const list = Array.isArray(offlineLicenses) ? offlineLicenses : [];
-  const idx = list.findIndex((x: any) => String(x.licenseId) === String(payload.licenseId));
-  if (idx < 0) return res.status(404).json({ success: false, message: 'Lisensi tidak terdaftar pada BOSS. Minta key baru.' });
-  const current = list[idx];
+  let idx = list.findIndex((x: any) => String(x.licenseId) === String(payload.licenseId));
+
+  // A cryptographically valid signed license is authoritative proof that BOSS
+  // issued it. If an older pending record disappeared from Cloud SQL/store before
+  // the first sync, reconstruct it instead of permanently invalidating the key.
+  // The first successful sync still binds the license to exactly one installation.
+  let nextList = list.map((x: any) => ({ ...x }));
+  if (idx < 0) {
+    const conflictingLicense = nextList.find((x: any) =>
+      String(x.madrasahId || '') === String(payload.madrasahId || '') &&
+      String(x.licenseId || '') !== String(payload.licenseId || '')
+    );
+    if (conflictingLicense) {
+      return res.status(409).json({
+        success: false,
+        message: 'Identitas madrasah pada lisensi sudah digunakan oleh lisensi BOSS lain.'
+      });
+    }
+
+    const conflictingMadrasah = (madrasahs || []).find((m: any) =>
+      String(m.id || '') === String(payload.madrasahId || '') &&
+      String(m.offlineLicenseId || '') &&
+      String(m.offlineLicenseId || '') !== String(payload.licenseId || '')
+    );
+    if (conflictingMadrasah) {
+      return res.status(409).json({
+        success: false,
+        message: 'Identitas madrasah pada lisensi sudah terikat pada lisensi lain.'
+      });
+    }
+
+    nextList.push({
+      type: payload.type,
+      licenseId: payload.licenseId,
+      madrasahId: payload.madrasahId,
+      issuedAt: payload.issuedAt,
+      syncUrl: payload.syncUrl,
+      expiresAt: payload.expiresAt ?? null,
+      version: payload.version,
+      signature: verified.signature,
+      status: 'pending',
+      installationId: null,
+      activatedAt: null,
+      lastSyncedAt: null,
+      name: null,
+      createdAt: payload.issuedAt || new Date().toISOString(),
+      recoveredAt: new Date().toISOString()
+    });
+    idx = nextList.length - 1;
+  }
+
+  const current = nextList[idx];
   if (current.signature !== verified.signature) return res.status(409).json({ success: false, message: 'Signature lisensi berbeda dengan data BOSS.' });
   if (String(current.madrasahId || '') !== String(payload.madrasahId || '')) return res.status(409).json({ success: false, message: 'Identitas madrasah pada lisensi tidak cocok.' });
   if (current.installationId && String(current.installationId) !== installationId) return res.status(409).json({ success: false, message: 'Lisensi sudah terikat pada instalasi lain.' });
 
   const syncedAt = new Date().toISOString();
-  const nextList = list.map((x: any) => ({ ...x }));
   const target = nextList[idx];
   target.installationId = installationId;
   target.status = 'activated';
@@ -9797,7 +9845,14 @@ app.post('/api/offline-licenses/register', async (req: any, res: any) => {
     targetMadrasah.isActive = true;
     await saveDataBatch([{ key: 'offlineLicenses', value: nextList }, { key: 'madrasahs', value: [...madrasahs] }], true);
   }
-  return res.json({ success: true, madrasah: sanitizeMadrasahAdminView(targetMadrasah), message: 'Data madrasah offline berhasil disinkronkan ke BOSS.' });
+  return res.json({
+    success: true,
+    recoveredLicenseRecord: Boolean(target.recoveredAt),
+    madrasah: sanitizeMadrasahAdminView(targetMadrasah),
+    message: target.recoveredAt
+      ? 'Record lisensi BOSS dipulihkan dari signature valid dan data madrasah offline berhasil disinkronkan.'
+      : 'Data madrasah offline berhasil disinkronkan ke BOSS.'
+  });
 });
 
 app.get('/api/boss/license-key-status', requireAuth, requireRole(['bos', 'superadmin']), (_req: any, res: any) => {
