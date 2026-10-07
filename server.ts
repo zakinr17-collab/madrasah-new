@@ -9419,14 +9419,60 @@ function getOfflineServerInstallationId(): string {
   }
 }
 
-function isOfflineLicenseActive(): boolean {
-  if (!offlineLicense?.installationId) return false;
+function getOfflineLicenseDiagnostic() {
+  if (!offlineLicense) {
+    return {
+      active: false,
+      reason: 'NO_LOCAL_LICENSE',
+      message: 'Belum ada lisensi offline yang tersimpan pada server lokal.'
+    };
+  }
+  if (!offlineLicense?.installationId) {
+    return {
+      active: false,
+      reason: 'MISSING_INSTALLATION_ID',
+      message: 'Lisensi tersimpan tetapi belum memiliki ikatan instalasi.'
+    };
+  }
   const envelope = getOfflineLicenseEnvelope();
   const verified = verifyOfflineLicenseEnvelope(envelope);
-  if (!verified.valid || String(verified.payload?.licenseId || '') !== String(offlineLicense?.payload?.licenseId || '')) return false;
-  if (String(verified.payload?.madrasahId || '') !== String(offlineLicense?.payload?.madrasahId || '')) return false;
-  if (verified.payload?.expiresAt && Date.now() > Date.parse(String(verified.payload.expiresAt))) return false;
-  return true;
+  if (!verified.valid) {
+    return {
+      active: false,
+      reason: 'SIGNATURE_INVALID',
+      message: verified.message || 'Tanda tangan lisensi tidak valid.'
+    };
+  }
+  if (String(verified.payload?.licenseId || '') !== String(offlineLicense?.payload?.licenseId || '')) {
+    return {
+      active: false,
+      reason: 'LICENSE_ID_MISMATCH',
+      message: 'Identitas lisensi tersimpan tidak cocok.'
+    };
+  }
+  if (String(verified.payload?.madrasahId || '') !== String(offlineLicense?.payload?.madrasahId || '')) {
+    return {
+      active: false,
+      reason: 'MADRASAH_ID_MISMATCH',
+      message: 'Identitas madrasah pada lisensi tidak cocok.'
+    };
+  }
+  if (verified.payload?.expiresAt && Date.now() > Date.parse(String(verified.payload.expiresAt))) {
+    return {
+      active: false,
+      reason: 'LICENSE_EXPIRED',
+      message: 'Lisensi offline sudah kedaluwarsa.'
+    };
+  }
+  return {
+    active: true,
+    reason: 'ACTIVE',
+    message: 'Lisensi offline aktif dan valid.'
+  };
+}
+
+function isOfflineLicenseActive(): boolean {
+  return getOfflineLicenseDiagnostic().active === true;
 }
 
 app.post('/api/boss/generate-offline-madrasah-license', requireAuth, requireRole(['bos', 'superadmin']), async (req: any, res: any) => {
@@ -9528,16 +9574,20 @@ app.post('/api/offline-license/activate', async (req: any, res: any) => {
 
 app.get('/api/offline-license/status', (_req: any, res: any) => {
   if (!isOfflineMode) return res.json({ success: true, activated: false, valid: false, mode: 'online' });
-  const activated = isOfflineLicenseActive();
+  const diagnostic = getOfflineLicenseDiagnostic();
+  const activated = diagnostic.active === true;
   return res.json({
     success: true,
     activated,
     valid: activated,
     mode: 'offline',
-    licenseId: activated ? offlineLicense.payload.licenseId : null,
-    madrasahId: activated ? offlineLicense.payload.madrasahId : null,
-    activatedAt: activated ? offlineLicense.activatedAt : null,
-    lastSyncedAt: activated ? (offlineLicense.lastSyncedAt || null) : null
+    reason: diagnostic.reason,
+    message: diagnostic.message,
+    licenseId: offlineLicense?.payload?.licenseId || null,
+    madrasahId: offlineLicense?.payload?.madrasahId || null,
+    activatedAt: offlineLicense?.activatedAt || null,
+    lastSyncedAt: offlineLicense?.lastSyncedAt || null,
+    installationBound: Boolean(offlineLicense?.installationId)
   });
 });
 
