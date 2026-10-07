@@ -135,6 +135,22 @@ function getLicensePublicKeyFingerprint(publicKeyPem?: string): string {
   }
 }
 
+function deriveLicensePublicKeyFromPrivate(): { publicKeyPem: string; fingerprint: string; envValue: string } {
+  try {
+    const privateRaw = String(process.env.LICENSE_PRIVATE_KEY || '').trim();
+    if (!privateRaw) return { publicKeyPem: '', fingerprint: '', envValue: '' };
+    const keyObj = crypto.createPrivateKey(formatPrivateKeyPem(privateRaw));
+    const publicKeyPem = String(crypto.createPublicKey(keyObj).export({ type: 'spki', format: 'pem' })).trim();
+    return {
+      publicKeyPem,
+      fingerprint: getLicensePublicKeyFingerprint(publicKeyPem),
+      envValue: publicKeyPem.replace(/\n/g, '\\n')
+    };
+  } catch {
+    return { publicKeyPem: '', fingerprint: '', envValue: '' };
+  }
+}
+
 function validateConfiguredLicenseKeyPair(): { valid: boolean; fingerprint: string; message: string } {
   const privateRaw = String(process.env.LICENSE_PRIVATE_KEY || '').trim();
   const publicPem = getConfiguredLicensePublicKeyPem();
@@ -9769,14 +9785,19 @@ app.post('/api/offline-licenses/register', async (req: any, res: any) => {
 
 app.get('/api/boss/license-key-status', requireAuth, requireRole(['bos', 'superadmin']), (_req: any, res: any) => {
   const pair = validateConfiguredLicenseKeyPair();
-  const publicKeyPem = getConfiguredLicensePublicKeyPem();
+  const configuredPublicKeyPem = getConfiguredLicensePublicKeyPem();
+  const derived = deriveLicensePublicKeyFromPrivate();
   return res.json({
     success: true,
     pairValid: pair.valid,
     message: pair.message,
-    publicKeyFingerprint: pair.fingerprint || null,
-    publicKeyPem,
-    publicKeyEnvValue: publicKeyPem ? publicKeyPem.replace(/\n/g, '\\n') : ''
+    configuredPublicKeyFingerprint: pair.fingerprint || null,
+    configuredPublicKeyPem,
+    configuredPublicKeyEnvValue: configuredPublicKeyPem ? configuredPublicKeyPem.replace(/\n/g, '\\n') : '',
+    signingPublicKeyFingerprint: derived.fingerprint || null,
+    signingPublicKeyPem: derived.publicKeyPem,
+    recommendedPublicKeyEnvValue: derived.envValue,
+    publicKeyMatchesPrivate: Boolean(pair.valid && derived.fingerprint && derived.fingerprint === pair.fingerprint)
   });
 });
 
