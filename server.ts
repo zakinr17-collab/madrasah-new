@@ -3552,7 +3552,7 @@ function enforceApiRateLimit(req: any, res: any, bucket: string, limit: number, 
 }
 
 const staffRoles = new Set(['teacher', 'guru', 'admin', 'administrator', 'bos', 'superadmin']);
-const adminRoles = new Set(['admin', 'bos', 'superadmin']);
+const adminRoles = new Set(['admin', 'administrator', 'bos', 'superadmin']);
 const bossRoles = new Set(['bos', 'superadmin']);
 const staffWritePrefixes = [
   '/api/teachers', '/api/students', '/api/classes', '/api/subjects',
@@ -9438,7 +9438,29 @@ app.post('/api/offline-license/activate', async (req: any, res: any) => {
   const payload: any = verified.payload;
   if (payload.expiresAt && Date.now() > Date.parse(String(payload.expiresAt))) return res.status(400).json({ success: false, message: 'Lisensi offline sudah kedaluwarsa.' });
   if (offlineLicense?.payload?.licenseId && String(offlineLicense.payload.licenseId) !== String(payload.licenseId)) return res.status(409).json({ success: false, message: 'Instalasi ini sudah terikat pada lisensi offline lain.' });
-  if (offlineLicense?.installationId && String(offlineLicense.installationId) !== installationId) return res.status(409).json({ success: false, message: 'Lisensi sudah terikat pada instalasi lain.' });
+
+  // Re-entering the same valid key on the same local server must be idempotent.
+  // Browser storage is origin-specific (localhost vs 127.0.0.1), so a fresh browser
+  // may generate a different client installationId even though this is still the
+  // same already-activated server. Keep the server-persisted binding in that case.
+  if (
+    offlineLicense?.payload?.licenseId &&
+    String(offlineLicense.payload.licenseId) === String(payload.licenseId) &&
+    offlineLicense?.installationId
+  ) {
+    if (String(offlineLicense.signature || '') !== String(verified.signature || '')) {
+      return res.status(409).json({ success: false, message: 'Signature lisensi tidak cocok dengan aktivasi yang tersimpan.' });
+    }
+    return res.json({
+      success: true,
+      licenseId: offlineLicense.payload.licenseId,
+      madrasahId: offlineLicense.payload.madrasahId,
+      activatedAt: offlineLicense.activatedAt,
+      reused: true,
+      message: 'Lisensi ini sudah aktif pada instalasi offline ini.'
+    });
+  }
+
   offlineLicense = { payload, signature: verified.signature, installationId, activatedAt: new Date().toISOString() };
   await saveData('offlineLicense', offlineLicense, true);
   return res.json({ success: true, licenseId: payload.licenseId, madrasahId: payload.madrasahId, activatedAt: offlineLicense.activatedAt, message: 'Aktivasi madrasah offline berhasil. Lisensi terikat pada instalasi ini.' });
@@ -9459,7 +9481,7 @@ app.get('/api/offline-license/status', (_req: any, res: any) => {
   });
 });
 
-app.post('/api/offline-license/sync', requireAuth, requireRole(['admin']), async (req: any, res: any) => {
+app.post('/api/offline-license/sync', requireAuth, requireRole(['admin', 'administrator']), async (req: any, res: any) => {
   if (!isOfflineMode) return res.status(403).json({ success: false, message: 'Sinkronisasi lisensi ini khusus instalasi offline.' });
   if (!isOfflineLicenseActive()) return res.status(400).json({ success: false, message: 'Lisensi offline belum aktif atau tidak valid.' });
   const envelope = getOfflineLicenseEnvelope();
