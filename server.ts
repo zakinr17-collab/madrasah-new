@@ -9485,9 +9485,19 @@ app.post('/api/offline-license/activate', async (req: any, res: any) => {
     });
   }
 
-  // Stale/invalid records must not permanently lock a machine. A replacement is
-  // still required to carry a valid BOSS signature, then it is rebound to a
-  // server-owned machine id that survives browser/origin changes.
+  // Stale/invalid records must not permanently lock a machine. Auto-recovery is
+  // only allowed before the old license has ever been synchronized to BOSS; a
+  // previously synchronized binding must be reset/revoked centrally to avoid
+  // creating duplicate madrasah records.
+  if (!storedActive && offlineLicense?.lastSyncedAt) {
+    return res.status(409).json({
+      success: false,
+      message: 'Lisensi lama pernah tersinkron ke BOSS. Reset lisensi dari akun BOSS sebelum menggantinya.'
+    });
+  }
+
+  // The replacement still requires a valid BOSS signature, then it is rebound to
+  // a server-owned machine id that survives browser/origin changes.
   let installationId = '';
   try {
     installationId = getOfflineServerInstallationId();
