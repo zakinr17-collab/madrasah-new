@@ -120,6 +120,58 @@ function formatPublicKeyPem(raw: string): string {
   return key;
 }
 
+function getConfiguredLicensePublicKeyPem(): string {
+  return formatPublicKeyPem(String(process.env.LICENSE_PUBLIC_KEY || LICENSE_PUBLIC_KEY || '').trim());
+}
+
+function getLicensePublicKeyFingerprint(publicKeyPem?: string): string {
+  try {
+    const pem = publicKeyPem || getConfiguredLicensePublicKeyPem();
+    const keyObj = crypto.createPublicKey(pem);
+    const der = keyObj.export({ type: 'spki', format: 'der' }) as Buffer;
+    return crypto.createHash('sha256').update(der).digest('hex');
+  } catch {
+    return '';
+  }
+}
+
+function validateConfiguredLicenseKeyPair(): { valid: boolean; fingerprint: string; message: string } {
+  const privateRaw = String(process.env.LICENSE_PRIVATE_KEY || '').trim();
+  const publicPem = getConfiguredLicensePublicKeyPem();
+  const fingerprint = getLicensePublicKeyFingerprint(publicPem);
+
+  if (!privateRaw || !publicPem) {
+    return { valid: false, fingerprint, message: 'LICENSE_PRIVATE_KEY dan LICENSE_PUBLIC_KEY wajib dikonfigurasi.' };
+  }
+
+  try {
+    const probe = 'MADRASAH_OFFLINE_LICENSE_KEYPAIR_CHECK_V1';
+    const signer = crypto.createSign('SHA256');
+    signer.update(probe);
+    signer.end();
+    const signature = signer.sign(formatPrivateKeyPem(privateRaw), 'base64');
+
+    const verifier = crypto.createVerify('SHA256');
+    verifier.update(probe);
+    verifier.end();
+    const valid = verifier.verify(publicPem, signature, 'base64');
+
+    return {
+      valid,
+      fingerprint,
+      message: valid
+        ? 'Pasangan LICENSE_PRIVATE_KEY dan LICENSE_PUBLIC_KEY valid.'
+        : 'LICENSE_PRIVATE_KEY dan LICENSE_PUBLIC_KEY bukan pasangan yang sama.'
+    };
+  } catch (err: any) {
+    return {
+      valid: false,
+      fingerprint,
+      message: 'Konfigurasi key lisensi tidak valid: ' + String(err?.message || err || 'unknown error')
+    };
+  }
+}
+
 let cachedKeyPair: { privateKey: string; publicKey: string } | null = null;
 
 function getServerKeyPair(): { privateKey: string; publicKey: string } | null {
@@ -9477,6 +9529,15 @@ function isOfflineLicenseActive(): boolean {
 
 app.post('/api/boss/generate-offline-madrasah-license', requireAuth, requireRole(['bos', 'superadmin']), async (req: any, res: any) => {
   if (!isBossRuntimeEnabled()) return res.status(403).json({ success: false, code: 'BOSS_RUNTIME_DISABLED', message: 'Generator lisensi offline hanya tersedia pada runtime BOSS yang tepercaya.' });
+  const keyPairStatus = validateConfiguredLicenseKeyPair();
+  if (!keyPairStatus.valid) {
+    return res.status(503).json({
+      success: false,
+      code: 'LICENSE_KEYPAIR_MISMATCH',
+      message: keyPairStatus.message,
+      publicKeyFingerprint: keyPairStatus.fingerprint || null
+    });
+  }
   try {
     const licenseId = 'OFFMAD_' + Date.now().toString(36).toUpperCase() + '_' + crypto.randomBytes(5).toString('hex').toUpperCase();
     const madrasahId = 'OFF_' + crypto.randomBytes(8).toString('hex').toUpperCase();
@@ -9587,7 +9648,9 @@ app.get('/api/offline-license/status', (_req: any, res: any) => {
     madrasahId: offlineLicense?.payload?.madrasahId || null,
     activatedAt: offlineLicense?.activatedAt || null,
     lastSyncedAt: offlineLicense?.lastSyncedAt || null,
-    installationBound: Boolean(offlineLicense?.installationId)
+    installationBound: Boolean(offlineLicense?.installationId),
+    verificationKeyFingerprint: getLicensePublicKeyFingerprint() || null,
+    verificationKeySource: process.env.LICENSE_PUBLIC_KEY ? 'env' : 'bundled'
   });
 });
 
@@ -9702,6 +9765,19 @@ app.post('/api/offline-licenses/register', async (req: any, res: any) => {
     await saveDataBatch([{ key: 'offlineLicenses', value: nextList }, { key: 'madrasahs', value: [...madrasahs] }], true);
   }
   return res.json({ success: true, madrasah: sanitizeMadrasahAdminView(targetMadrasah), message: 'Data madrasah offline berhasil disinkronkan ke BOSS.' });
+});
+
+app.get('/api/boss/license-key-status', requireAuth, requireRole(['bos', 'superadmin']), (_req: any, res: any) => {
+  const pair = validateConfiguredLicenseKeyPair();
+  const publicKeyPem = getConfiguredLicensePublicKeyPem();
+  return res.json({
+    success: true,
+    pairValid: pair.valid,
+    message: pair.message,
+    publicKeyFingerprint: pair.fingerprint || null,
+    publicKeyPem,
+    publicKeyEnvValue: publicKeyPem ? publicKeyPem.replace(/\n/g, '\\n') : ''
+  });
 });
 
 app.get('/api/boss/offline-licenses', requireAuth, requireRole(['bos', 'superadmin']), (_req: any, res: any) => {
