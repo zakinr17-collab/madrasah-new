@@ -9399,6 +9399,26 @@ function parseOfflineLicenseKey(key: any) {
 function getOfflineLicenseEnvelope() {
   return offlineLicense?.payload && offlineLicense?.signature ? { payload: offlineLicense.payload, signature: offlineLicense.signature } : null;
 }
+
+function getOfflineServerInstallationId(): string {
+  const secretsDir = path.join(process.cwd(), '.madrasah-secrets');
+  const idPath = path.join(secretsDir, 'offline-installation-id');
+  try {
+    fs.mkdirSync(secretsDir, { recursive: true });
+    if (fs.existsSync(idPath)) {
+      const existing = String(fs.readFileSync(idPath, 'utf8') || '').trim();
+      if (/^INST_[a-f0-9]{36}$/i.test(existing)) return existing;
+    }
+
+    const created = 'INST_' + crypto.randomBytes(18).toString('hex');
+    fs.writeFileSync(idPath, created, { encoding: 'utf8', mode: 0o600 });
+    return created;
+  } catch (err: any) {
+    console.error('[Offline License] Gagal menyiapkan installation id server:', err?.message || err);
+    throw new Error('Identitas instalasi offline tidak dapat disiapkan.');
+  }
+}
+
 function isOfflineLicenseActive(): boolean {
   if (!offlineLicense?.installationId) return false;
   const envelope = getOfflineLicenseEnvelope();
@@ -9430,24 +9450,28 @@ app.post('/api/boss/generate-offline-madrasah-license', requireAuth, requireRole
 
 app.post('/api/offline-license/activate', async (req: any, res: any) => {
   if (!isOfflineMode) return res.status(403).json({ success: false, message: 'Aktivasi ini khusus instalasi offline.' });
+
   const key = String(req.body?.activationKey || '').trim();
-  const installationId = String(req.body?.installationId || '').trim();
-  if (!key || key.length > 32768 || !/^[A-Za-z0-9_-]{16,160}$/.test(installationId)) return res.status(400).json({ success: false, message: 'Kode aktivasi atau identitas instalasi tidak valid.' });
+  if (!key || key.length > 32768) {
+    return res.status(400).json({ success: false, message: 'Kode aktivasi tidak valid.' });
+  }
+
   const verified = parseOfflineLicenseKey(key);
   if (!verified.valid) return res.status(400).json({ success: false, message: verified.message || 'Lisensi tidak valid.' });
-  const payload: any = verified.payload;
-  if (payload.expiresAt && Date.now() > Date.parse(String(payload.expiresAt))) return res.status(400).json({ success: false, message: 'Lisensi offline sudah kedaluwarsa.' });
-  if (offlineLicense?.payload?.licenseId && String(offlineLicense.payload.licenseId) !== String(payload.licenseId)) return res.status(409).json({ success: false, message: 'Instalasi ini sudah terikat pada lisensi offline lain.' });
 
-  // Re-entering the same valid key on the same local server must be idempotent.
-  // Browser storage is origin-specific (localhost vs 127.0.0.1), so a fresh browser
-  // may generate a different client installationId even though this is still the
-  // same already-activated server. Keep the server-persisted binding in that case.
-  if (
-    offlineLicense?.payload?.licenseId &&
-    String(offlineLicense.payload.licenseId) === String(payload.licenseId) &&
-    offlineLicense?.installationId
-  ) {
+  const payload: any = verified.payload;
+  if (payload.expiresAt && Date.now() > Date.parse(String(payload.expiresAt))) {
+    return res.status(400).json({ success: false, message: 'Lisensi offline sudah kedaluwarsa.' });
+  }
+
+  const storedActive = isOfflineLicenseActive();
+
+  // A valid active license remains bound to its original installation. Re-entering
+  // that same key is idempotent, but a different license cannot replace it.
+  if (storedActive) {
+    if (String(offlineLicense.payload.licenseId) !== String(payload.licenseId)) {
+      return res.status(409).json({ success: false, message: 'Instalasi ini sudah terikat pada lisensi offline lain yang masih valid.' });
+    }
     if (String(offlineLicense.signature || '') !== String(verified.signature || '')) {
       return res.status(409).json({ success: false, message: 'Signature lisensi tidak cocok dengan aktivasi yang tersimpan.' });
     }
@@ -9461,9 +9485,35 @@ app.post('/api/offline-license/activate', async (req: any, res: any) => {
     });
   }
 
-  offlineLicense = { payload, signature: verified.signature, installationId, activatedAt: new Date().toISOString() };
+  // Stale/invalid records must not permanently lock a machine. A replacement is
+  // still required to carry a valid BOSS signature, then it is rebound to a
+  // server-owned machine id that survives browser/origin changes.
+  let installationId = '';
+  try {
+    installationId = getOfflineServerInstallationId();
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Identitas instalasi offline gagal disiapkan.' });
+  }
+
+  const recovered = Boolean(offlineLicense?.payload?.licenseId || offlineLicense?.signature || offlineLicense?.installationId);
+  offlineLicense = {
+    payload,
+    signature: verified.signature,
+    installationId,
+    activatedAt: new Date().toISOString()
+  };
   await saveData('offlineLicense', offlineLicense, true);
-  return res.json({ success: true, licenseId: payload.licenseId, madrasahId: payload.madrasahId, activatedAt: offlineLicense.activatedAt, message: 'Aktivasi madrasah offline berhasil. Lisensi terikat pada instalasi ini.' });
+
+  return res.json({
+    success: true,
+    licenseId: payload.licenseId,
+    madrasahId: payload.madrasahId,
+    activatedAt: offlineLicense.activatedAt,
+    recovered,
+    message: recovered
+      ? 'Lisensi lama yang tidak valid telah diganti dan instalasi offline berhasil diaktivasi.'
+      : 'Aktivasi madrasah offline berhasil. Lisensi terikat pada instalasi ini.'
+  });
 });
 
 app.get('/api/offline-license/status', (_req: any, res: any) => {
