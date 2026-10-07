@@ -9910,7 +9910,7 @@ app.post('/api/offline-license/sync', requireAuth, requireRole(['admin', 'admini
       phone: String(appSettings?.phone || localMadrasah?.phone || '').trim().slice(0, 40)
     };
 
-    const appliedGrantIds = Array.from(new Set(
+    const appliedGrantIds: string[] = Array.from(new Set<string>(
       (Array.isArray(offlineLicense?.appliedTokenGrantIds) ? offlineLicense.appliedTokenGrantIds : [])
         .map((id: any) => String(id || '').trim())
         .filter((id: string) => /^OFFTOK_[A-Z0-9_]+$/.test(id))
@@ -9951,7 +9951,7 @@ app.post('/api/offline-license/sync', requireAuth, requireRole(['admin', 'admini
     }
 
     const pendingGrants = Array.isArray(first.data.tokenGrants) ? first.data.tokenGrants : [];
-    const appliedSet = new Set(appliedGrantIds);
+    const appliedSet = new Set<string>(appliedGrantIds);
     let tokenCreditsApplied = 0;
     const newlyAppliedGrantIds: string[] = [];
 
@@ -10372,7 +10372,7 @@ app.post("/api/madrasah/activate-offline-tokens", requireAuth, requireRole(['tea
         }
 
         const grantId = String(grant.grantId || '');
-        const appliedGrantIds = new Set((Array.isArray(offlineLicense?.appliedTokenGrantIds) ? offlineLicense.appliedTokenGrantIds : []).map((id: any) => String(id || '').trim()).filter(Boolean));
+        const appliedGrantIds = new Set<string>((Array.isArray(offlineLicense?.appliedTokenGrantIds) ? offlineLicense.appliedTokenGrantIds : []).map((id: any) => String(id || '').trim()).filter(Boolean));
         if (appliedGrantIds.has(grantId)) return res.status(409).json({ success: false, message: 'Kode token ini sudah pernah digunakan pada instalasi ini.' });
 
         const qty = Math.trunc(Number(grant.quantity || 0));
