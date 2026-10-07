@@ -181,25 +181,6 @@ function renderSettingModule(container) {
                     </div>
                 </div>
                 <div class="border-t border-slate-100 pt-6">
-                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border border-blue-100 bg-blue-50/60">
-                        <div class="flex items-start gap-3">
-                            <div class="w-10 h-10 rounded-xl bg-white border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
-                                <i class="fa-brands fa-google-drive text-lg"></i>
-                            </div>
-                            <div>
-                                <h2 class="text-base font-bold text-slate-800">Google Drive Materi Pembelajaran</h2>
-                                <p class="text-xs text-slate-500 mt-1 leading-relaxed">
-                                    Hubungkan akun Google yang memiliki akses ke folder penyimpanan PDF. Setelah terhubung, PDF Materi Pembelajaran dapat diunggah ke Google Drive.
-                                </p>
-                            </div>
-                        </div>
-                        <button type="button" onclick="connectGoogleDriveOAuth(this)"
-                            class="shrink-0 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold shadow-sm transition">
-                            <i class="fa-brands fa-google-drive mr-1"></i>Hubungkan Google Drive
-                        </button>
-                    </div>
-                </div>
-                <div class="border-t border-slate-100 pt-6">
                     <h2 class="text-base font-bold text-slate-800 mb-2">Lokasi Geotagging Sekolah</h2>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div><label class="block text-xs uppercase text-slate-500 mb-1">Latitude</label><input type="number" step="any" id="school-latitude" class="w-full px-4 py-2.5 bg-slate-50 border rounded-2xl text-xs font-mono" placeholder="-6.2000"></div>
