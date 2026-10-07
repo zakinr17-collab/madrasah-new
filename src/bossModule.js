@@ -1046,6 +1046,38 @@ function closeApproveTokenRequestModal() {
     if (modal) modal.classList.add('hidden');
 }
 
+function showApprovedOfflineTokenCode(tokenCode, quantity, madrasahName) {
+    let modal = document.getElementById('approved-offline-token-code-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'approved-offline-token-code-modal';
+        document.body.appendChild(modal);
+    }
+    modal.className = 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4';
+    modal.innerHTML = `
+        <div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-100 p-6 space-y-4">
+            <div>
+                <h3 class="font-bold text-slate-800">Kode Token Offline +${Number(quantity || 0)}</h3>
+                <p class="text-xs text-slate-500">${madrasahName || 'Madrasah Offline'}</p>
+            </div>
+            <p class="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl p-3">Kode ini dapat langsung dimasukkan pada PC madrasah tanpa internet.</p>
+            <textarea id="approved-offline-token-code-field" readonly rows="5" class="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 text-[10px] font-mono text-slate-800 resize-none">${tokenCode}</textarea>
+            <div class="flex justify-end gap-2">
+                <button type="button" onclick="document.getElementById('approved-offline-token-code-modal')?.classList.add('hidden')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-bold">Tutup</button>
+                <button type="button" onclick="copyApprovedOfflineTokenCode()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold"><i class="fa-solid fa-copy"></i> Salin Kode</button>
+            </div>
+        </div>`;
+}
+
+function copyApprovedOfflineTokenCode() {
+    const field = document.getElementById('approved-offline-token-code-field');
+    if (!field || !field.value) return;
+    const done = () => { if (window.showToast) window.showToast('Kode token offline berhasil disalin.', 'success'); };
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(field.value).then(done).catch(() => { field.select(); document.execCommand('copy'); done(); });
+    else { field.select(); document.execCommand('copy'); done(); }
+}
+window.showApprovedOfflineTokenCode = showApprovedOfflineTokenCode;
+window.copyApprovedOfflineTokenCode = copyApprovedOfflineTokenCode;
 async function submitApproveTokenRequest(e, reqId, madrasahName) {
     if (e) e.preventDefault();
     const el = document.getElementById('input-approve-qty');
@@ -1070,6 +1102,7 @@ async function submitApproveTokenRequest(e, reqId, madrasahName) {
         const data = await res.json();
         if (data.success) {
             closeApproveTokenRequestModal();
+            if (data.tokenCode) showApprovedOfflineTokenCode(data.tokenCode, data.quantity || qty, madrasahName);
             if (window.showToast) window.showToast(data.message || `Top-Up +${qty} token berhasil disetujui!`, 'success');
             renderBossDashboard(document.getElementById('view-container'), 'tokens');
         } else {
