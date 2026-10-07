@@ -1493,7 +1493,7 @@ function renderBossMadrasahsTab(container) {
                         <tr class="bg-slate-50/80 border-b border-slate-100 text-slate-500 font-bold uppercase text-[10px] tracking-wider">
                             <th class="p-3.5">Nama Madrasah & Status</th>
                             <th class="p-3.5">Jenjang</th>
-                            <th class="p-3.5">URL Portal</th>
+                            <th class="p-3.5">Akses / Mode</th>
                             <th class="p-3.5">Administrator</th>
                             <th class="p-3.5">Saldo Token</th>
                             <th class="p-3.5 text-center">Aksi Manajemen</th>
@@ -1501,12 +1501,19 @@ function renderBossMadrasahsTab(container) {
                     </thead>
                     <tbody class="divide-y divide-slate-100">
                         ${madrasahs.map(m => {
-                            const portalUrl = m.slug === 'default' ? '/' : `/m/${m.slug}`;
+                            const isOfflineMadrasah = String(m.mode || '').toLowerCase() === 'offline' || Boolean(m.offlineLicenseId);
+                            const portalUrl = isOfflineMadrasah ? '' : (m.slug === 'default' ? '/' : `/m/${m.slug}`);
                             const safeName = (m.name || '').replace(/'/g, "\\'");
                             const isActive = m.isActive !== false;
-                            const statusBadge = isActive 
-                                ? `<span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md text-[9px] font-bold">AKTIF</span>` 
+                            const statusBadge = isActive
+                                ? `<span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md text-[9px] font-bold">AKTIF</span>`
                                 : `<span class="px-2 py-0.5 bg-rose-100 text-rose-800 rounded-md text-[9px] font-bold">NONAKTIF</span>`;
+                            const modeBadge = isOfflineMadrasah
+                                ? `<span class="px-2 py-0.5 bg-sky-100 text-sky-800 rounded-md text-[9px] font-bold">OFFLINE</span>`
+                                : `<span class="px-2 py-0.5 bg-purple-100 text-purple-800 rounded-md text-[9px] font-bold">ONLINE</span>`;
+                            const lastSyncLabel = m.offlineLastSyncAt
+                                ? new Date(m.offlineLastSyncAt).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' })
+                                : 'Belum tersinkron';
 
                             return `
                                 <tr class="hover:bg-slate-50/50 transition">
@@ -1517,15 +1524,25 @@ function renderBossMadrasahsTab(container) {
                                             </div>
                                             <div>
                                                 <div>${m.name}</div>
-                                                <div class="mt-0.5">${statusBadge}</div>
+                                                <div class="mt-0.5 flex items-center gap-1 flex-wrap">${statusBadge}${modeBadge}</div>
                                             </div>
                                         </div>
                                     </td>
                                     <td class="p-3.5 font-semibold text-slate-600">${m.level || 'MTs'}</td>
                                     <td class="p-3.5">
-                                        <a href="${portalUrl}" target="_blank" class="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 font-mono font-bold rounded-xl text-[11px] inline-flex items-center gap-1">
-                                            <span>${portalUrl}</span> <i class="fa-solid fa-up-right-from-square text-[9px]"></i>
-                                        </a>
+                                        ${isOfflineMadrasah ? `
+                                            <div class="inline-flex flex-col gap-1">
+                                                <span class="px-2.5 py-1 bg-sky-50 border border-sky-100 text-sky-800 font-bold rounded-xl text-[10px] inline-flex items-center gap-1.5">
+                                                    <i class="fa-solid fa-computer"></i> Localhost / LAN
+                                                </span>
+                                                <span class="text-[9px] text-slate-400">Tidak memiliki portal Cloud Run</span>
+                                                <span class="text-[9px] text-slate-400">Sync terakhir: ${lastSyncLabel}</span>
+                                            </div>
+                                        ` : `
+                                            <a href="${portalUrl}" target="_blank" class="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 font-mono font-bold rounded-xl text-[11px] inline-flex items-center gap-1">
+                                                <span>${portalUrl}</span> <i class="fa-solid fa-up-right-from-square text-[9px]"></i>
+                                            </a>
+                                        `}
                                     </td>
                                     <td class="p-3.5 font-medium text-slate-700">
                                         <div>${m.adminName || 'Admin'}</div>
@@ -1538,9 +1555,15 @@ function renderBossMadrasahsTab(container) {
                                     </td>
                                     <td class="p-3.5 text-center">
                                         <div class="flex items-center justify-center gap-1.5 flex-wrap">
-                                            <button type="button" onclick="openManageMadrasahModal('${m.id}')" class="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-[10px] transition shadow-sm inline-flex items-center gap-1 cursor-pointer" title="Kelola akun guru & siswa">
-                                                <i class="fa-solid fa-users-gear"></i> Kelola
-                                            </button>
+                                            ${!isOfflineMadrasah ? `
+                                                <button type="button" onclick="openManageMadrasahModal('${m.id}')" class="px-2.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-[10px] transition shadow-sm inline-flex items-center gap-1 cursor-pointer" title="Kelola akun guru & siswa">
+                                                    <i class="fa-solid fa-users-gear"></i> Kelola
+                                                </button>
+                                            ` : `
+                                                <span class="px-2.5 py-1.5 bg-sky-50 border border-sky-100 text-sky-700 font-bold rounded-xl text-[10px] inline-flex items-center gap-1" title="Akun guru dan siswa berada di server lokal madrasah">
+                                                    <i class="fa-solid fa-hard-drive"></i> Data Lokal
+                                                </span>
+                                            `}
                                             <button type="button" onclick="renameMadrasahFromBoss('${m.id}', '${safeName}')" class="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-[10px] transition shadow-sm inline-flex items-center gap-1 cursor-pointer" title="Ganti nama madrasah"><i class="fa-solid fa-pen"></i> Rename</button>
                                             <button type="button" onclick="openEditMadrasahTokenModal('${m.id}', '${safeName}', ${m.cbtTokenBalance || 0})" class="px-2.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-xl text-[10px] transition shadow-sm inline-flex items-center gap-1 cursor-pointer" title="Edit saldo token">
                                                 <i class="fa-solid fa-coins"></i> Token
