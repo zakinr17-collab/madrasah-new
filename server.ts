@@ -9726,6 +9726,23 @@ function getOfflineLicenseDiagnostic() {
       message: 'Lisensi tersimpan tetapi belum memiliki ikatan instalasi.'
     };
   }
+  let currentInstallationId = '';
+  try {
+    currentInstallationId = getOfflineServerInstallationId();
+  } catch (_) {
+    return {
+      active: false,
+      reason: 'INSTALLATION_ID_UNAVAILABLE',
+      message: 'Installation ID lokal tidak dapat diverifikasi.'
+    };
+  }
+  if (String(offlineLicense.installationId || '').toLowerCase() !== currentInstallationId.toLowerCase()) {
+    return {
+      active: false,
+      reason: 'INSTALLATION_ID_MISMATCH',
+      message: 'Lisensi ini terikat ke PC offline lain.'
+    };
+  }
   const envelope = getOfflineLicenseEnvelope();
   const verified = verifyOfflineLicenseEnvelope(envelope);
   if (!verified.valid) {
@@ -9747,6 +9764,16 @@ function getOfflineLicenseDiagnostic() {
       active: false,
       reason: 'MADRASAH_ID_MISMATCH',
       message: 'Identitas madrasah pada lisensi tidak cocok.'
+    };
+  }
+  if (
+    verified.payload?.type === 'MADRASAH_OFFLINE_LICENSE_V2' &&
+    String(verified.payload?.installationId || '').toLowerCase() !== currentInstallationId.toLowerCase()
+  ) {
+    return {
+      active: false,
+      reason: 'SIGNED_INSTALLATION_ID_MISMATCH',
+      message: 'Installation ID bertanda tangan tidak cocok dengan PC ini.'
     };
   }
   if (verified.payload?.expiresAt && Date.now() > Date.parse(String(verified.payload.expiresAt))) {
@@ -9784,12 +9811,37 @@ app.post('/api/boss/generate-offline-madrasah-license', requireAuth, requireRole
 
   const duplicateLicense = (offlineLicenses || []).find((x: any) => String(x.installationId || '').toLowerCase() === installationId.toLowerCase());
   const duplicateMadrasah = (madrasahs || []).find((m: any) => String(m.offlineInstallationId || '').toLowerCase() === installationId.toLowerCase());
-  if (duplicateLicense || duplicateMadrasah) {
+  if (duplicateLicense?.signature && duplicateLicense?.type === 'MADRASAH_OFFLINE_LICENSE_V2') {
+    const existingPayload = {
+      type: duplicateLicense.type,
+      licenseId: duplicateLicense.licenseId,
+      madrasahId: duplicateLicense.madrasahId,
+      installationId: duplicateLicense.installationId,
+      issuedAt: duplicateLicense.issuedAt,
+      syncUrl: duplicateLicense.syncUrl,
+      expiresAt: duplicateLicense.expiresAt ?? null,
+      version: duplicateLicense.version
+    };
+    const activationKey = Buffer.from(JSON.stringify({ payload: existingPayload, signature: duplicateLicense.signature, algorithm: 'RSA-SHA256' }), 'utf8').toString('base64');
+    const existingMadrasah = (madrasahs || []).find((m: any) => String(m.id || '') === String(duplicateLicense.madrasahId || ''));
+    return res.json({
+      success: true,
+      reused: true,
+      licenseId: duplicateLicense.licenseId,
+      madrasahId: duplicateLicense.madrasahId,
+      installationId,
+      activationKey,
+      madrasah: sanitizeMadrasahAdminView(existingMadrasah),
+      status: duplicateLicense.status || 'issued_unconfirmed',
+      message: 'Installation ID ini sudah terdaftar. Key aktivasi yang sama ditampilkan kembali.'
+    });
+  }
+  if (duplicateMadrasah) {
     return res.status(409).json({
       success: false,
-      message: 'Installation ID ini sudah memiliki lisensi. Gunakan madrasah offline yang sudah terdaftar, jangan membuat key aktivasi baru.',
-      licenseId: duplicateLicense?.licenseId || duplicateMadrasah?.offlineLicenseId || null,
-      madrasahId: duplicateLicense?.madrasahId || duplicateMadrasah?.id || null
+      message: 'Installation ID ini sudah terikat pada madrasah tetapi record lisensinya tidak lengkap. Periksa data lisensi sebelum membuat key baru.',
+      licenseId: duplicateMadrasah.offlineLicenseId || null,
+      madrasahId: duplicateMadrasah.id || null
     });
   }
 
