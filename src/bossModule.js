@@ -1532,8 +1532,17 @@ async function generateOfflineMadrasahLicense() {
         if (madrasahIdField) madrasahIdField.textContent = data.madrasahId || '-';
         const result = document.getElementById('offline-madrasah-license-result');
         if (result) result.classList.remove('hidden');
-        if (data.madrasah && Array.isArray(appState.madrasahs)) appState.madrasahs.push(data.madrasah);
-        if (window.showToast) window.showToast('Key aktivasi dibuat. Madrasah sudah terdaftar di BOSS tanpa menunggu sync.', 'success');
+        if (data.madrasah && Array.isArray(appState.madrasahs)) {
+            const idx = appState.madrasahs.findIndex(m => String(m.id || '') === String(data.madrasah.id || ''));
+            if (idx >= 0) appState.madrasahs[idx] = data.madrasah;
+            else appState.madrasahs.push(data.madrasah);
+        }
+        if (window.showToast) window.showToast(
+            data.reused
+                ? 'Installation ID sudah terdaftar. Key aktivasi lama ditampilkan kembali.'
+                : 'Key aktivasi dibuat. Madrasah sudah terdaftar di BOSS tanpa menunggu sync.',
+            'success'
+        );
     } catch (err) {
         if (window.showToast) window.showToast('Server BOSS tidak dapat dihubungi.', 'error');
     } finally {
