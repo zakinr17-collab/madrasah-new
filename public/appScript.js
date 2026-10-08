@@ -1993,7 +1993,7 @@ async function activateOfflineMadrasahLicense() {
     try {
         const res = await fetch('/api/offline-license/activate', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ activationKey: key, installationId: getOfflineInstallationId() })
+            body: JSON.stringify({ activationKey: key })
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data.success) { showToast(data.message || 'Key aktivasi tidak valid.', 'error'); return false; }
@@ -2004,7 +2004,16 @@ async function activateOfflineMadrasahLicense() {
     } catch (_) { showToast('Server lokal tidak dapat memproses aktivasi.', 'error'); return false; }
     finally { if (btn && document.body.contains(btn)) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-unlock-keyhole"></i> Aktivasi Madrasah'; } }
 }
-function showOfflineLicenseActivationModal() {
+function copyOfflineServerInstallationId() {
+    const field = document.getElementById('offline-server-installation-id');
+    if (!field || !field.value) return;
+    const done = () => showToast('Installation ID berhasil disalin. Kirim ID ini ke BOSS untuk dibuatkan key aktivasi.', 'success');
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(field.value).then(done).catch(() => { field.select(); document.execCommand('copy'); done(); });
+    else { field.select(); document.execCommand('copy'); done(); }
+}
+window.copyOfflineServerInstallationId = copyOfflineServerInstallationId;
+
+function showOfflineLicenseActivationModal(installationId = '') {
     if (document.getElementById('offline-license-activation-modal')) return;
     const modal = document.createElement('div');
     modal.id = 'offline-license-activation-modal';
@@ -2013,10 +2022,18 @@ function showOfflineLicenseActivationModal() {
         <div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl p-6 space-y-5">
             <div class="flex items-start gap-3">
                 <div class="w-12 h-12 rounded-2xl bg-indigo-100 text-indigo-700 flex items-center justify-center text-xl"><i class="fa-solid fa-key"></i></div>
-                <div><h3 class="text-lg font-black text-slate-800">Aktivasi Madrasah Offline</h3><p class="text-xs text-slate-500 mt-1">Masukkan key yang dibuat oleh akun BOSS Online. Aktivasi ini diperlukan sebelum Admin dapat menggunakan instalasi offline.</p></div>
+                <div><h3 class="text-lg font-black text-slate-800">Aktivasi Madrasah Offline</h3><p class="text-xs text-slate-500 mt-1">Aktivasi dapat dilakukan tanpa internet. Salin Installation ID di bawah, kirim ke BOSS, lalu tempel key aktivasi yang dibuat khusus untuk PC ini.</p></div>
+            </div>
+            <div class="p-4 rounded-2xl bg-indigo-50 border border-indigo-100 space-y-2">
+                <label class="block text-[10px] font-bold uppercase text-indigo-700">Installation ID PC Ini</label>
+                <div class="flex gap-2">
+                    <input id="offline-server-installation-id" readonly value="${String(installationId || '')}" class="flex-1 min-w-0 bg-white border border-indigo-200 rounded-xl px-3 py-2 text-[10px] font-mono font-bold text-indigo-900 focus:outline-none">
+                    <button type="button" onclick="copyOfflineServerInstallationId()" class="px-3 bg-indigo-700 hover:bg-indigo-800 text-white rounded-xl text-[10px] font-bold"><i class="fa-solid fa-copy"></i> Salin ID</button>
+                </div>
+                <p class="text-[10px] text-indigo-700">BOSS menggunakan ID ini untuk mengunci key aktivasi ke komputer ini. Tidak diperlukan sync internet.</p>
             </div>
             <div><label class="block text-[10px] font-bold uppercase text-slate-500 mb-1.5">Key Aktivasi BOSS</label><textarea id="offline-license-activation-key" rows="4" class="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 text-[11px] font-mono text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Tempel key aktivasi di sini"></textarea></div>
-            <div class="p-3 rounded-2xl bg-amber-50 border border-amber-100 text-[11px] text-amber-800"><i class="fa-solid fa-circle-info mr-1"></i> Setelah aktivasi berhasil, aplikasi tetap dapat digunakan tanpa internet. Saat internet tersedia, sinkronisasi lisensi ke BOSS dapat dilakukan.</div>
+            <div class="p-3 rounded-2xl bg-emerald-50 border border-emerald-100 text-[11px] text-emerald-800"><i class="fa-solid fa-circle-check mr-1"></i> Setelah aktif, top-up token juga menggunakan kode OFFTOK1 yang dapat dipakai tanpa internet. Sinkronisasi ke BOSS hanya opsional untuk laporan saldo/status.</div>
             <div class="flex justify-end"><button type="button" id="btn-activate-offline-license" onclick="activateOfflineMadrasahLicense()" class="px-5 py-2.5 bg-indigo-700 hover:bg-indigo-800 text-white rounded-2xl text-xs font-bold"><i class="fa-solid fa-unlock-keyhole"></i> Aktivasi Madrasah</button></div>
         </div>`;
     document.body.appendChild(modal);
@@ -2025,7 +2042,7 @@ async function ensureOfflineLicenseActivationUi() {
     if (window.isOfflineMode !== true && appState.isOfflineMode !== true) return true;
     const status = await getOfflineLicenseStatus();
     if (status?.success && status.activated) return true;
-    showOfflineLicenseActivationModal();
+    showOfflineLicenseActivationModal(status?.installationId || '');
     return false;
 }
 async function syncOfflineLicenseToBoss() {
@@ -2043,13 +2060,11 @@ async function syncOfflineLicenseToBoss() {
 
 let offlineLicenseSyncTimer = null;
 function startOfflineLicenseSyncMonitor() {
+    // OFFLINE-FIRST V2: never require or automatically trigger internet sync.
+    // syncOfflineLicenseToBoss() remains available only as an explicit optional
+    // reporting action if a future UI chooses to expose it.
     if (offlineLicenseSyncTimer) clearInterval(offlineLicenseSyncTimer);
-    if (window.isOfflineMode !== true && appState.isOfflineMode !== true) return;
-    offlineLicenseSyncTimer = setInterval(() => {
-        const role = String(appState.role || appState.currentUser?.role || '').toLowerCase();
-        if (role === 'admin' || role === 'administrator') syncOfflineLicenseToBoss();
-    }, 60000);
-    syncOfflineLicenseToBoss();
+    offlineLicenseSyncTimer = null;
 }
 window.ensureOfflineLicenseActivationUi = ensureOfflineLicenseActivationUi;
 window.syncOfflineLicenseToBoss = syncOfflineLicenseToBoss;
