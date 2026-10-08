@@ -1499,20 +1499,46 @@ function renderBossTokenRequestsTab(container) {
 // --- OFFLINE MADRASAH LICENSE MANAGEMENT ---
 async function generateOfflineMadrasahLicense() {
     const btn = document.getElementById('btn-generate-offline-madrasah-license');
+    const name = String(document.getElementById('offline-license-school-name')?.value || '').trim();
+    const level = String(document.getElementById('offline-license-school-level')?.value || 'MA').trim();
+    const installationId = String(document.getElementById('offline-license-installation-id')?.value || '').trim();
+
+    if (!name) {
+        if (window.showToast) window.showToast('Nama madrasah wajib diisi.', 'error');
+        return;
+    }
+    if (!/^INST_[a-f0-9]{36}$/i.test(installationId)) {
+        if (window.showToast) window.showToast('Installation ID tidak valid. Salin dari layar aktivasi PC offline.', 'error');
+        return;
+    }
+
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Membuat Key...'; }
     try {
-        const res = await fetch('/api/boss/generate-offline-madrasah-license', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        const res = await fetch('/api/boss/generate-offline-madrasah-license', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, level, installationId })
+        });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.success) { if (window.showToast) window.showToast(data.message || 'Gagal membuat key lisensi offline.', 'error'); return; }
+        if (!res.ok || !data.success) {
+            if (window.showToast) window.showToast(data.message || 'Gagal membuat key lisensi offline.', 'error');
+            return;
+        }
         const field = document.getElementById('offline-madrasah-license-key');
         const idField = document.getElementById('offline-madrasah-license-id');
+        const madrasahIdField = document.getElementById('offline-madrasah-id-result');
         if (field) field.value = data.activationKey || '';
         if (idField) idField.textContent = data.licenseId || '-';
+        if (madrasahIdField) madrasahIdField.textContent = data.madrasahId || '-';
         const result = document.getElementById('offline-madrasah-license-result');
         if (result) result.classList.remove('hidden');
-        if (window.showToast) window.showToast('Key lisensi madrasah offline berhasil dibuat.', 'success');
-    } catch (err) { if (window.showToast) window.showToast('Server BOSS tidak dapat dihubungi.', 'error'); }
-    finally { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-key"></i> Buat Key Aktivasi'; } }
+        if (data.madrasah && Array.isArray(appState.madrasahs)) appState.madrasahs.push(data.madrasah);
+        if (window.showToast) window.showToast('Key aktivasi dibuat. Madrasah sudah terdaftar di BOSS tanpa menunggu sync.', 'success');
+    } catch (err) {
+        if (window.showToast) window.showToast('Server BOSS tidak dapat dihubungi.', 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-key"></i> Buat Key Aktivasi'; }
+    }
 }
 function copyOfflineMadrasahLicenseKey() {
     const field = document.getElementById('offline-madrasah-license-key');
@@ -1545,12 +1571,47 @@ function renderBossMadrasahsTab(container) {
     const madrasahs = appState.madrasahs || [];
 
     container.innerHTML = `
-        <div class="mb-5 bg-indigo-50 border border-indigo-100 rounded-3xl p-5 shadow-sm">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                <div><div class="flex items-center gap-2 text-indigo-900 font-extrabold text-sm"><i class="fa-solid fa-key"></i> Aktivasi Madrasah Offline</div><p class="text-[11px] text-indigo-700 mt-1 max-w-2xl">Key ini hanya untuk aktivasi awal instalasi offline. Setelah identitas madrasah pernah terdaftar di BOSS, top-up berikutnya memakai Kode Token dan tidak memerlukan internet pada PC offline.</p></div>
-                <button type="button" id="btn-generate-offline-madrasah-license" onclick="generateOfflineMadrasahLicense()" class="shrink-0 px-4 py-2.5 bg-indigo-700 hover:bg-indigo-800 text-white rounded-2xl text-xs font-bold shadow-sm transition flex items-center gap-2"><i class="fa-solid fa-key"></i> Buat Key Aktivasi</button>
+        <div class="mb-5 bg-indigo-50 border border-indigo-100 rounded-3xl p-5 shadow-sm space-y-4">
+            <div>
+                <div class="flex items-center gap-2 text-indigo-900 font-extrabold text-sm"><i class="fa-solid fa-key"></i> Aktivasi Madrasah Offline Tanpa Sync</div>
+                <p class="text-[11px] text-indigo-700 mt-1 max-w-3xl">Di PC offline, salin <strong>Installation ID</strong> dari layar aktivasi. Masukkan ID itu di sini bersama nama madrasah. BOSS langsung membuat identitas madrasah dan key yang hanya berlaku untuk PC tersebut. PC tidak perlu internet untuk aktivasi maupun menerima kode token.</p>
             </div>
-            <div id="offline-madrasah-license-result" class="hidden mt-4 bg-white border border-indigo-100 rounded-2xl p-3"><div class="flex items-center justify-between gap-2 mb-2"><span class="text-[10px] uppercase font-bold text-slate-500">License ID</span><span id="offline-madrasah-license-id" class="font-mono font-bold text-indigo-800 text-[11px]">-</span></div><div class="flex gap-2"><input id="offline-madrasah-license-key" readonly class="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-mono text-slate-700"><button type="button" onclick="copyOfflineMadrasahLicenseKey()" class="px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-bold"><i class="fa-solid fa-copy"></i> Salin</button></div></div>
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                <div class="md:col-span-4">
+                    <label class="block text-[10px] font-bold uppercase text-indigo-700 mb-1">Nama Madrasah</label>
+                    <input id="offline-license-school-name" type="text" maxlength="120" placeholder="Contoh: MTs Sabilul Muttaqin" class="w-full bg-white border border-indigo-200 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-[10px] font-bold uppercase text-indigo-700 mb-1">Jenjang</label>
+                    <select id="offline-license-school-level" class="w-full bg-white border border-indigo-200 rounded-xl px-3 py-2.5 text-xs font-semibold text-slate-800 focus:outline-none">
+                        <option value="MI">MI</option>
+                        <option value="MTs">MTs</option>
+                        <option value="MA" selected>MA</option>
+                        <option value="SD">SD</option>
+                        <option value="SMP">SMP</option>
+                        <option value="SMA">SMA</option>
+                        <option value="SMK">SMK</option>
+                    </select>
+                </div>
+                <div class="md:col-span-4">
+                    <label class="block text-[10px] font-bold uppercase text-indigo-700 mb-1">Installation ID dari PC Offline</label>
+                    <input id="offline-license-installation-id" type="text" autocomplete="off" placeholder="INST_...................................." class="w-full bg-white border border-indigo-200 rounded-xl px-3 py-2.5 text-[11px] font-mono font-bold text-indigo-900 focus:outline-none focus:ring-2 focus:ring-indigo-400">
+                </div>
+                <div class="md:col-span-2">
+                    <button type="button" id="btn-generate-offline-madrasah-license" onclick="generateOfflineMadrasahLicense()" class="w-full px-4 py-2.5 bg-indigo-700 hover:bg-indigo-800 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center justify-center gap-2"><i class="fa-solid fa-key"></i> Buat Key Aktivasi</button>
+                </div>
+            </div>
+            <div id="offline-madrasah-license-result" class="hidden bg-white border border-indigo-100 rounded-2xl p-4 space-y-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div><span class="text-[9px] uppercase font-bold text-slate-400 block">License ID</span><span id="offline-madrasah-license-id" class="font-mono font-bold text-indigo-800 text-[11px]">-</span></div>
+                    <div><span class="text-[9px] uppercase font-bold text-slate-400 block">Madrasah ID</span><span id="offline-madrasah-id-result" class="font-mono font-bold text-indigo-800 text-[11px]">-</span></div>
+                </div>
+                <div>
+                    <span class="text-[9px] uppercase font-bold text-slate-400 block mb-1">Key Aktivasi — kirim ke PC offline</span>
+                    <div class="flex gap-2"><textarea id="offline-madrasah-license-key" readonly rows="4" class="flex-1 min-w-0 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-[10px] font-mono text-slate-700 resize-none"></textarea><button type="button" onclick="copyOfflineMadrasahLicenseKey()" class="px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[10px] font-bold"><i class="fa-solid fa-copy"></i> Salin</button></div>
+                </div>
+                <div class="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl p-2.5"><i class="fa-solid fa-circle-check mr-1"></i> Madrasah sudah tercatat di BOSS. Anda dapat membuat Kode Token tanpa menunggu PC melakukan sync.</div>
+            </div>
         </div>
         <div class="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden space-y-4 p-5">
             <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-3 border-b border-slate-100">
@@ -1582,9 +1643,12 @@ function renderBossMadrasahsTab(container) {
                             const portalUrl = isOfflineMadrasah ? '' : (m.slug === 'default' ? '/' : `/m/${m.slug}`);
                             const safeName = (m.name || '').replace(/'/g, "\\'");
                             const isActive = m.isActive !== false;
-                            const statusBadge = isActive
-                                ? `<span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md text-[9px] font-bold">AKTIF</span>`
-                                : `<span class="px-2 py-0.5 bg-rose-100 text-rose-800 rounded-md text-[9px] font-bold">NONAKTIF</span>`;
+                            const activationUnconfirmed = isOfflineMadrasah && String(m.offlineActivationStatus || '') === 'issued_unconfirmed';
+                            const statusBadge = !isActive
+                                ? `<span class="px-2 py-0.5 bg-rose-100 text-rose-800 rounded-md text-[9px] font-bold">NONAKTIF</span>`
+                                : activationUnconfirmed
+                                ? `<span class="px-2 py-0.5 bg-amber-100 text-amber-800 rounded-md text-[9px] font-bold">KEY DIBUAT</span>`
+                                : `<span class="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-md text-[9px] font-bold">AKTIF</span>`;
                             const modeBadge = isOfflineMadrasah
                                 ? `<span class="px-2 py-0.5 bg-sky-100 text-sky-800 rounded-md text-[9px] font-bold">OFFLINE</span>`
                                 : `<span class="px-2 py-0.5 bg-purple-100 text-purple-800 rounded-md text-[9px] font-bold">ONLINE</span>`;
@@ -1613,7 +1677,7 @@ function renderBossMadrasahsTab(container) {
                                                     <i class="fa-solid fa-computer"></i> Localhost / LAN
                                                 </span>
                                                 <span class="text-[9px] text-slate-400">Tidak memiliki portal Cloud Run</span>
-                                                <span class="text-[9px] text-slate-400">Sync terakhir: ${lastSyncLabel}</span>
+                                                <span class="text-[9px] text-slate-400">Laporan opsional terakhir: ${lastSyncLabel}</span>
                                             </div>
                                         ` : `
                                             <a href="${portalUrl}" target="_blank" class="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 font-mono font-bold rounded-xl text-[11px] inline-flex items-center gap-1">
