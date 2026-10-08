@@ -9550,22 +9550,31 @@ function getRequestOrigin(req: any): string {
   return host ? `${proto}://${host}` : '';
 }
 function serializeOfflineLicensePayload(payload: any): string {
-  // OFFLINE_LICENSE_CANONICAL_V1:
-  // Keep the exact original V1 field order used when licenses were first issued.
-  // This makes verification stable after JSON/JSONB persistence, where object key
-  // order may change even though the signed values are identical.
-  const canonical = {
+  // Keep V1 byte-for-byte compatible with licenses already issued.
+  if (payload?.type === 'MADRASAH_OFFLINE_LICENSE_V1' || Number(payload?.version || 1) === 1) {
+    return JSON.stringify({
+      type: payload?.type,
+      licenseId: payload?.licenseId,
+      madrasahId: payload?.madrasahId,
+      issuedAt: payload?.issuedAt,
+      syncUrl: payload?.syncUrl,
+      expiresAt: payload?.expiresAt ?? null,
+      version: payload?.version
+    });
+  }
+  // V2 signs the server-owned Installation ID so activation remains fully local
+  // while the key cannot be copied to another PC.
+  return JSON.stringify({
     type: payload?.type,
     licenseId: payload?.licenseId,
     madrasahId: payload?.madrasahId,
+    installationId: payload?.installationId,
     issuedAt: payload?.issuedAt,
     syncUrl: payload?.syncUrl,
     expiresAt: payload?.expiresAt ?? null,
     version: payload?.version
-  };
-  return JSON.stringify(canonical);
+  });
 }
-
 function serializeOfflineTokenGrantPayload(grant: any): string {
   const canonical = {
     type: grant?.type,
@@ -9662,7 +9671,11 @@ function signOfflineLicensePayload(payload: any, privateKey: string): string {
 function verifyOfflineLicenseEnvelope(envelope: any): { valid: boolean; payload?: any; signature?: string; message?: string } {
   if (!envelope || typeof envelope !== 'object' || !envelope.payload || !envelope.signature) return { valid: false, message: 'Format lisensi tidak valid.' };
   const payload = envelope.payload;
-  if (payload.type !== 'MADRASAH_OFFLINE_LICENSE_V1' || !payload.licenseId || !payload.madrasahId) return { valid: false, message: 'Lisensi offline tidak dikenali.' };
+  const supportedType = payload.type === 'MADRASAH_OFFLINE_LICENSE_V1' || payload.type === 'MADRASAH_OFFLINE_LICENSE_V2';
+  if (!supportedType || !payload.licenseId || !payload.madrasahId) return { valid: false, message: 'Lisensi offline tidak dikenali.' };
+  if (payload.type === 'MADRASAH_OFFLINE_LICENSE_V2' && !/^INST_[a-f0-9]{36}$/i.test(String(payload.installationId || ''))) {
+    return { valid: false, message: 'Installation ID pada lisensi offline tidak valid.' };
+  }
   try {
     const verify = crypto.createVerify('SHA256');
     verify.update(serializeOfflineLicensePayload(payload));
@@ -9758,24 +9771,93 @@ app.post('/api/boss/generate-offline-madrasah-license', requireAuth, requireRole
   if (!isBossRuntimeEnabled()) return res.status(403).json({ success: false, code: 'BOSS_RUNTIME_DISABLED', message: 'Generator lisensi offline hanya tersedia pada runtime BOSS yang tepercaya.' });
   const keyPairStatus = validateConfiguredLicenseKeyPair();
   if (!keyPairStatus.valid) {
-    return res.status(503).json({
+    return res.status(503).json({ success: false, code: 'LICENSE_KEYPAIR_MISMATCH', message: keyPairStatus.message, publicKeyFingerprint: keyPairStatus.fingerprint || null });
+  }
+
+  const installationId = String(req.body?.installationId || '').trim();
+  const safeName = String(req.body?.name || '').trim().slice(0, 120);
+  const safeLevel = String(req.body?.level || 'MA').trim().replace(/[^A-Za-z0-9 ._-]/g, '').slice(0, 20) || 'MA';
+  if (!/^INST_[a-f0-9]{36}$/i.test(installationId)) {
+    return res.status(400).json({ success: false, message: 'Installation ID tidak valid. Salin Installation ID dari layar aktivasi PC offline.' });
+  }
+  if (!safeName) return res.status(400).json({ success: false, message: 'Nama madrasah wajib diisi.' });
+
+  const duplicateLicense = (offlineLicenses || []).find((x: any) => String(x.installationId || '').toLowerCase() === installationId.toLowerCase());
+  const duplicateMadrasah = (madrasahs || []).find((m: any) => String(m.offlineInstallationId || '').toLowerCase() === installationId.toLowerCase());
+  if (duplicateLicense || duplicateMadrasah) {
+    return res.status(409).json({
       success: false,
-      code: 'LICENSE_KEYPAIR_MISMATCH',
-      message: keyPairStatus.message,
-      publicKeyFingerprint: keyPairStatus.fingerprint || null
+      message: 'Installation ID ini sudah memiliki lisensi. Gunakan madrasah offline yang sudah terdaftar, jangan membuat key aktivasi baru.',
+      licenseId: duplicateLicense?.licenseId || duplicateMadrasah?.offlineLicenseId || null,
+      madrasahId: duplicateLicense?.madrasahId || duplicateMadrasah?.id || null
     });
   }
+
   try {
     const licenseId = 'OFFMAD_' + Date.now().toString(36).toUpperCase() + '_' + crypto.randomBytes(5).toString('hex').toUpperCase();
     const madrasahId = 'OFF_' + crypto.randomBytes(8).toString('hex').toUpperCase();
     const issuedAt = new Date().toISOString();
     const syncUrl = getRequestOrigin(req) + '/api/offline-licenses/register';
-    const payload = { type: 'MADRASAH_OFFLINE_LICENSE_V1', licenseId, madrasahId, issuedAt, syncUrl, expiresAt: null, version: 1 };
+    const payload = {
+      type: 'MADRASAH_OFFLINE_LICENSE_V2',
+      licenseId,
+      madrasahId,
+      installationId,
+      issuedAt,
+      syncUrl,
+      expiresAt: null,
+      version: 2
+    };
     const signature = signOfflineLicensePayload(payload, process.env.LICENSE_PRIVATE_KEY!);
-    const record = { ...payload, signature, status: 'pending', installationId: null, activatedAt: null, name: null, tokenGrants: [], createdAt: issuedAt };
-    await saveData('offlineLicenses', [...(offlineLicenses || []), record], true);
+    const record = {
+      ...payload,
+      signature,
+      status: 'issued_unconfirmed',
+      activatedAt: null,
+      lastSyncedAt: null,
+      name: safeName,
+      tokenGrants: [],
+      manualTokenGrants: [],
+      createdAt: issuedAt
+    };
+    const madrasahRecord = {
+      id: madrasahId,
+      name: safeName,
+      slug: makeOfflineLicenseSlug(licenseId),
+      level: safeLevel,
+      adminName: 'Administrator',
+      adminUser: 'admin',
+      adminPass: '',
+      phone: '',
+      cbtTokenBalance: 0,
+      offlinePendingTokenCredits: 0,
+      offlineLastTokenReportAt: null,
+      isActive: true,
+      offlineLicenseId: licenseId,
+      offlineInstallationId: installationId,
+      offlineLastSyncAt: null,
+      offlineActivationStatus: 'issued_unconfirmed',
+      mode: 'offline',
+      requiresSetup: false,
+      createdAt: issuedAt
+    };
+
+    await saveDataBatch([
+      { key: 'offlineLicenses', value: [...(offlineLicenses || []), record] },
+      { key: 'madrasahs', value: [...(madrasahs || []), madrasahRecord] }
+    ], true);
+
     const activationKey = Buffer.from(JSON.stringify({ payload, signature, algorithm: 'RSA-SHA256' }), 'utf8').toString('base64');
-    return res.json({ success: true, licenseId, activationKey, status: 'pending', message: 'Key lisensi madrasah offline berhasil dibuat.' });
+    return res.json({
+      success: true,
+      licenseId,
+      madrasahId,
+      installationId,
+      activationKey,
+      madrasah: sanitizeMadrasahAdminView(madrasahRecord),
+      status: 'issued_unconfirmed',
+      message: 'Key aktivasi berhasil dibuat. Madrasah langsung terdaftar di BOSS dan tidak perlu sync untuk menerima kode token.'
+    });
   } catch (err: any) {
     console.error('[Offline License] generate error:', err);
     return res.status(500).json({ success: false, message: safeServerError(err, 'Gagal membuat lisensi offline.') });
