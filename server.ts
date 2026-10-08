@@ -9876,6 +9876,19 @@ app.post('/api/offline-license/activate', async (req: any, res: any) => {
   if (!verified.valid) return res.status(400).json({ success: false, message: verified.message || 'Lisensi tidak valid.' });
 
   const payload: any = verified.payload;
+  let installationId = '';
+  try {
+    installationId = getOfflineServerInstallationId();
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Identitas instalasi offline gagal disiapkan.' });
+  }
+  if (payload.type === 'MADRASAH_OFFLINE_LICENSE_V2' && String(payload.installationId || '').toLowerCase() !== installationId.toLowerCase()) {
+    return res.status(403).json({
+      success: false,
+      message: 'Key aktivasi ini dibuat untuk PC offline lain. Pastikan Installation ID yang diberikan ke BOSS berasal dari PC ini.'
+    });
+  }
+
   if (payload.expiresAt && Date.now() > Date.parse(String(payload.expiresAt))) {
     return res.status(400).json({ success: false, message: 'Lisensi offline sudah kedaluwarsa.' });
   }
@@ -9912,14 +9925,7 @@ app.post('/api/offline-license/activate', async (req: any, res: any) => {
     });
   }
 
-  // The replacement still requires a valid BOSS signature, then it is rebound to
-  // a server-owned machine id that survives browser/origin changes.
-  let installationId = '';
-  try {
-    installationId = getOfflineServerInstallationId();
-  } catch (err: any) {
-    return res.status(500).json({ success: false, message: err?.message || 'Identitas instalasi offline gagal disiapkan.' });
-  }
+  // The replacement remains bound to the server-owned Installation ID.
 
   const recovered = Boolean(offlineLicense?.payload?.licenseId || offlineLicense?.signature || offlineLicense?.installationId);
   offlineLicense = {
@@ -9944,6 +9950,8 @@ app.post('/api/offline-license/activate', async (req: any, res: any) => {
 
 app.get('/api/offline-license/status', (_req: any, res: any) => {
   if (!isOfflineMode) return res.json({ success: true, activated: false, valid: false, mode: 'online' });
+  let installationId = null;
+  try { installationId = getOfflineServerInstallationId(); } catch (_) {}
   const diagnostic = getOfflineLicenseDiagnostic();
   const activated = diagnostic.active === true;
   return res.json({
@@ -9957,6 +9965,7 @@ app.get('/api/offline-license/status', (_req: any, res: any) => {
     madrasahId: offlineLicense?.payload?.madrasahId || null,
     activatedAt: offlineLicense?.activatedAt || null,
     lastSyncedAt: offlineLicense?.lastSyncedAt || null,
+    installationId,
     installationBound: Boolean(offlineLicense?.installationId),
     verificationKeyFingerprint: getLicensePublicKeyFingerprint() || null,
     verificationKeySource: process.env.LICENSE_PUBLIC_KEY ? 'env' : 'bundled'
@@ -10277,6 +10286,7 @@ app.post('/api/offline-licenses/register', async (req: any, res: any) => {
       offlineLicenseId: payload.licenseId,
       offlineInstallationId: installationId,
       offlineLastSyncAt: syncedAt,
+      offlineActivationStatus: 'confirmed_sync',
       mode: 'offline',
       requiresSetup: false,
       createdAt: target.activatedAt
@@ -10298,6 +10308,7 @@ app.post('/api/offline-licenses/register', async (req: any, res: any) => {
     targetMadrasah.offlinePendingTokenCredits = pendingTokenCredits;
     targetMadrasah.offlineInstallationId = installationId;
     targetMadrasah.offlineLastSyncAt = syncedAt;
+    targetMadrasah.offlineActivationStatus = 'confirmed_sync';
     targetMadrasah.mode = 'offline';
     targetMadrasah.isActive = true;
     await saveDataBatch([
