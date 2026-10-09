@@ -32,7 +32,7 @@ if (fs.existsSync(distDir)) {
   if (!stylesheetIncludesFontAwesome) {
     problems.push({ file: 'dist/assets/*.css', reason: 'Font Awesome styles missing from production CSS' });
   }
-  if (!fontFiles.some((file) => /fa-solid-900.*\\.woff2$/i.test(path.basename(file)))) {
+  if (!fontFiles.some((file) => /fa-solid-900.*\.woff2$/i.test(path.basename(file)))) {
     problems.push({ file: 'dist/assets/', reason: 'Font Awesome solid WOFF2 missing from production build' });
   }
 }
