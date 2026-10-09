@@ -537,6 +537,24 @@ async function hydrateProtectedLearningPdfs() {
         }
     }
 }
+// Embed only known YouTube URLs; arbitrary external links remain links to avoid
+// cross-origin iframe injection. Offline installations still need internet for YouTube.
+function learningYoutubeEmbedUrl(value) {
+    try {
+        const u = new URL(String(value || ''));
+        if (u.protocol !== 'https:') return '';
+        const host = u.hostname.toLowerCase();
+        let id = '';
+        if (host === 'youtu.be' || host === 'www.youtu.be') id = u.pathname.split('/')[1] || '';
+        else if (['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(host)) {
+            if (u.pathname === '/watch') id = u.searchParams.get('v') || '';
+            else if (/^\/(shorts|embed|live)\/[^/]+/.test(u.pathname)) id = u.pathname.split('/')[2] || '';
+        }
+        if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return '';
+        return 'https://www.youtube-nocookie.com/embed/' + id + '?rel=0&playsinline=1';
+    } catch (_) { return ''; }
+}
+
 function renderMaterialBlocks(blocks = []) {
     return blocks.map((block, index) => {
         const type = String(block.type || 'text').toLowerCase();
@@ -579,6 +597,8 @@ function renderMaterialBlocks(blocks = []) {
                 const assetSrc = learningAssetSrc(url);
                 return `<section data-learning-block-id="${blockId}" class="rounded-2xl border border-slate-200 overflow-hidden bg-white"><div class="p-3 bg-violet-50 border-b border-violet-100"><div class="text-xs font-black text-violet-700"><i class="fa-solid fa-circle-play mr-2"></i>VIDEO PEMBELAJARAN</div><div class="text-xs text-slate-600 truncate mt-0.5">${learningEsc(block.name || 'Video materi')}</div></div><video controls playsinline preload="metadata" class="block w-full max-h-[720px] bg-black" src="${learningAttr(assetSrc)}">Browser Anda tidak mendukung pemutaran video.</video></section>`;
             }
+            const youtubeEmbed = learningYoutubeEmbedUrl(url);
+            if (youtubeEmbed) return `<section data-learning-block-id="${blockId}" class="rounded-2xl overflow-hidden border border-slate-200 bg-slate-950"><div class="p-3 text-xs font-bold text-white">Video Pembelajaran</div><iframe src="${learningAttr(youtubeEmbed)}" title="Video pembelajaran" allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen class="block w-full aspect-video bg-black"></iframe></section>`;
             return `<div data-learning-block-id="${blockId}"><a href="${learningAttr(url)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold"><i class="fa-solid fa-arrow-up-right-from-square"></i>Buka Video</a></div>`;
         }
         if (type === 'link') {
@@ -1369,9 +1389,9 @@ function openLearningSplitDock(materialId, activityLabel) {
     style.id = 'learning-split-dock-style';
     style.textContent = `
       body.learning-split-active #view-container { width:59%; margin-left:41%; max-width:none; }
-      #learning-split-dock { position:fixed; top:68px; left:10px; width:calc(41vw - 20px); height:calc(100dvh - 80px); z-index:80; background:#fff; border:1px solid #cbd5e1; box-shadow:0 12px 36px #0f172a44; border-radius:16px; display:flex; flex-direction:column; overflow:hidden; }
-      body.learning-split-active #learning-split-dock { z-index:90; }
-      body:not(.learning-split-active) #learning-split-dock { z-index:80; }
+      #learning-split-dock { position:fixed; top:68px; left:10px; width:calc(41vw - 20px); height:calc(100dvh - 80px); z-index:30; background:#fff; border:1px solid #cbd5e1; box-shadow:0 12px 36px #0f172a44; border-radius:16px; display:flex; flex-direction:column; overflow:hidden; }
+      body.learning-split-active #learning-split-dock { z-index:30; }
+      body:not(.learning-split-active) #learning-split-dock { z-index:30; }
       body.learning-split-active #view-container > * { max-width:100%; }
       #learning-split-dock button { cursor:pointer; }
       #learning-split-dock [data-learning-dock-body] { flex:1; overflow:auto; padding:12px; overscroll-behavior:contain; }
