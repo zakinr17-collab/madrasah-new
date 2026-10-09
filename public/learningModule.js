@@ -1399,39 +1399,117 @@ function setupLearningMobileDock(dock) {
     document.body.classList.remove('learning-split-active');
     const toggle = dock.querySelector('[data-learning-dock-toggle]');
     if (toggle) toggle.textContent = 'Buka materi';
-    let pointer = null;
+    let drag = null;
+    let lastDragAt = 0;
+    let nextCorner = 3; // Initially the compact dock sits at bottom-right.
+    const touchSupported = ('ontouchstart' in window) || Number(window.navigator?.maxTouchPoints || 0) > 0;
+    const startDrag = (kind, id, clientX, clientY) => {
+        if (drag) return;
+        const rect = dock.getBoundingClientRect();
+        drag = { kind, id, x: clientX, y: clientY, left: rect.left, top: rect.top, moved: false };
+        dock.classList.add('learning-dock-dragging');
+    };
+    const moveDrag = (kind, id, clientX, clientY, event) => {
+        if (!drag || drag.kind !== kind || drag.id !== id) return;
+        const dx = clientX - drag.x;
+        const dy = clientY - drag.y;
+        if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+        clampLearningMobileDock(dock, drag.left + dx, drag.top + dy);
+        if (event?.cancelable) event.preventDefault();
+    };
+    const stopDrag = (kind, id) => {
+        if (!drag || drag.kind !== kind || drag.id !== id) return;
+        if (drag.moved) lastDragAt = Date.now();
+        drag = null;
+        dock.classList.remove('learning-dock-dragging');
+        if (kind === 'pointer' && grip.hasPointerCapture && grip.hasPointerCapture(id)) {
+            try { grip.releasePointerCapture(id); } catch (_) {}
+        }
+    };
     const onPointerDown = (event) => {
         if (event.button !== undefined && event.button !== 0) return;
         if (event.isPrimary === false) return;
-        const rect = dock.getBoundingClientRect();
-        pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
+        // On touch screens use touch events: they remain reliable even when a
+        // fullscreen browser cancels pointer capture while the finger moves.
+        if (touchSupported && event.pointerType === 'touch') return;
+        startDrag('pointer', event.pointerId, event.clientX, event.clientY);
         if (grip.setPointerCapture) try { grip.setPointerCapture(event.pointerId); } catch (_) {}
         if (event.cancelable) event.preventDefault();
     };
-    const onPointerMove = (event) => {
-        if (!pointer || pointer.id !== event.pointerId) return;
-        clampLearningMobileDock(dock, pointer.left + event.clientX - pointer.x, pointer.top + event.clientY - pointer.y);
+    const onPointerMove = (event) => moveDrag('pointer', event.pointerId, event.clientX, event.clientY, event);
+    const onPointerEnd = (event) => stopDrag('pointer', event.pointerId);
+    const onTouchStart = (event) => {
+        if (drag || !event.changedTouches?.length) return;
+        const touch = event.changedTouches[0];
+        startDrag('touch', touch.identifier, touch.clientX, touch.clientY);
+    };
+    const onTouchMove = (event) => {
+        if (!drag || drag.kind !== 'touch') return;
+        const touches = Array.from(event.touches || []);
+        const touch = touches.find(item => item.identifier === drag.id);
+        if (touch) moveDrag('touch', drag.id, touch.clientX, touch.clientY, event);
+    };
+    const onTouchEnd = (event) => {
+        if (!drag || drag.kind !== 'touch') return;
+        const touches = Array.from(event.changedTouches || []);
+        if (touches.some(item => item.identifier === drag.id)) stopDrag('touch', drag.id);
+    };
+    const onMouseDown = (event) => {
+        if (typeof window.PointerEvent === 'function' || (event.button !== undefined && event.button !== 0)) return;
+        startDrag('mouse', 0, event.clientX, event.clientY);
         if (event.cancelable) event.preventDefault();
     };
-    const onPointerEnd = (event) => {
-        if (!pointer || pointer.id !== event.pointerId) return;
-        pointer = null;
-        if (grip.hasPointerCapture && grip.hasPointerCapture(event.pointerId)) {
-            try { grip.releasePointerCapture(event.pointerId); } catch (_) {}
+    const onMouseMove = (event) => moveDrag('mouse', 0, event.clientX, event.clientY, event);
+    const onMouseUp = () => stopDrag('mouse', 0);
+    const onGripClick = (event) => {
+        // A tap is an accessible fallback for devices/webviews that do not
+        // dispatch move events reliably. Do not turn a drag-release into a tap.
+        if (drag || Date.now() - lastDragAt < 450) {
+            if (event.cancelable) event.preventDefault();
+            return;
         }
+        nextCorner = (nextCorner + 1) % 4;
+        const rect = dock.getBoundingClientRect();
+        const viewport = window.visualViewport;
+        const left = (viewport ? viewport.offsetLeft : 0) + 8;
+        const top = (viewport ? viewport.offsetTop : 0) + 8;
+        const width = viewport ? viewport.width : window.innerWidth;
+        const height = viewport ? viewport.height : window.innerHeight;
+        const right = Math.max(left, left + width - rect.width - 16);
+        const bottom = Math.max(top, top + height - rect.height - 16);
+        const positions = [[right, top], [left, top], [left, bottom], [right, bottom]];
+        clampLearningMobileDock(dock, ...positions[nextCorner]);
     };
     grip.addEventListener('pointerdown', onPointerDown);
-    grip.addEventListener('pointermove', onPointerMove);
-    grip.addEventListener('pointerup', onPointerEnd);
-    grip.addEventListener('pointercancel', onPointerEnd);
+    // Window listeners keep following the finger even when it leaves the grip.
+    window.addEventListener('pointermove', onPointerMove, { passive: false });
+    window.addEventListener('pointerup', onPointerEnd);
+    window.addEventListener('pointercancel', onPointerEnd);
+    grip.addEventListener('touchstart', onTouchStart, { passive: true });
+    window.addEventListener('touchmove', onTouchMove, { passive: false });
+    window.addEventListener('touchend', onTouchEnd);
+    window.addEventListener('touchcancel', onTouchEnd);
+    grip.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+    grip.addEventListener('click', onGripClick);
     const clampOnResize = () => clampLearningMobileDock(dock);
     window.addEventListener('resize', clampOnResize);
     if (window.visualViewport) window.visualViewport.addEventListener('resize', clampOnResize);
     learningMobileDockCleanup = () => {
+        drag = null;
         grip.removeEventListener('pointerdown', onPointerDown);
-        grip.removeEventListener('pointermove', onPointerMove);
-        grip.removeEventListener('pointerup', onPointerEnd);
-        grip.removeEventListener('pointercancel', onPointerEnd);
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerEnd);
+        window.removeEventListener('pointercancel', onPointerEnd);
+        grip.removeEventListener('touchstart', onTouchStart);
+        window.removeEventListener('touchmove', onTouchMove);
+        window.removeEventListener('touchend', onTouchEnd);
+        window.removeEventListener('touchcancel', onTouchEnd);
+        grip.removeEventListener('mousedown', onMouseDown);
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+        grip.removeEventListener('click', onGripClick);
         window.removeEventListener('resize', clampOnResize);
         if (window.visualViewport) window.visualViewport.removeEventListener('resize', clampOnResize);
         learningMobileDockCleanup = null;
@@ -1491,6 +1569,7 @@ function openLearningSplitDock(materialId, activityLabel) {
         #learning-split-dock { top:auto; bottom:max(12px,env(safe-area-inset-bottom)); left:auto; right:12px; width:min(88vw,390px); height:min(48dvh,440px); max-height:calc(100dvh - 16px); z-index:40; }
         #learning-split-dock [data-learning-dock-drag] { display:inline-flex; touch-action:none; cursor:grab; user-select:none; -webkit-user-select:none; }
         #learning-split-dock [data-learning-dock-drag]:active { cursor:grabbing; }
+        #learning-split-dock.learning-dock-dragging { box-shadow:0 18px 44px #0f172a66; border-color:#059669; }
         #learning-split-dock [data-learning-dock-size-toggle] { display:inline-flex; }
         #learning-split-dock[data-learning-dock-size='large']:not(.learning-dock-collapsed) { width:min(calc(100vw - 16px),520px); height:min(70dvh,640px); }
         #learning-split-dock.learning-dock-collapsed { width:max-content; height:auto; max-width:calc(100vw - 16px); min-height:0; }
@@ -1507,7 +1586,7 @@ function openLearningSplitDock(materialId, activityLabel) {
     document.body.insertAdjacentHTML('beforeend', `
       <aside id="learning-split-dock" data-learning-material-id="${learningAttr(material.id)}" data-learning-companion-kind="${learningAttr(activityLabel)}" role="complementary" aria-label="Materi pendamping ${learningAttr(activityLabel)}">
         <div class="p-2.5 sm:p-3 border-b bg-emerald-50 flex flex-wrap items-center justify-between gap-2">
-          <button type="button" data-learning-dock-drag aria-label="Geser jendela materi" title="Tahan dan geser jendela materi" class="hidden items-center gap-1 rounded-lg bg-white border border-emerald-200 text-emerald-800 text-[11px] font-bold px-2.5 py-2">
+          <button type="button" data-learning-dock-drag aria-label="Ketuk untuk pindah sudut, atau seret untuk memindahkan materi" title="Ketuk untuk pindah sudut atau seret dengan jari" class="hidden items-center gap-1 rounded-lg bg-white border border-emerald-200 text-emerald-800 text-[11px] font-bold px-2.5 py-2">
             <i class="fa-solid fa-up-down-left-right"></i><span>Geser</span>
           </button>
           <div data-learning-dock-title class="min-w-0"><div class="text-[10px] font-bold text-emerald-700">MATERI + ${learningEsc(activityLabel)}</div>
