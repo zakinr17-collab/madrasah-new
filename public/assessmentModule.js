@@ -3676,6 +3676,9 @@ async function renderStudentCBTList(container, isRefresh = false) {
         return;
     }
 
+    // The CBT session has ended; clear only its supplementary learning panel.
+    if (typeof window.onLearningCbtSessionEnded === 'function') window.onLearningCbtSessionEnded();
+
     // Clean up streams only if no active exam session is running
     if (window.__studentWebcamStream) {
         if (window.stopCameraStreamTrack) {
@@ -4220,7 +4223,7 @@ window.confirmStartStudentExam = async function(examId) {
                         </div>
                     </div>
                     <div class="p-6 bg-slate-50 flex justify-end gap-3 rounded-b-3xl">
-                        <button type="button" onclick="document.getElementById('modal-container').innerHTML=''" class="px-5 py-2.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 transition">Batal</button>
+                        <button type="button" onclick="document.getElementById('modal-container').innerHTML=''; window.onLearningCbtSessionEnded?.()" class="px-5 py-2.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 transition">Batal</button>
                         <button type="button" onclick="document.getElementById('modal-container').innerHTML=''; startStudentExam(${assessmentInlineArg(ex.id)});" class="px-5 py-2.5 text-xs font-semibold text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 shadow-sm transition">Mulai Ujian</button>
                     </div>
                 </div>
@@ -4663,6 +4666,9 @@ async function startStudentExam(examId) {
 
             const isInputActive = document.activeElement && 
                 (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName) || document.activeElement.isContentEditable);
+            const trustedReference = typeof window.isTrustedLearningReferenceFocus === 'function' &&
+                window.isTrustedLearningReferenceFocus(String(activeExamSession.exam.id));
+            if (trustedReference) return; // Focus inside explicitly authorized learning PDF/video only.
 
             if (!isInputActive) {
                 window.triggerExamViolation('Keluar Fokus / Aplikasi Melayang (Pop-up/Floating)');
@@ -4712,8 +4718,11 @@ async function startStudentExam(examId) {
             window.triggerExamViolation('Picture-in-Picture (PiP) Terdeteksi');
         }
 
-        // 3. Detect focus loss when interacting with floating window / pop-up view app
-        if (!document.hasFocus() && !isInputActive) {
+        // 3. Keep monitoring external focus loss; allow only a currently focused
+        // trusted reference iframe within this same CBT page.
+        const trustedReference = typeof window.isTrustedLearningReferenceFocus === 'function' &&
+            window.isTrustedLearningReferenceFocus(String(activeExamSession.exam.id));
+        if (!document.hasFocus() && !isInputActive && !trustedReference) {
             if (!window._focusLostStartTime) {
                 window._focusLostStartTime = Date.now();
             } else if (Date.now() - window._focusLostStartTime > 1000) { // Lost focus for > 1 sec
@@ -5120,6 +5129,7 @@ function renderActiveExamScreen() {
     const st = appState.currentUser && appState.currentUser.id ? appState.currentUser : (appState.students[0] || {});
     const isBlocked = isStudentBlocked(sess.exam.id, st.id);
     if (isBlocked) {
+        if (typeof window.onLearningCbtSessionEnded === 'function') window.onLearningCbtSessionEnded();
         container.innerHTML = `
             <div class="max-w-md mx-auto mt-20 bg-white p-8 rounded-3xl shadow-2xl text-center space-y-4 border border-rose-200">
                 <div class="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto text-2xl"><i class="fa-solid fa-ban"></i></div>
@@ -5246,6 +5256,11 @@ function renderActiveExamScreen() {
 
     if (window.renderMathInElementSafely) {
         window.renderMathInElementSafely(container);
+    }
+    // Presentation hook only: CBT remains authoritative for attempts,
+    // monitoring, time, answers, blocking and proctoring.
+    if (typeof window.onLearningCbtScreenReady === 'function') {
+        window.onLearningCbtScreenReady(String(sess.exam.id));
     }
 }
 

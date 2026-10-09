@@ -1870,6 +1870,10 @@ window.openStudentLkpdWorksheetModal = function(lkpdId, studentId = null) {
     // Record active session
     if (!isTeacherPreview) {
         window.activeLkpdSession = { lkpdId: lkpd.id, studentId: stId, studentName: stName, nis: stNis };
+        // Learning UI may mount a read-only companion after worksheet readiness.
+        if (typeof window.onLearningLkpdScreenReady === 'function') {
+            window.onLearningLkpdScreenReady(String(lkpd.id), String(stId));
+        }
         window._lastLkpdStudentMessage = '';
         window.__latestLkpdFrame = null;
         
@@ -2046,6 +2050,12 @@ window.openStudentLkpdWorksheetModal = function(lkpdId, studentId = null) {
 };
 
 window.closeStudentLkpdWorksheetModal = function() {
+    // Clear only the optional learning UI, leaving worksheet answers and
+    // monitoring state under the existing LKPD session owner.
+    if (window.isTeacherPreviewMode !== true &&
+        typeof window.onLearningLkpdSessionEnded === 'function') {
+        window.onLearningLkpdSessionEnded();
+    }
     const appState = window.appState || {};
     const isPreview = window.isTeacherPreviewMode === true || window.activeLkpdSession?.isPreview === true;
 

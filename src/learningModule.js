@@ -537,6 +537,24 @@ async function hydrateProtectedLearningPdfs() {
         }
     }
 }
+// Embed only known YouTube URLs; arbitrary external links remain links to avoid
+// cross-origin iframe injection. Offline installations still need internet for YouTube.
+function learningYoutubeEmbedUrl(value) {
+    try {
+        const u = new URL(String(value || ''));
+        if (u.protocol !== 'https:') return '';
+        const host = u.hostname.toLowerCase();
+        let id = '';
+        if (host === 'youtu.be' || host === 'www.youtu.be') id = u.pathname.split('/')[1] || '';
+        else if (['youtube.com', 'www.youtube.com', 'm.youtube.com'].includes(host)) {
+            if (u.pathname === '/watch') id = u.searchParams.get('v') || '';
+            else if (/^\/(shorts|embed|live)\/[^/]+/.test(u.pathname)) id = u.pathname.split('/')[2] || '';
+        }
+        if (!/^[A-Za-z0-9_-]{11}$/.test(id)) return '';
+        return 'https://www.youtube-nocookie.com/embed/' + id + '?rel=0&playsinline=1';
+    } catch (_) { return ''; }
+}
+
 function renderMaterialBlocks(blocks = []) {
     return blocks.map((block, index) => {
         const type = String(block.type || 'text').toLowerCase();
@@ -579,6 +597,8 @@ function renderMaterialBlocks(blocks = []) {
                 const assetSrc = learningAssetSrc(url);
                 return `<section data-learning-block-id="${blockId}" class="rounded-2xl border border-slate-200 overflow-hidden bg-white"><div class="p-3 bg-violet-50 border-b border-violet-100"><div class="text-xs font-black text-violet-700"><i class="fa-solid fa-circle-play mr-2"></i>VIDEO PEMBELAJARAN</div><div class="text-xs text-slate-600 truncate mt-0.5">${learningEsc(block.name || 'Video materi')}</div></div><video controls playsinline preload="metadata" class="block w-full max-h-[720px] bg-black" src="${learningAttr(assetSrc)}">Browser Anda tidak mendukung pemutaran video.</video></section>`;
             }
+            const youtubeEmbed = learningYoutubeEmbedUrl(url);
+            if (youtubeEmbed) return `<section data-learning-block-id="${blockId}" class="rounded-2xl overflow-hidden border border-slate-200 bg-slate-950"><div class="p-3 text-xs font-bold text-white">Video Pembelajaran</div><iframe src="${learningAttr(youtubeEmbed)}" title="Video pembelajaran" allow="autoplay; encrypted-media; picture-in-picture" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen class="block w-full aspect-video bg-black"></iframe></section>`;
             return `<div data-learning-block-id="${blockId}"><a href="${learningAttr(url)}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-slate-100 text-slate-700 text-xs font-bold"><i class="fa-solid fa-arrow-up-right-from-square"></i>Buka Video</a></div>`;
         }
         if (type === 'link') {
@@ -848,6 +868,7 @@ async function uploadPendingLearningAssets() {
 }
 
 window.renderLearningTeacher = async function(container) {
+    closeLearningSplitDock();
     stopLearningTracker();
     if (!container) return;
     container.innerHTML = '<div class="p-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Memuat materi...</div>';
@@ -1043,6 +1064,19 @@ window.showLearningEditor = async function(existing = null) {
                         <label class="text-xs font-bold">LKPD<select id="learning-lkpd" class="mt-1 w-full p-3 border rounded-xl font-normal bg-white">${lkpdOpts}</select></label>
                         <label class="text-xs font-bold">Jadwal Asesmen/CBT (yang dikunci)<select id="learning-exam" class="mt-1 w-full p-3 border rounded-xl font-normal bg-white">${examOpts}</select></label>
                     </div>
+                    <label class="mt-3 block text-xs font-bold text-slate-700">Mode Penyajian Aktivitas
+                        <select id="learning-display-mode" class="mt-1 w-full p-3 border rounded-xl font-normal bg-white">
+                            <option value="sequential" ${material.learningDisplayMode !== 'split' ? 'selected' : ''}>Bertahap (standar)</option>
+                            <option value="split" ${material.learningDisplayMode === 'split' ? 'selected' : ''}>Interaktif (materi berdampingan dengan latihan)</option>
+                        </select>
+                        <span class="block font-normal text-[11px] text-slate-500 mt-1">Khusus pembelajaran terbuka. Sesi, nilai, kamera dan monitoring tetap ditangani modul CBT/LKPD asli.</span>
+                    </label>
+                    <label class="mt-3 flex items-start gap-2 text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 p-3 rounded-xl">
+                        <input id="learning-exam-reference" type="checkbox" ${material.allowExamReference === true ? 'checked' : ''} class="mt-0.5 rounded">
+                        <span>Izinkan materi saat CBT latihan / open-book
+                            <span class="block mt-1 text-[11px] font-normal text-amber-800">Aktif hanya jika Mode Interaktif dipilih. Jangan aktifkan untuk ujian tertutup/resmi; monitoring, kamera dan durasi tetap berjalan.</span>
+                        </span>
+                    </label>
                     <label class="mt-3 flex items-center gap-2 text-xs font-bold text-slate-600"><input id="learning-require-complete" type="checkbox" ${material.requiresCompletionForLinks === false ? '' : 'checked'} class="rounded">Kunci LKPD/asesmen sampai materi ditandai selesai</label>
                 </div>
                 <div class="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
@@ -1106,6 +1140,8 @@ window.saveLearningMaterial = async function(status) {
             scheduleId: examSelection === '__CREATE_DRAFT__' ? '' : examSelection,
             createLkpdDraft: lkpdSelection === '__CREATE_DRAFT__',
             createExamDraft: examSelection === '__CREATE_DRAFT__',
+            learningDisplayMode: document.getElementById('learning-display-mode')?.value === 'split' ? 'split' : 'sequential',
+            allowExamReference: document.getElementById('learning-display-mode')?.value === 'split' && document.getElementById('learning-exam-reference')?.checked === true,
             requiresCompletionForLinks: document.getElementById('learning-require-complete')?.checked !== false,
             engagementPolicy: {
                 minActiveSeconds: Math.max(0, Math.min(3600, Number(document.getElementById('learning-min-active-seconds')?.value || 0) || 0)),
@@ -1125,6 +1161,26 @@ window.saveLearningMaterial = async function(status) {
             throw new Error(data.message || 'Gagal menyimpan materi.');
         }
 
+        // The backend must persist the selected display mode. A successful POST
+        // alone is insufficient: older servers may silently drop unknown fields.
+        // Verify without deleting or resubmitting anything if persistence fails.
+        let modePersistenceWarning = '';
+        try {
+            const verifyResponse = await fetch('/api/learning/materials', { cache: 'no-store' });
+            if (!verifyResponse.ok) throw new Error('Tidak dapat membaca ulang materi.');
+            const verifyData = await verifyResponse.json();
+            const persisted = (Array.isArray(verifyData.materials) ? verifyData.materials : [])
+                .find(item => String(item.id) === String(id));
+            if (!persisted) throw new Error('Materi yang baru disimpan tidak ditemukan.');
+            const expectedMode = payload.learningDisplayMode;
+            const actualMode = persisted.learningDisplayMode === 'split' ? 'split' : 'sequential';
+            if (expectedMode !== actualMode ||
+                Boolean(persisted.allowExamReference) !== Boolean(payload.allowExamReference)) {
+                modePersistenceWarning = 'Materi tersimpan, tetapi pengaturan Mode Interaktif/izin CBT open-book tidak tersimpan sesuai pilihan guru. Periksa API sebelum fitur digunakan.';
+            }
+        } catch (verificationError) {
+            modePersistenceWarning = 'Materi dikirim ke server, tetapi mode penyajian belum dapat diverifikasi: ' + (verificationError.message || 'Kesalahan pembacaan ulang.');
+        }
         document.getElementById('learning-editor-modal')?.remove();
         window.__learningEditorAssets = [];
         window.__learningSelectedClasses = [];
@@ -1133,7 +1189,12 @@ window.saveLearningMaterial = async function(status) {
         if (data.createdDrafts?.lkpdId) created.push('draft LKPD');
         if (data.createdDrafts?.examId) created.push('draft asesmen');
         const baseMessage = status === 'published' ? 'Materi dipublikasikan.' : 'Draft materi disimpan.';
-        learningToast(created.length ? `${baseMessage} ${created.join(' dan ')} dibuat dan belum terlihat oleh siswa.` : baseMessage, 'success');
+        if (modePersistenceWarning) {
+            learningToast(modePersistenceWarning, 'warning');
+            window.alert(modePersistenceWarning);
+        } else {
+            learningToast(created.length ? `${baseMessage} ${created.join(' dan ')} dibuat dan belum terlihat oleh siswa.` : baseMessage, 'success');
+        }
         window.renderLearningTeacher(document.getElementById('view-container'));
     } catch (err) {
         if (materialSaveRejected && uploadedThisSave.length) {
@@ -1180,6 +1241,7 @@ window.deleteLearningMaterial = async function(id) {
 };
 
 window.renderLearningStudent = async function(container) {
+    closeLearningSplitDock();
     stopLearningTracker();
     if (!container) return;
     if (!featureEnabled('learning')) {
@@ -1286,16 +1348,80 @@ function learningNextActions(material) {
     if (material.lkpdId) {
         actions.push(readiness.lkpdReady === false
             ? '<div class="w-full mt-2 py-3 px-4 rounded-2xl bg-amber-50 text-amber-700 font-bold text-xs text-center"><i class="fa-solid fa-clock mr-2"></i>LKPD sedang disiapkan guru</div>'
-            : `<button type="button" onclick="openLinkedLearningLkpd(${learningInlineArg(material.lkpdId)})" class="w-full mt-2 py-3 rounded-2xl bg-blue-600 text-white font-bold text-sm"><i class="fa-solid fa-clipboard-list mr-2"></i>Lanjut Kerjakan LKPD</button>`);
+            : `<button type="button" onclick="openLinkedLearningLkpd(${learningInlineArg(material.lkpdId)}, ${learningInlineArg(material.id)})" class="w-full mt-2 py-3 rounded-2xl bg-blue-600 text-white font-bold text-sm"><i class="fa-solid fa-clipboard-list mr-2"></i>Lanjut Kerjakan LKPD</button>`);
     }
     if (material.examId) {
         actions.push(readiness.examReady === false
             ? '<div class="w-full mt-2 py-3 px-4 rounded-2xl bg-amber-50 text-amber-700 font-bold text-xs text-center"><i class="fa-solid fa-clock mr-2"></i>Asesmen sedang disiapkan guru</div>'
-            : `<button type="button" onclick="openLinkedLearningExam(${learningInlineArg(material.examId)})" class="w-full mt-2 py-3 rounded-2xl bg-violet-600 text-white font-bold text-sm"><i class="fa-solid fa-file-circle-check mr-2"></i>Lanjut ke Asesmen</button>`);
+            : `<button type="button" onclick="openLinkedLearningExam(${learningInlineArg(material.examId)}, ${learningInlineArg(material.id)})" class="w-full mt-2 py-3 rounded-2xl bg-violet-600 text-white font-bold text-sm"><i class="fa-solid fa-file-circle-check mr-2"></i>Lanjut ke Asesmen</button>`);
     }
     return actions.join('') || '<div class="text-center text-xs text-emerald-700 font-bold py-3">Pembelajaran selesai</div>';
 }
-window.openLinkedLearningLkpd = async function(lkpdId) {
+
+/**
+ * Optional companion study dock. This is a presentation-only layer: answers,
+ * camera, proctoring, session timers and scores remain owned by CBT/LKPD.
+ * No new iframe is used for the activity, avoiding a second assessment session.
+ */
+function closeLearningSplitDock() {
+    window.__learningPendingCbtReference = null;
+    window.__learningPendingLkpdReference = null;
+    document.getElementById('learning-split-dock')?.remove();
+    document.getElementById('learning-split-dock-style')?.remove();
+    document.body.classList.remove('learning-split-active');
+}
+window.closeLearningSplitDock = closeLearningSplitDock;
+window.toggleLearningSplitDock = function() {
+    const dock = document.getElementById('learning-split-dock');
+    if (!dock) return;
+    const body = dock.querySelector('[data-learning-dock-body]');
+    const button = dock.querySelector('[data-learning-dock-toggle]');
+    if (!body || !button) return;
+    const collapsed = body.classList.toggle('hidden');
+    dock.classList.toggle('learning-dock-collapsed', collapsed);
+    document.body.classList.toggle('learning-split-active', !collapsed);
+    button.textContent = collapsed ? 'Tampilkan materi' : 'Perkecil materi';
+};
+function openLearningSplitDock(materialId, activityLabel) {
+    closeLearningSplitDock();
+    const material = (window.__learningMaterials || []).find(row => String(row.id) === String(materialId));
+    if (!material || material.learningDisplayMode !== 'split') return;
+    if (!Array.isArray(material.blocks) || !material.blocks.length) return;
+    const style = document.createElement('style');
+    style.id = 'learning-split-dock-style';
+    style.textContent = `
+      body.learning-split-active #view-container { width:59%; margin-left:41%; max-width:none; }
+      #learning-split-dock { position:fixed; top:68px; left:10px; width:calc(41vw - 20px); height:calc(100dvh - 80px); z-index:30; background:#fff; border:1px solid #cbd5e1; box-shadow:0 12px 36px #0f172a44; border-radius:16px; display:flex; flex-direction:column; overflow:hidden; }
+      body.learning-split-active #learning-split-dock { z-index:30; }
+      body:not(.learning-split-active) #learning-split-dock { z-index:30; }
+      body.learning-split-active #view-container > * { max-width:100%; }
+      #learning-split-dock button { cursor:pointer; }
+      #learning-split-dock [data-learning-dock-body] { flex:1; overflow:auto; padding:12px; overscroll-behavior:contain; }
+      #learning-split-dock iframe { max-width:100%; }
+      #learning-split-dock video { max-height:44vh; }
+      #learning-split-dock.learning-dock-collapsed { height:auto; width:auto; max-width:calc(100vw - 20px); }
+      @media(max-width:800px) { body.learning-split-active #view-container { width:100%; margin-left:0; padding-bottom:min(49dvh,470px); } #learning-split-dock {top:auto;bottom:12px;left:8px;width:calc(100vw - 16px);height:min(48dvh,460px);} }
+      @media(min-width:801px) { body.learning-split-active #view-container { padding-right:8px; } }
+      #learning-split-dock iframe { height:min(64vh,700px)!important; }
+    `;
+    document.head.appendChild(style);
+    document.body.insertAdjacentHTML('beforeend', `
+      <aside id="learning-split-dock" data-learning-material-id="${learningAttr(material.id)}" data-learning-companion-kind="${learningAttr(activityLabel)}" role="complementary" aria-label="Materi pendamping ${learningAttr(activityLabel)}">
+        <div class="p-3 border-b bg-emerald-50 flex flex-wrap items-center justify-between gap-2">
+          <div class="min-w-0"><div class="text-[10px] font-bold text-emerald-700">MATERI + ${learningEsc(activityLabel)}</div>
+          <div class="text-xs font-black text-slate-800 truncate">${learningEsc(material.title || 'Materi')}</div></div>
+          <div class="flex items-center gap-2">
+            <button type="button" data-learning-dock-toggle onclick="toggleLearningSplitDock()" class="text-[11px] px-2 py-1 border rounded-lg bg-white">Perkecil materi</button>
+            <button type="button" onclick="closeLearningSplitDock()" aria-label="Tutup panel materi" class="text-xl px-2">&times;</button>
+          </div>
+        </div>
+        <div data-learning-dock-body class="space-y-4">${renderMaterialBlocks(material.blocks || [])}</div>
+      </aside>`);
+    document.body.classList.add('learning-split-active');
+    void hydrateProtectedLearningPdfs();
+}
+
+window.openLinkedLearningLkpd = async function(lkpdId, materialId = null) {
     if (!featureEnabled('cbt')) return learningToast('Menu CBT/LKPD sedang dinonaktifkan.', 'info');
     if (!Array.isArray(learningState().lkpdList) || !learningState().lkpdList.some(item => String(item.id) === String(lkpdId))) {
         const data = await fetch('/api/lkpds', { cache: 'no-store' }).then(r => r.json()).catch(() => ({}));
@@ -1303,10 +1429,21 @@ window.openLinkedLearningLkpd = async function(lkpdId) {
     }
     const found = (learningState().lkpdList || []).find(item => String(item.id) === String(lkpdId));
     if (!found) return learningToast('LKPD belum diaktifkan oleh guru.', 'info');
-    if (typeof window.openStudentLkpdWorksheetModal === 'function') window.openStudentLkpdWorksheetModal(lkpdId, currentStudentId());
-    else window.navigateTo('asesmen_siswa');
+    // Open the reference only after LKPD confirms its student worksheet is mounted.
+    window.__learningPendingLkpdReference = null;
+    if (typeof window.openStudentLkpdWorksheetModal === 'function') {
+        const linkedMaterial = (window.__learningMaterials || []).find(row => String(row.id) === String(materialId));
+        if (linkedMaterial?.learningDisplayMode === 'split' && String(linkedMaterial.lkpdId) === String(lkpdId) &&
+            currentStudentId()) {
+            window.__learningPendingLkpdReference = {
+                lkpdId: String(lkpdId), materialId: String(materialId),
+                studentId: currentStudentId(), createdAt: Date.now()
+            };
+        }
+        window.openStudentLkpdWorksheetModal(lkpdId, currentStudentId());
+    } else window.navigateTo('asesmen_siswa');
 };
-window.openLinkedLearningExam = async function(examId) {
+window.openLinkedLearningExam = async function(examId, materialId = null) {
     if (!featureEnabled('cbt')) return learningToast('Menu CBT sedang dinonaktifkan.', 'info');
     if (!Array.isArray(learningState().exams) || !learningState().exams.some(item => String(item.id) === String(examId))) {
         const data = await fetch('/api/exams', { cache: 'no-store' }).then(r => r.json()).catch(() => ({}));
@@ -1314,10 +1451,94 @@ window.openLinkedLearningExam = async function(examId) {
     }
     const found = (learningState().exams || []).find(item => String(item.id) === String(examId));
     if (!found) return learningToast('Asesmen belum diaktifkan oleh guru.', 'info');
+    // Store only a short-lived, student-scoped request. No material is visible
+    // until the CBT module has authenticated/started and rendered its active screen.
+    window.__learningPendingCbtReference = null;
+    if (materialId) {
+        const selected = (window.__learningMaterials || []).find(row => String(row.id) === String(materialId));
+        if (selected?.learningDisplayMode === 'split' && selected.allowExamReference === true &&
+            String(selected.examId || '') === String(examId) && currentStudentId()) {
+            window.__learningPendingCbtReference = {
+                examId: String(examId),
+                materialId: String(materialId),
+                studentId: currentStudentId(),
+                createdAt: Date.now()
+            };
+        }
+    }
     if (typeof window.confirmStartStudentExam === 'function') window.confirmStartStudentExam(examId);
     else if (typeof window.startStudentExam === 'function') window.startStudentExam(examId);
     else window.navigateTo('asesmen_siswa');
 };
+
+/**
+ * LKPD student route invokes this after a real worksheet is mounted and the
+ * active session is set; unsuccessful/preview starts never display the reference.
+ */
+window.onLearningLkpdScreenReady = function(lkpdId, studentId) {
+    const pending = window.__learningPendingLkpdReference;
+    if (!pending) return;
+    if (Date.now() - pending.createdAt > 180000 || pending.studentId !== currentStudentId() ||
+        String(studentId) !== pending.studentId || String(lkpdId) !== pending.lkpdId) {
+        window.__learningPendingLkpdReference = null;
+        return;
+    }
+    const material = (window.__learningMaterials || []).find(row => String(row.id) === pending.materialId);
+    if (!material || material.learningDisplayMode !== 'split' || String(material.lkpdId) !== pending.lkpdId) {
+        window.__learningPendingLkpdReference = null;
+        return;
+    }
+    openLearningSplitDock(pending.materialId, 'LKPD');
+    window.__learningPendingLkpdReference = null;
+};
+window.onLearningLkpdSessionEnded = function() {
+    window.__learningPendingLkpdReference = null;
+    if (document.getElementById('learning-split-dock')?.getAttribute('data-learning-companion-kind') === 'LKPD') {
+        closeLearningSplitDock();
+    }
+};
+
+/**
+ * The CBT module calls this only after it has rendered an ACTIVE, unblocked
+ * exam screen. It does not start a CBT session or bypass CBT permission checks.
+ */
+window.onLearningCbtScreenReady = function(examId) {
+    const pending = window.__learningPendingCbtReference;
+    if (!pending) return;
+    if (Date.now() - pending.createdAt > 180000 || pending.studentId !== currentStudentId()) {
+        window.__learningPendingCbtReference = null;
+        return;
+    }
+    if (String(examId) !== pending.examId) return;
+    const material = (window.__learningMaterials || []).find(row => String(row.id) === pending.materialId);
+    if (!material || material.learningDisplayMode !== 'split' || material.allowExamReference !== true ||
+        String(material.examId || '') !== pending.examId) {
+        window.__learningPendingCbtReference = null;
+        return;
+    }
+    // openLearningSplitDock clears the pending request, preventing duplicate media
+    // mounts on subsequent question renders and preserving current playback.
+    openLearningSplitDock(pending.materialId, 'CBT');
+};
+window.onLearningCbtSessionEnded = function() {
+    window.__learningPendingCbtReference = null;
+    if (document.getElementById('learning-split-dock')?.getAttribute('data-learning-companion-kind') === 'CBT') {
+        closeLearningSplitDock();
+    }
+};
+// A trusted embedded PDF/video counts as in-page interaction only when the
+// companion belongs to the currently active, explicitly allowed CBT.
+window.isTrustedLearningReferenceFocus = function(examId) {
+    const dock = document.getElementById('learning-split-dock');
+    if (!dock || dock.getAttribute('data-learning-companion-kind') !== 'CBT' || document.hidden) return false;
+    const active = document.activeElement;
+    if (!active || active.tagName !== 'IFRAME' || !dock.contains(active)) return false;
+    const context = dock.getAttribute('data-learning-material-id');
+    const material = (window.__learningMaterials || []).find(row => String(row.id) === String(context));
+    return Boolean(material && material.allowExamReference === true &&
+        material.learningDisplayMode === 'split' && String(material.examId) === String(examId));
+};
+
 window.openLearningMonitor = async function(id) {
     const container = document.getElementById('view-container');
     const material = (window.__learningMaterials || []).find(item => String(item.id) === String(id));
@@ -1390,6 +1611,9 @@ if (typeof originalNavigateTo === 'function' && !window.__learningNavigateWrappe
                 return;
             }
         }
+        // Companion content may remain while navigating between assessment screens,
+        // but must never leak into unrelated modules or another student's workspace.
+        if (!['asesmen_siswa', 'lkpd_worksheet'].includes(routeText)) closeLearningSplitDock();
         const result = originalNavigateTo.call(this, route, ...args);
         setTimeout(injectLearningMenus, 0);
         return result;
