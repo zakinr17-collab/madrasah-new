@@ -42,6 +42,10 @@ jobs:
       - name: Hardening behavior regression
         run: npm run hardening:regression
 
+      - name: PowerShell CBT load-test cleanup preflight
+        shell: pwsh
+        run: ./tests/check-cleanup-cbt-soak.ps1
+
       - name: Learning mobile popup and split-mode regression
         run: |
           node scripts/learning-split-regression.cjs
