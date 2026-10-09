@@ -90,7 +90,16 @@ document.addEventListener('fullscreenchange', () => {
 });
 window.requestCbtFullscreen = requestCbtFullscreen;
 window.__onCbtRouteNavigation = function(nextRoute) {
-    if (String(nextRoute || '') !== 'asesmen_siswa') exitCbtFullscreen();
+    if (String(nextRoute || '') === 'asesmen_siswa') return;
+    exitCbtFullscreen();
+    // A student may navigate away while the attempt is still recoverable.
+    // Restore the normal app chrome without deleting answers or timer state.
+    if (activeExamSession) {
+        const sidebar = document.getElementById('sidebar');
+        const header = document.querySelector('header');
+        if (sidebar) sidebar.style.display = '';
+        if (header) header.style.display = '';
+    }
 };
 
 function getRetryAfterMs(response) {
