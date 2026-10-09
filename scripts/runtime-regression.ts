@@ -374,7 +374,9 @@ await test('CBT: student load activates attempt before requesting questions', ()
   assert.match(fn, /questions = questions\.map\(stripStudentQuestionSecrets\)\.filter\(Boolean\)/);
   assert.match(fn, /Paket soal ujian kosong/);
   assert.doesNotMatch(assessmentSource, /currentActiveExamKey\.split\('_'\)\[1\]/);
-  assert.match(assessmentSource, /currentActiveExamKey\.slice\(matchedPrefix\.length\)/);
+  // The menu lists schedules; resumption requires selecting the individual card.
+  assert.doesNotMatch(assessmentSource, /startStudentExam\\(exId\\);\\s*return;/);
+  assert.match(assessmentSource, /Opening the assessment MENU must always show its schedule list/);
 });
 
 await test('CBT: expired attempt resumes at zero only for safe finalization', () => {
