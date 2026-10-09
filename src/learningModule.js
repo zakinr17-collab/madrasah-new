@@ -1174,8 +1174,9 @@ window.saveLearningMaterial = async function(status) {
             if (!persisted) throw new Error('Materi yang baru disimpan tidak ditemukan.');
             const expectedMode = payload.learningDisplayMode;
             const actualMode = persisted.learningDisplayMode === 'split' ? 'split' : 'sequential';
-            if (expectedMode !== actualMode) {
-                modePersistenceWarning = 'Materi tersimpan, tetapi server belum mempertahankan Mode Interaktif. Perlu dukungan penyimpanan learningDisplayMode pada API sebelum fitur digunakan.';
+            if (expectedMode !== actualMode ||
+                Boolean(persisted.allowExamReference) !== Boolean(payload.allowExamReference)) {
+                modePersistenceWarning = 'Materi tersimpan, tetapi pengaturan Mode Interaktif/izin CBT open-book tidak tersimpan sesuai pilihan guru. Periksa API sebelum fitur digunakan.';
             }
         } catch (verificationError) {
             modePersistenceWarning = 'Materi dikirim ke server, tetapi mode penyajian belum dapat diverifikasi: ' + (verificationError.message || 'Kesalahan pembacaan ulang.');
@@ -1427,9 +1428,10 @@ window.openLinkedLearningLkpd = async function(lkpdId, materialId = null) {
     }
     const found = (learningState().lkpdList || []).find(item => String(item.id) === String(lkpdId));
     if (!found) return learningToast('LKPD belum diaktifkan oleh guru.', 'info');
-    if (materialId) openLearningSplitDock(materialId, 'LKPD');
-    if (typeof window.openStudentLkpdWorksheetModal === 'function') window.openStudentLkpdWorksheetModal(lkpdId, currentStudentId());
-    else window.navigateTo('asesmen_siswa');
+    if (typeof window.openStudentLkpdWorksheetModal === 'function') {
+        if (materialId) openLearningSplitDock(materialId, 'LKPD');
+        window.openStudentLkpdWorksheetModal(lkpdId, currentStudentId());
+    } else window.navigateTo('asesmen_siswa');
 };
 window.openLinkedLearningExam = async function(examId, materialId = null) {
     if (!featureEnabled('cbt')) return learningToast('Menu CBT sedang dinonaktifkan.', 'info');
