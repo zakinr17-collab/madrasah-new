@@ -1365,6 +1365,7 @@ function learningNextActions(material) {
  */
 function closeLearningSplitDock() {
     window.__learningPendingCbtReference = null;
+    window.__learningPendingLkpdReference = null;
     document.getElementById('learning-split-dock')?.remove();
     document.getElementById('learning-split-dock-style')?.remove();
     document.body.classList.remove('learning-split-active');
@@ -1428,8 +1429,17 @@ window.openLinkedLearningLkpd = async function(lkpdId, materialId = null) {
     }
     const found = (learningState().lkpdList || []).find(item => String(item.id) === String(lkpdId));
     if (!found) return learningToast('LKPD belum diaktifkan oleh guru.', 'info');
+    // Open the reference only after LKPD confirms its student worksheet is mounted.
+    window.__learningPendingLkpdReference = null;
     if (typeof window.openStudentLkpdWorksheetModal === 'function') {
-        if (materialId) openLearningSplitDock(materialId, 'LKPD');
+        const linkedMaterial = (window.__learningMaterials || []).find(row => String(row.id) === String(materialId));
+        if (linkedMaterial?.learningDisplayMode === 'split' && String(linkedMaterial.lkpdId) === String(lkpdId) &&
+            currentStudentId()) {
+            window.__learningPendingLkpdReference = {
+                lkpdId: String(lkpdId), materialId: String(materialId),
+                studentId: currentStudentId(), createdAt: Date.now()
+            };
+        }
         window.openStudentLkpdWorksheetModal(lkpdId, currentStudentId());
     } else window.navigateTo('asesmen_siswa');
 };
@@ -1459,6 +1469,33 @@ window.openLinkedLearningExam = async function(examId, materialId = null) {
     if (typeof window.confirmStartStudentExam === 'function') window.confirmStartStudentExam(examId);
     else if (typeof window.startStudentExam === 'function') window.startStudentExam(examId);
     else window.navigateTo('asesmen_siswa');
+};
+
+/**
+ * LKPD student route invokes this after a real worksheet is mounted and the
+ * active session is set; unsuccessful/preview starts never display the reference.
+ */
+window.onLearningLkpdScreenReady = function(lkpdId, studentId) {
+    const pending = window.__learningPendingLkpdReference;
+    if (!pending) return;
+    if (Date.now() - pending.createdAt > 180000 || pending.studentId !== currentStudentId() ||
+        String(studentId) !== pending.studentId || String(lkpdId) !== pending.lkpdId) {
+        window.__learningPendingLkpdReference = null;
+        return;
+    }
+    const material = (window.__learningMaterials || []).find(row => String(row.id) === pending.materialId);
+    if (!material || material.learningDisplayMode !== 'split' || String(material.lkpdId) !== pending.lkpdId) {
+        window.__learningPendingLkpdReference = null;
+        return;
+    }
+    openLearningSplitDock(pending.materialId, 'LKPD');
+    window.__learningPendingLkpdReference = null;
+};
+window.onLearningLkpdSessionEnded = function() {
+    window.__learningPendingLkpdReference = null;
+    if (document.getElementById('learning-split-dock')?.getAttribute('data-learning-companion-kind') === 'LKPD') {
+        closeLearningSplitDock();
+    }
 };
 
 /**
