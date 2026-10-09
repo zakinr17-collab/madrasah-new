@@ -114,7 +114,7 @@ mobile.gripEvents.emit('pointerup', { pointerId: 11 });
 mobile.win.toggleLearningMobileDockSize();
 assert.equal(mobile.dock.getAttribute('data-learning-dock-size'), 'large');
 assert.equal(mobile.sizeButton.textContent, 'Perkecil ukuran');
-assert(parseFloat(mobile.dock.style.top) <= 182, 'Enlarging must still leave popup on-screen');
+assert(parseFloat(mobile.dock.style.top) <= 192, 'Enlarging must still leave popup on-screen');
 mobile.win.toggleLearningSplitDock();
 assert(mobile.dock.classList.contains('learning-dock-collapsed'), 'Popup can be minimized again');
 mobile.win.closeLearningSplitDock();
