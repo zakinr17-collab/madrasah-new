@@ -3658,6 +3658,47 @@ function reconcileStudentCbtServerSummary(studentId, examList, summary) {
     return true;
 }
 
+// The assessment MENU remains freely accessible. Only the individual
+// schedule linked to a published, student-visible required material gets a
+// visual prerequisite notice. Click-time and server attempt gates stay authoritative.
+async function annotateStudentSchedulePrerequisites(container, studentId) {
+    if (!container || !container.isConnected) return;
+    try {
+        const response = await fetch('/api/learning/materials', { cache: 'no-store' });
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data.success === false) return;
+        const materials = Array.isArray(data.materials) ? data.materials : [];
+        const progress = Array.isArray(data.progress) ? data.progress : [];
+        const sid = String(studentId || '');
+        const completeIds = new Set(progress.filter(row =>
+            String(row.studentId || '') === sid &&
+            (row.status === 'completed' || Number(row.progressPercent || 0) >= 100)
+        ).map(row => String(row.materialId || '')));
+        container.querySelectorAll('[data-learning-exam-schedule]').forEach(card => {
+            if (!card.isConnected || !container.contains(card)) return;
+            const scheduleId = String(card.getAttribute('data-learning-exam-schedule') || '');
+            const target = card.querySelector('[data-learning-schedule-notice]');
+            if (!scheduleId || !target) return;
+            const missing = materials.filter(material =>
+                String(material.scheduleId || material.examId || '').trim() === scheduleId &&
+                material.requiresCompletionForLinks !== false &&
+                !completeIds.has(String(material.id || '')) &&
+                !(material.progress && (material.progress.status === 'completed' ||
+                    Number(material.progress.progressPercent || 0) >= 100))
+            );
+            if (!missing.length) return;
+            target.innerHTML = '<div class="mt-3 p-2.5 rounded-xl border border-amber-200 bg-amber-50 text-amber-800 text-xs font-bold">' +
+                '<i class="fa-solid fa-lock mr-1.5"></i>Jadwal ini memerlukan penyelesaian materi: ' +
+                assessmentEscapeHtml(missing.map(item => String(item.title || 'Materi Pembelajaran')).join(', ')) +
+                '</div>';
+            target.classList.remove('hidden');
+        });
+    } catch (error) {
+        console.warn('Gagal memuat informasi prasyarat per jadwal:', error);
+    }
+}
+
 async function renderStudentCBTList(container, isRefresh = false) {
     if (!container) return;
 
@@ -3905,7 +3946,7 @@ async function renderStudentCBTList(container, isRefresh = false) {
         }
 
         const html = `
-            <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-4 flex flex-col justify-between hover:border-emerald-200 transition">
+            <div data-learning-exam-schedule="${assessmentEscapeAttr(ex.id)}" class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 space-y-4 flex flex-col justify-between hover:border-emerald-200 transition">
                 <div>
                     <div class="flex justify-between items-start gap-2">
                         ${badgeHtml}
@@ -3915,6 +3956,7 @@ async function renderStudentCBTList(container, isRefresh = false) {
                     <p class="text-xs text-slate-500 mt-1"><i class="fa-solid fa-calendar-days mr-1.5 text-emerald-600"></i>${ex.date || '-'} &nbsp;|&nbsp; <i class="fa-solid fa-clock mr-1 text-emerald-600"></i>${ex.startTime || '07:30'}${ex.endTime ? ' - ' + ex.endTime : ''} WIB</p>
                     ${ex.subject ? `<p class="text-xs text-slate-400 mt-1 font-medium"><i class="fa-solid fa-book mr-1.5 text-slate-400"></i>${ex.subject}</p>` : ''}
                     ${statusNoticeHtml ? `<div class="mt-3">${statusNoticeHtml}</div>` : ''}
+                    <div data-learning-schedule-notice class="hidden"></div>
                 </div>
                 ${actionBtnHtml}
             </div>
@@ -4051,6 +4093,8 @@ async function renderStudentCBTList(container, isRefresh = false) {
             </div>
         </div>
     `;
+    // Inform students on the precise linked schedule; never block this menu.
+    void annotateStudentSchedulePrerequisites(container, st.id || currUser.id || '');
 }
 
 async function enforceLearningScheduleMaterialGate(schedule, studentId) {
