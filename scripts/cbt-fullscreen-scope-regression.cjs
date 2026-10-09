@@ -30,9 +30,13 @@ function fixture({role = 'student', playerVisible = true, delayed = false} = {})
   let closeCalls = 0;
   let fulfill = null;
   const listeners = {};
+  const sidebar = {style:{display:'none'}};
+  const header = {style:{display:'none'}};
   const document = {
     fullscreenElement: null,
-    getElementById: (id) => id === 'cbt-active-exam-screen' && canSeePlayer ? {} : null,
+    getElementById: (id) => id === 'sidebar' ? sidebar :
+      (id === 'cbt-active-exam-screen' && canSeePlayer ? {} : null),
+    querySelector: (selector) => selector === 'header' ? header : null,
     addEventListener: (type, listener) => { listeners[type] = listener; },
     exitFullscreen: () => { closeCalls++; document.fullscreenElement = null; return Promise.resolve(); }
   };
@@ -52,7 +56,7 @@ function fixture({role = 'student', playerVisible = true, delayed = false} = {})
   });
   vm.runInContext('let activeExamSession = { exam: { id: "exam-1" } };\n' + helper, context);
   return {
-    context, document, listeners,
+    context, document, listeners, sidebar, header,
     get openCalls() { return openCalls; },
     get closeCalls() { return closeCalls; },
     setVisible: (x) => { canSeePlayer = x; },
@@ -74,6 +78,8 @@ async function run() {
   student.context.window.__onCbtRouteNavigation('profil_siswa');
   await flush();
   assert.equal(student.closeCalls, 1, 'Navigating away must exit fullscreen');
+  assert.equal(student.sidebar.style.display, '', 'Leaving player must restore sidebar');
+  assert.equal(student.header.style.display, '', 'Leaving player must restore header');
 
   const teacher = fixture({role:'teacher'});
   teacher.context.window.requestCbtFullscreen();
