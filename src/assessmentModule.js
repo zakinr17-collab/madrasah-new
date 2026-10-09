@@ -4223,7 +4223,7 @@ window.confirmStartStudentExam = async function(examId) {
                         </div>
                     </div>
                     <div class="p-6 bg-slate-50 flex justify-end gap-3 rounded-b-3xl">
-                        <button type="button" onclick="document.getElementById('modal-container').innerHTML=''" class="px-5 py-2.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 transition">Batal</button>
+                        <button type="button" onclick="document.getElementById('modal-container').innerHTML=''; window.onLearningCbtSessionEnded?.()" class="px-5 py-2.5 text-xs font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl hover:bg-slate-100 transition">Batal</button>
                         <button type="button" onclick="document.getElementById('modal-container').innerHTML=''; startStudentExam(${assessmentInlineArg(ex.id)});" class="px-5 py-2.5 text-xs font-semibold text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 shadow-sm transition">Mulai Ujian</button>
                     </div>
                 </div>
