@@ -375,7 +375,7 @@ await test('CBT: student load activates attempt before requesting questions', ()
   assert.match(fn, /Paket soal ujian kosong/);
   assert.doesNotMatch(assessmentSource, /currentActiveExamKey\.split\('_'\)\[1\]/);
   // The menu lists schedules; resumption requires selecting the individual card.
-  assert.doesNotMatch(assessmentSource, /startStudentExam\\(exId\\);\\s*return;/);
+  assert.doesNotMatch(assessmentSource, /startStudentExam\(exId\);\s*return;/);
   assert.match(assessmentSource, /Opening the assessment MENU must always show its schedule list/);
 });
 
