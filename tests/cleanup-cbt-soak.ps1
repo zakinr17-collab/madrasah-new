@@ -5,7 +5,8 @@ param(
     [string]$ExamId,
     [string]$AccountsPath = "",
     [int]$AccountOffset = 0,
-    [int]$Count = 0
+    [int]$Count = 0,
+    [switch]$ValidateOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,7 +32,21 @@ if (-not (Test-Path $AccountsPath)) {
     throw "File akun load-test tidak ditemukan: $AccountsPath"
 }
 
-$Accounts = @(Get-Content -Raw -Path $AccountsPath | ConvertFrom-Json)
+# Windows PowerShell may return the entire JSON array as one pipeline item.
+# Avoid @( ... | ConvertFrom-Json ), which can report Count=1 for 800 accounts.
+$RawAccountsJson = Get-Content -Raw -Path $AccountsPath
+if ([string]::IsNullOrWhiteSpace($RawAccountsJson) -or -not $RawAccountsJson.TrimStart().StartsWith('[')) {
+    throw "File akun harus berupa array JSON: [ { studentId, username, nis, ... }, ... ]."
+}
+$ParsedAccounts = ConvertFrom-Json -InputObject $RawAccountsJson
+if ($null -eq $ParsedAccounts) {
+    $Accounts = @()
+} elseif ($ParsedAccounts -is [array]) {
+    $Accounts = [object[]]$ParsedAccounts
+} else {
+    # Some PowerShell versions unwrap a single-element array.
+    $Accounts = @($ParsedAccounts)
+}
 if ($Accounts.Count -eq 0) {
     throw "File akun load-test kosong."
 }
@@ -47,7 +62,19 @@ if (($AccountOffset + $TakeCount) -gt $Accounts.Count) {
 $Targets = @($Accounts | Select-Object -Skip $AccountOffset -First $TakeCount)
 $MissingIds = @($Targets | Where-Object { [string]::IsNullOrWhiteSpace([string]$_.studentId) })
 if ($MissingIds.Count -gt 0) {
-    throw "Ada $($MissingIds.Count) akun tanpa studentId. Buat ulang file akun dengan prepare-loadtest-accounts.ps1."
+    throw "Ada $($MissingIds.Count) akun tanpa studentId atau format JSON bersarang. Periksa format file akun."
+}
+
+# Only dedicated dummy identities may be reset on the production tenant.
+$NonLoadtest = @($Targets | Where-Object {
+    [string]$_.username -notmatch '^loadtest[0-9]{3}$' -or [string]$_.nis -notmatch '^LT[0-9]{3}$'
+})
+if ($NonLoadtest.Count -gt 0) {
+    throw "Dibatalkan: $($NonLoadtest.Count) akun tidak sesuai pola loadtestNNN + LTNNN. Tidak ada reset dijalankan."
+}
+$UniqueIds = @($Targets | ForEach-Object { [string]$_.studentId } | Select-Object -Unique)
+if ($UniqueIds.Count -ne $Targets.Count) {
+    throw "Dibatalkan: terdapat studentId duplikat pada target cleanup."
 }
 
 Write-Host "=== Madrasah Bisa - Cleanup State CBT Soak ===" -ForegroundColor Cyan
@@ -56,6 +83,12 @@ Write-Host "Tenant      : $Tenant"
 Write-Host "Exam ID     : $ExamId"
 Write-Host "Akun target : $($Targets.Count) (offset $AccountOffset)"
 Write-Host ""
+
+if ($ValidateOnly) {
+    Write-Host "VALIDASI SAJA: file dan akun valid; tidak login ke server dan tidak ada reset." -ForegroundColor Green
+    $Targets | Select-Object -First 3 studentId, username, nis | Format-Table -AutoSize
+    return
+}
 
 $AdminUser = Read-Host "Username admin madrasah"
 $SecureAdminPassword = Read-Host "Password admin (tidak ditampilkan)" -AsSecureString
