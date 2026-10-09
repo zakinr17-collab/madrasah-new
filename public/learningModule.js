@@ -1363,7 +1363,92 @@ function learningNextActions(material) {
  * camera, proctoring, session timers and scores remain owned by CBT/LKPD.
  * No new iframe is used for the activity, avoiding a second assessment session.
  */
+
+let learningMobileDockCleanup = null;
+function isMobileLearningDock() {
+    if (typeof window.matchMedia === 'function') return window.matchMedia('(max-width: 800px)').matches;
+    return typeof window.innerWidth === 'number' && window.innerWidth > 0 && window.innerWidth <= 800;
+}
+// Keep the draggable reading reference entirely within the usable mobile viewport,
+// even after rotation, keyboard appearance, minimization, or popup resizing.
+function clampLearningMobileDock(dock, preferredLeft, preferredTop) {
+    if (!dock || !isMobileLearningDock() || typeof dock.getBoundingClientRect !== 'function') return;
+    const rect = dock.getBoundingClientRect();
+    const viewport = window.visualViewport;
+    const leftBound = (viewport ? viewport.offsetLeft : 0) + 8;
+    const topBound = (viewport ? viewport.offsetTop : 0) + 8;
+    const usableWidth = viewport ? viewport.width : window.innerWidth;
+    const usableHeight = viewport ? viewport.height : window.innerHeight;
+    const rightBound = Math.max(leftBound, leftBound + usableWidth - rect.width - 16);
+    const bottomBound = Math.max(topBound, topBound + usableHeight - rect.height - 16);
+    const left = Math.min(rightBound, Math.max(leftBound, Number.isFinite(preferredLeft) ? preferredLeft : rect.left));
+    const top = Math.min(bottomBound, Math.max(topBound, Number.isFinite(preferredTop) ? preferredTop : rect.top));
+    dock.style.left = left + 'px';
+    dock.style.top = top + 'px';
+    dock.style.right = 'auto';
+    dock.style.bottom = 'auto';
+}
+function setupLearningMobileDock(dock) {
+    if (!dock || !isMobileLearningDock()) return;
+    const grip = dock.querySelector('[data-learning-dock-drag]');
+    if (!grip || typeof grip.addEventListener !== 'function') return;
+    // Initial compact pill keeps the answer form, timer, and navigation unobstructed.
+    dock.classList.add('learning-dock-collapsed');
+    const body = dock.querySelector('[data-learning-dock-body]');
+    if (body) body.classList.add('hidden');
+    document.body.classList.remove('learning-split-active');
+    const toggle = dock.querySelector('[data-learning-dock-toggle]');
+    if (toggle) toggle.textContent = 'Buka materi';
+    let pointer = null;
+    const onPointerDown = (event) => {
+        if (event.button !== undefined && event.button !== 0) return;
+        if (event.isPrimary === false) return;
+        const rect = dock.getBoundingClientRect();
+        pointer = { id: event.pointerId, x: event.clientX, y: event.clientY, left: rect.left, top: rect.top };
+        if (grip.setPointerCapture) try { grip.setPointerCapture(event.pointerId); } catch (_) {}
+        if (event.cancelable) event.preventDefault();
+    };
+    const onPointerMove = (event) => {
+        if (!pointer || pointer.id !== event.pointerId) return;
+        clampLearningMobileDock(dock, pointer.left + event.clientX - pointer.x, pointer.top + event.clientY - pointer.y);
+        if (event.cancelable) event.preventDefault();
+    };
+    const onPointerEnd = (event) => {
+        if (!pointer || pointer.id !== event.pointerId) return;
+        pointer = null;
+        if (grip.hasPointerCapture && grip.hasPointerCapture(event.pointerId)) {
+            try { grip.releasePointerCapture(event.pointerId); } catch (_) {}
+        }
+    };
+    grip.addEventListener('pointerdown', onPointerDown);
+    grip.addEventListener('pointermove', onPointerMove);
+    grip.addEventListener('pointerup', onPointerEnd);
+    grip.addEventListener('pointercancel', onPointerEnd);
+    const clampOnResize = () => clampLearningMobileDock(dock);
+    window.addEventListener('resize', clampOnResize);
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', clampOnResize);
+    learningMobileDockCleanup = () => {
+        grip.removeEventListener('pointerdown', onPointerDown);
+        grip.removeEventListener('pointermove', onPointerMove);
+        grip.removeEventListener('pointerup', onPointerEnd);
+        grip.removeEventListener('pointercancel', onPointerEnd);
+        window.removeEventListener('resize', clampOnResize);
+        if (window.visualViewport) window.visualViewport.removeEventListener('resize', clampOnResize);
+        learningMobileDockCleanup = null;
+    };
+}
+window.toggleLearningMobileDockSize = function() {
+    const dock = document.getElementById('learning-split-dock');
+    if (!dock || !isMobileLearningDock() || dock.classList.contains('learning-dock-collapsed')) return;
+    const large = dock.getAttribute('data-learning-dock-size') === 'large';
+    dock.setAttribute('data-learning-dock-size', large ? 'compact' : 'large');
+    const button = dock.querySelector('[data-learning-dock-size-toggle]');
+    if (button) button.textContent = large ? 'Perbesar' : 'Perkecil ukuran';
+    clampLearningMobileDock(dock);
+};
+
 function closeLearningSplitDock() {
+    if (learningMobileDockCleanup) learningMobileDockCleanup();
     window.__learningPendingCbtReference = null;
     window.__learningPendingLkpdReference = null;
     document.getElementById('learning-split-dock')?.remove();
@@ -1380,7 +1465,8 @@ window.toggleLearningSplitDock = function() {
     const collapsed = body.classList.toggle('hidden');
     dock.classList.toggle('learning-dock-collapsed', collapsed);
     document.body.classList.toggle('learning-split-active', !collapsed);
-    button.textContent = collapsed ? 'Tampilkan materi' : 'Perkecil materi';
+    button.textContent = collapsed ? 'Buka materi' : 'Perkecil materi';
+    if (isMobileLearningDock()) clampLearningMobileDock(dock);
 };
 function openLearningSplitDock(materialId, activityLabel) {
     closeLearningSplitDock();
@@ -1400,24 +1486,42 @@ function openLearningSplitDock(materialId, activityLabel) {
       #learning-split-dock iframe { max-width:100%; }
       #learning-split-dock video { max-height:44vh; }
       #learning-split-dock.learning-dock-collapsed { height:auto; width:auto; max-width:calc(100vw - 20px); }
-      @media(max-width:800px) { body.learning-split-active #view-container { width:100%; margin-left:0; padding-bottom:min(49dvh,470px); } #learning-split-dock {top:auto;bottom:12px;left:8px;width:calc(100vw - 16px);height:min(48dvh,460px);} }
+      @media(max-width:800px) {
+        body.learning-split-active #view-container { width:100%; margin-left:0; }
+        #learning-split-dock { top:auto; bottom:max(12px,env(safe-area-inset-bottom)); left:auto; right:12px; width:min(88vw,390px); height:min(48dvh,440px); max-height:calc(100dvh - 16px); z-index:40; }
+        #learning-split-dock [data-learning-dock-drag] { display:inline-flex; touch-action:none; cursor:grab; user-select:none; -webkit-user-select:none; }
+        #learning-split-dock [data-learning-dock-drag]:active { cursor:grabbing; }
+        #learning-split-dock [data-learning-dock-size-toggle] { display:inline-flex; }
+        #learning-split-dock[data-learning-dock-size='large']:not(.learning-dock-collapsed) { width:min(calc(100vw - 16px),520px); height:min(70dvh,640px); }
+        #learning-split-dock.learning-dock-collapsed { width:max-content; height:auto; max-width:calc(100vw - 16px); min-height:0; }
+        #learning-split-dock.learning-dock-collapsed [data-learning-dock-title],
+        #learning-split-dock.learning-dock-collapsed [data-learning-dock-size-toggle],
+        #learning-split-dock.learning-dock-collapsed [data-learning-dock-body] { display:none!important; }
+        #learning-split-dock [data-learning-dock-body] { min-height:0; -webkit-overflow-scrolling:touch; }
+        #learning-split-dock iframe { height:min(42dvh,340px)!important; }
+      }
       @media(min-width:801px) { body.learning-split-active #view-container { padding-right:8px; } }
       #learning-split-dock iframe { height:min(64vh,700px)!important; }
     `;
     document.head.appendChild(style);
     document.body.insertAdjacentHTML('beforeend', `
       <aside id="learning-split-dock" data-learning-material-id="${learningAttr(material.id)}" data-learning-companion-kind="${learningAttr(activityLabel)}" role="complementary" aria-label="Materi pendamping ${learningAttr(activityLabel)}">
-        <div class="p-3 border-b bg-emerald-50 flex flex-wrap items-center justify-between gap-2">
-          <div class="min-w-0"><div class="text-[10px] font-bold text-emerald-700">MATERI + ${learningEsc(activityLabel)}</div>
+        <div class="p-2.5 sm:p-3 border-b bg-emerald-50 flex flex-wrap items-center justify-between gap-2">
+          <button type="button" data-learning-dock-drag aria-label="Geser jendela materi" title="Tahan dan geser jendela materi" class="hidden items-center gap-1 rounded-lg bg-white border border-emerald-200 text-emerald-800 text-[11px] font-bold px-2.5 py-2">
+            <i class="fa-solid fa-up-down-left-right"></i><span>Geser</span>
+          </button>
+          <div data-learning-dock-title class="min-w-0"><div class="text-[10px] font-bold text-emerald-700">MATERI + ${learningEsc(activityLabel)}</div>
           <div class="text-xs font-black text-slate-800 truncate">${learningEsc(material.title || 'Materi')}</div></div>
           <div class="flex items-center gap-2">
-            <button type="button" data-learning-dock-toggle onclick="toggleLearningSplitDock()" class="text-[11px] px-2 py-1 border rounded-lg bg-white">Perkecil materi</button>
+            <button type="button" data-learning-dock-size-toggle onclick="toggleLearningMobileDockSize()" class="hidden items-center text-[11px] px-2 py-1.5 border rounded-lg bg-white">Perbesar</button>
+            <button type="button" data-learning-dock-toggle onclick="toggleLearningSplitDock()" class="text-[11px] font-bold px-2.5 py-1.5 border rounded-lg bg-white">Perkecil materi</button>
             <button type="button" onclick="closeLearningSplitDock()" aria-label="Tutup panel materi" class="text-xl px-2">&times;</button>
           </div>
         </div>
         <div data-learning-dock-body class="space-y-4">${renderMaterialBlocks(material.blocks || [])}</div>
       </aside>`);
     document.body.classList.add('learning-split-active');
+    setupLearningMobileDock(document.getElementById('learning-split-dock'));
     void hydrateProtectedLearningPdfs();
 }
 

@@ -10,6 +10,7 @@ on:
       - 'src/assessmentModule.js'
       - 'src/lkpdModule.js'
       - 'scripts/learning-split-regression.cjs'
+      - 'scripts/learning-mobile-popup-regression.cjs'
       - 'scripts/assessment-schedule-gate-regression.cjs'
       - 'src/main.tsx'
       - 'server.ts'
@@ -61,6 +62,7 @@ jobs:
       - name: Split learning behavior regression
         run: |
           node scripts/learning-split-regression.cjs
+          node scripts/learning-mobile-popup-regression.cjs
           node --check src/assessmentModule.js
           node --check src/lkpdModule.js
           cmp -s src/assessmentModule.js public/assessmentModule.js
