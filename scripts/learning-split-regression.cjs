@@ -17,6 +17,45 @@ const checks = [
   ['LKPD exit cleanup', fs.readFileSync(path.join(root, 'src/lkpdModule.js'), 'utf8').includes('window.closeLearningSplitDock()')]
 ];
 for (const [name, passed] of checks) assert.ok(passed, name);
+
+// Execute the real TypeScript material sanitizer with isolated dependency stubs.
+// This catches regressions in the actual online/offline shared API write path.
+const sanitizeStart = backend.indexOf('function sanitizeLearningMaterialMutation(');
+const sanitizeEnd = backend.indexOf('\nfunction learningProgressKey(', sanitizeStart);
+assert.ok(sanitizeStart >= 0 && sanitizeEnd > sanitizeStart, 'Server material sanitizer found');
+const sanitizerSource = backend.slice(sanitizeStart, sanitizeEnd);
+const compiledSanitizer = require('esbuild').transformSync(sanitizerSource, {
+  loader: 'ts', target: 'es2022'
+}).code;
+const sanitizeLearningMaterialMutation = vm.runInNewContext(
+  compiledSanitizer + '\nsanitizeLearningMaterialMutation',
+  {
+    tagNewRecord: record => record,
+    sanitizeLearningBlocks: raw => Array.isArray(raw) ? raw : [],
+    isTeacherRequest: () => false,
+    teacherCanUseLearningMaterialPayload: () => true,
+    teacherCanUseLkpdPayload: () => true,
+    teacherCanUseExamPayload: () => true,
+    isItemForCurrentMadrasah: () => true,
+    lkpdList: [], exams: [],
+    crypto: { randomBytes: () => ({ toString: () => 'fixture' }) }
+  }
+);
+const req = { user: { id: 'TEACHER-1' } };
+const baseMaterial = { id: 'MATERIAL-1', title: 'Fixture', classes: ['ALL'] };
+const openBook = sanitizeLearningMaterialMutation(req, {
+  ...baseMaterial, learningDisplayMode: 'split', allowExamReference: true
+});
+assert.equal(openBook.learningDisplayMode, 'split', 'Split mode persists');
+assert.equal(openBook.allowExamReference, true, 'Teacher opt-in persists');
+const disabled = sanitizeLearningMaterialMutation(req, {
+  ...baseMaterial, learningDisplayMode: 'sequential', allowExamReference: false
+}, openBook);
+assert.equal(disabled.learningDisplayMode, 'sequential', 'Teacher can disable split mode');
+assert.equal(disabled.allowExamReference, false, 'Teacher can revoke open-book access');
+const legacy = sanitizeLearningMaterialMutation(req, baseMaterial);
+assert.equal(legacy.learningDisplayMode, 'sequential', 'Old content stays sequential');
+assert.equal(legacy.allowExamReference, false, 'Old content is closed-book by default');
 function testContext(allowExamReference = true) {
   let dock = null, confirmationCount = 0, styles = [];
   const classes = new Set();
