@@ -3747,29 +3747,13 @@ async function renderStudentCBTList(container, isRefresh = false) {
     if (!appState.completedExams) appState.completedExams = JSON.parse(localStorage.getItem('madrasah_completed_exams')) || {};
     if (!appState.activeExamSessions) appState.activeExamSessions = JSON.parse(localStorage.getItem('madrasah_active_exam_sessions')) || {};
 
-    // Match any active exam session key corresponding to this student (by ID, username, or NIS)
-    const possiblePrefixes = [
-        (st.id || '') + '_',
-        (currUser.id || '') + '_',
-        (currUser.username || '') + '_',
-        (st.username || '') + '_'
-    ].filter(p => p.length > 1);
-
-    const activeSessionKeys = Object.keys(appState.activeExamSessions || {});
-    const currentActiveExamKey = activeSessionKeys.find(k => possiblePrefixes.some(pref => k.startsWith(pref)));
-
-    if (currentActiveExamKey) {
-        const matchedPrefix = possiblePrefixes.find(pref => currentActiveExamKey.startsWith(pref));
-        const exId = matchedPrefix ? currentActiveExamKey.slice(matchedPrefix.length) : '';
-        const exExists = (appState.exams || []).find(e => String(e.id) === String(exId));
-        if (exExists) {
-            startStudentExam(exId);
-            return;
-        } else {
-            delete appState.activeExamSessions[currentActiveExamKey];
-            safeSetStorage('madrasah_active_exam_sessions', appState.activeExamSessions);
-        }
-    }
+    // Opening the assessment MENU must always show its schedule list.
+    // A previously stored CBT attempt belongs to its individual schedule card,
+    // where students may explicitly choose "Lanjutkan Ujian". Auto-resuming
+    // any saved attempt here used to trigger that schedule's prerequisite popup
+    // before other unrelated schedules were even visible.
+    // Do not discard stored attempts during menu navigation; the original CBT
+    // resume path still handles them once the student selects that schedule.
 
     // Filter exams assigned to ALL or to the student's specific class (exclude event containers)
     const displayExams = (appState.exams || []).filter(ex => {
@@ -4174,10 +4158,14 @@ window.confirmStartStudentExam = async function(examId) {
         return;
     }
     
-    const learningGate = await enforceLearningScheduleMaterialGate(ex, stId);
-    if (!learningGate.allowed) {
-        openLearningMaterialPrerequisitePopup(learningGate);
-        return;
+    // Prerequisites apply only when starting this schedule for the first time.
+    // An already-running attempt must remain resumable.
+    if (!hasActiveSession) {
+        const learningGate = await enforceLearningScheduleMaterialGate(ex, stId);
+        if (!learningGate.allowed) {
+            openLearningMaterialPrerequisitePopup(learningGate);
+            return;
+        }
     }
 
     const modal = document.getElementById('modal-container');
@@ -4270,11 +4258,7 @@ async function startStudentExam(examId) {
 
     const stId = st.id || currUser.id || '';
 
-    const learningGate = await enforceLearningScheduleMaterialGate(ex, stId);
-    if (!learningGate.allowed) {
-        openLearningMaterialPrerequisitePopup(learningGate);
-        return;
-    }
+
 
     const key1 = stId + '_' + ex.id;
     const key2 = String(stId) + '_' + String(ex.id);
@@ -4285,6 +4269,16 @@ async function startStudentExam(examId) {
         (activeSessions[key1] && activeSessions[key1].status === 'active' && activeSessions[key1].timeLeft > 0) ||
         (activeSessions[key2] && activeSessions[key2].status === 'active' && activeSessions[key2].timeLeft > 0)
     );
+
+    // Gate the selected schedule, never access to the assessment menu or
+    // resumption of an already-running attempt.
+    if (!hasActiveSession) {
+        const learningGate = await enforceLearningScheduleMaterialGate(ex, stId);
+        if (!learningGate.allowed) {
+            openLearningMaterialPrerequisitePopup(learningGate);
+            return;
+        }
+    }
 
     const schedInfo = getExamScheduleInfo(ex);
 
