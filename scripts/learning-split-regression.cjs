@@ -14,7 +14,8 @@ const checks = [
   ['CBT active-screen hook', assessment.includes("window.onLearningCbtScreenReady(String(sess.exam.id))")],
   ['CBT session teardown', assessment.includes("window.onLearningCbtSessionEnded()")],
   ['CBT trusted-reference focus guard', assessment.includes("window.isTrustedLearningReferenceFocus(String(activeExamSession.exam.id))")],
-  ['LKPD exit cleanup', fs.readFileSync(path.join(root, 'src/lkpdModule.js'), 'utf8').includes('window.closeLearningSplitDock()')]
+  ['LKPD screen ready signal', fs.readFileSync(path.join(root, 'src/lkpdModule.js'), 'utf8').includes('window.onLearningLkpdScreenReady(String(lkpd.id), String(stId))')],
+  ['LKPD exit cleanup', fs.readFileSync(path.join(root, 'src/lkpdModule.js'), 'utf8').includes('window.onLearningLkpdSessionEnded()')]
 ];
 for (const [name, passed] of checks) assert.ok(passed, name);
 
