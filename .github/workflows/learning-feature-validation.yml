@@ -7,6 +7,9 @@ on:
     branches: [main]
     paths:
       - 'src/learningModule.js'
+      - 'src/assessmentModule.js'
+      - 'src/lkpdModule.js'
+      - 'scripts/learning-split-regression.cjs'
       - 'src/main.tsx'
       - 'server.ts'
       - 'package.json'
@@ -54,6 +57,13 @@ jobs:
           grep -q "function openLearningSplitDock" src/learningModule.js
           grep -q "closeLearningSplitDock" src/learningModule.js
           cmp -s src/learningModule.js public/learningModule.js
+      - name: Split learning behavior regression
+        run: |
+          node scripts/learning-split-regression.cjs
+          node --check src/assessmentModule.js
+          node --check src/lkpdModule.js
+          cmp -s src/assessmentModule.js public/assessmentModule.js
+          cmp -s src/lkpdModule.js public/lkpdModule.js
       - name: Frontend handler audit
         run: npm run frontend:handler-audit
       - name: Font asset audit
