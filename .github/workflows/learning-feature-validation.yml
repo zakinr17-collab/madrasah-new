@@ -10,6 +10,7 @@ on:
       - 'src/assessmentModule.js'
       - 'src/lkpdModule.js'
       - 'scripts/learning-split-regression.cjs'
+      - 'scripts/assessment-schedule-gate-regression.cjs'
       - 'src/main.tsx'
       - 'server.ts'
       - 'package.json'
@@ -64,6 +65,11 @@ jobs:
           node --check src/lkpdModule.js
           cmp -s src/assessmentModule.js public/assessmentModule.js
           cmp -s src/lkpdModule.js public/lkpdModule.js
+      - name: Schedule-specific assessment prerequisite regression
+        run: |
+          node scripts/assessment-schedule-gate-regression.cjs
+          node --check src/assessmentModule.js
+          cmp -s src/assessmentModule.js public/assessmentModule.js
       - name: Frontend handler audit
         run: npm run frontend:handler-audit
       - name: Font asset audit
