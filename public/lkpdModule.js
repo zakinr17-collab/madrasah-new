@@ -2046,6 +2046,12 @@ window.openStudentLkpdWorksheetModal = function(lkpdId, studentId = null) {
 };
 
 window.closeStudentLkpdWorksheetModal = function() {
+    // Clean up the optional LKPD reference without changing submission state.
+    if (window.isTeacherPreviewMode !== true &&
+        document.getElementById('learning-split-dock')?.getAttribute('data-learning-companion-kind') === 'LKPD' &&
+        typeof window.closeLearningSplitDock === 'function') {
+        window.closeLearningSplitDock();
+    }
     const appState = window.appState || {};
     const isPreview = window.isTeacherPreviewMode === true || window.activeLkpdSession?.isPreview === true;
 
