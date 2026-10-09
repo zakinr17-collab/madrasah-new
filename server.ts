@@ -5978,6 +5978,8 @@ function sanitizeLearningMaterialMutation(req: any, raw: any, existing: any = {}
     engagementPolicy,
     // Opt-in companion material display; legacy records stay sequential.
     learningDisplayMode: String(raw.learningDisplayMode ?? existing.learningDisplayMode ?? 'sequential') === 'split' ? 'split' : 'sequential',
+    // Explicit teacher opt-in for open-book practice; legacy materials remain closed-book.
+    allowExamReference: raw.allowExamReference === undefined ? existing.allowExamReference === true : raw.allowExamReference === true,
     prerequisiteMaterialIds: Array.isArray(raw.prerequisiteMaterialIds)
       ? raw.prerequisiteMaterialIds.map((value: any) => String(value).trim().slice(0, 256)).filter(Boolean).slice(0, 20)
       : (Array.isArray(existing.prerequisiteMaterialIds) ? existing.prerequisiteMaterialIds : []),
