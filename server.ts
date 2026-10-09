@@ -5976,6 +5976,8 @@ function sanitizeLearningMaterialMutation(req: any, raw: any, existing: any = {}
     // For legacy materials, the old examId points to the schedule record used by this app.
     scheduleId: String(raw.scheduleId ?? existing.scheduleId ?? raw.examId ?? existing.examId ?? '').trim().slice(0, 256),
     engagementPolicy,
+    // Opt-in companion material display; legacy records stay sequential.
+    learningDisplayMode: String(raw.learningDisplayMode ?? existing.learningDisplayMode ?? 'sequential') === 'split' ? 'split' : 'sequential',
     prerequisiteMaterialIds: Array.isArray(raw.prerequisiteMaterialIds)
       ? raw.prerequisiteMaterialIds.map((value: any) => String(value).trim().slice(0, 256)).filter(Boolean).slice(0, 20)
       : (Array.isArray(existing.prerequisiteMaterialIds) ? existing.prerequisiteMaterialIds : []),
