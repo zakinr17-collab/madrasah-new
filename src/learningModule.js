@@ -1487,8 +1487,8 @@ function openLearningSplitDock(materialId, activityLabel) {
       #learning-split-dock video { max-height:44vh; }
       #learning-split-dock.learning-dock-collapsed { height:auto; width:auto; max-width:calc(100vw - 20px); }
       @media(max-width:800px) {
-        body.learning-split-active #view-container { width:100%; margin-left:0; padding-bottom:0; }
-        #learning-split-dock { top:auto; bottom:max(12px,env(safe-area-inset-bottom)); left:auto; right:12px; width:min(88vw,390px); height:min(48dvh,440px); max-height:calc(100dvh - 16px); z-index:60; }
+        body.learning-split-active #view-container { width:100%; margin-left:0; }
+        #learning-split-dock { top:auto; bottom:max(12px,env(safe-area-inset-bottom)); left:auto; right:12px; width:min(88vw,390px); height:min(48dvh,440px); max-height:calc(100dvh - 16px); z-index:40; }
         #learning-split-dock [data-learning-dock-drag] { display:inline-flex; touch-action:none; cursor:grab; user-select:none; -webkit-user-select:none; }
         #learning-split-dock [data-learning-dock-drag]:active { cursor:grabbing; }
         #learning-split-dock [data-learning-dock-size-toggle] { display:inline-flex; }
