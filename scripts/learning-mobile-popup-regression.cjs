@@ -32,7 +32,7 @@ function emitter() {
     listeners(type) { return callbacks[type]?.size || 0; }
   };
 }
-function fixture(width = 360) {
+function fixture(width = 360, touch = false) {
   const windowEvents = emitter();
   const viewportEvents = emitter();
   const gripEvents = emitter();
@@ -76,6 +76,7 @@ function fixture(width = 360) {
     }
   };
   const win = {
+    navigator: { maxTouchPoints: touch ? 5 : 0 },
     innerWidth: width,
     innerHeight: 720,
     matchMedia: () => ({ matches: width <= 800 }),
@@ -87,6 +88,7 @@ function fixture(width = 360) {
     addEventListener: windowEvents.addEventListener,
     removeEventListener: windowEvents.removeEventListener
   };
+  if (touch) win.ontouchstart = () => {};
   const ctx = vm.createContext({ window:win, document });
   vm.runInContext(actualController, ctx);
   return { ctx, win, dock, grip, gripEvents, windowEvents, viewportEvents, panelBody, toggleButton, sizeButton, body, get removed(){ return removed; } };
@@ -98,33 +100,78 @@ assert(mobile.dock.classList.contains('learning-dock-collapsed'), 'Phone starts 
 assert(mobile.panelBody.classList.contains('hidden'), 'Compact chip must not block CBT answers');
 assert.equal(mobile.toggleButton.textContent, 'Buka materi');
 assert.equal(mobile.gripEvents.listeners('pointerdown'), 1);
+assert.equal(mobile.windowEvents.listeners('pointermove'), 1, 'Movement must follow window, not only drag button');
+assert.equal(mobile.windowEvents.listeners('touchmove'), 1, 'Touch fallback must listen beyond the grip');
+// Simple tap cycles corners for mobile browsers where dragging is unreliable.
+mobile.gripEvents.emit('click', { cancelable:true, preventDefault(){} });
+assert.equal(parseFloat(mobile.dock.style.top), 8, 'Single tap on Geser must move compact pill to top');
+assert(parseFloat(mobile.dock.style.left) > 100, 'Tap cycles to top-right corner');
 mobile.win.toggleLearningSplitDock();
 assert(!mobile.dock.classList.contains('learning-dock-collapsed'), 'Pill opens to floating material panel');
 assert(!mobile.panelBody.classList.contains('hidden'));
 assert.equal(mobile.body.classList.contains('learning-split-active'), true);
 assert(parseFloat(mobile.dock.style.top) <= 362, 'Expanded popup must remain inside phone height');
-mobile.gripEvents.emit('pointerdown', { button: 0, pointerId: 11, clientX: 210, clientY: 540, cancelable: true, preventDefault(){} });
-mobile.gripEvents.emit('pointermove', { pointerId: 11, clientX: -400, clientY: -400, cancelable: true, preventDefault(){} });
-assert(parseFloat(mobile.dock.style.left) >= 8, 'Drag must clamp left edge');
-assert(parseFloat(mobile.dock.style.top) >= 8, 'Drag must clamp top edge');
-mobile.gripEvents.emit('pointermove', { pointerId: 11, clientX: 1800, clientY: 1800, cancelable: true, preventDefault(){} });
-assert(parseFloat(mobile.dock.style.left) <= 32, 'Drag must clamp right edge');
-assert(parseFloat(mobile.dock.style.top) <= 362, 'Drag must clamp bottom edge');
-mobile.gripEvents.emit('pointerup', { pointerId: 11 });
+// Simulate capture failure: all movements target window instead of the grip.
+mobile.gripEvents.emit('pointerdown', { button:0, pointerType:'mouse', pointerId:11, clientX:210, clientY:540, cancelable:true, preventDefault(){} });
+mobile.windowEvents.emit('pointermove', { pointerId:11, clientX:-400, clientY:-400, cancelable:true, preventDefault(){} });
+assert(parseFloat(mobile.dock.style.left) >= 8, 'Pointer drag clamps left edge');
+assert.equal(parseFloat(mobile.dock.style.top), 8, 'Pointer drag clamps top edge');
+mobile.windowEvents.emit('pointermove', { pointerId:11, clientX:1800, clientY:1800, cancelable:true, preventDefault(){} });
+assert(parseFloat(mobile.dock.style.left) <= 32, 'Pointer drag clamps right edge');
+assert(parseFloat(mobile.dock.style.top) <= 362, 'Pointer drag clamps bottom edge');
+mobile.windowEvents.emit('pointerup', { pointerId:11 });
+const lastTop = mobile.dock.style.top;
+mobile.gripEvents.emit('click', { cancelable:true, preventDefault(){} });
+assert.equal(mobile.dock.style.top, lastTop, 'Release after dragging must not trigger tap-to-corner');
 mobile.win.toggleLearningMobileDockSize();
 assert.equal(mobile.dock.getAttribute('data-learning-dock-size'), 'large');
 assert.equal(mobile.sizeButton.textContent, 'Perkecil ukuran');
-assert(parseFloat(mobile.dock.style.top) <= 192, 'Enlarging must still leave popup on-screen');
+assert(parseFloat(mobile.dock.style.top) <= 192, 'Enlarging must leave popup on-screen');
 mobile.win.toggleLearningSplitDock();
 assert(mobile.dock.classList.contains('learning-dock-collapsed'), 'Popup can be minimized again');
 mobile.win.closeLearningSplitDock();
 assert(mobile.removed, 'Closing removes the companion');
-assert.equal(mobile.gripEvents.listeners('pointerdown'), 0, 'Pointer listeners must be cleaned up');
-assert.equal(mobile.windowEvents.listeners('resize'), 0, 'Resize listener must be cleaned up');
-assert.equal(mobile.viewportEvents.listeners('resize'), 0, 'Visual viewport listener must be cleaned up');
+assert.equal(mobile.gripEvents.listeners('pointerdown'), 0, 'Pointer listeners must be cleaned');
+assert.equal(mobile.gripEvents.listeners('touchstart'), 0, 'Touch-start listener must be cleaned');
+assert.equal(mobile.gripEvents.listeners('click'), 0, 'Tap listener must be cleaned');
+assert.equal(mobile.windowEvents.listeners('pointermove'), 0, 'Pointer move listener must be cleaned');
+assert.equal(mobile.windowEvents.listeners('touchmove'), 0, 'Touch move listener must be cleaned');
+assert.equal(mobile.windowEvents.listeners('resize'), 0, 'Resize listener must be cleaned');
+assert.equal(mobile.viewportEvents.listeners('resize'), 0, 'Visual viewport listener must be cleaned');
+
+// Android/iOS: TouchEvent drag continues even if PointerEvent is cancelled.
+const touchDevice = fixture(360, true);
+vm.runInContext('setupLearningMobileDock(document.getElementById("learning-split-dock"))', touchDevice.ctx);
+touchDevice.win.toggleLearningSplitDock();
+touchDevice.gripEvents.emit('pointerdown', { button:0, pointerType:'touch', pointerId:7, clientX:110, clientY:530, cancelable:true, preventDefault(){} });
+assert.equal(touchDevice.dock.classList.contains('learning-dock-dragging'), false, 'Touch devices rely on actual touch events');
+touchDevice.gripEvents.emit('touchstart', { changedTouches:[{ identifier:7, clientX:110, clientY:530 }] });
+assert.equal(touchDevice.dock.classList.contains('learning-dock-dragging'), true, 'Finger press starts drag instantly');
+let dragPrevented = false;
+touchDevice.windowEvents.emit('touchmove', {
+  touches:[{ identifier:7, clientX:-400, clientY:-400 }], cancelable:true,
+  preventDefault(){ dragPrevented=true; }
+});
+assert(dragPrevented, 'Finger dragging must prevent page scrolling');
+assert.equal(parseFloat(touchDevice.dock.style.top), 8, 'Touch moves the actual popup');
+assert.equal(parseFloat(touchDevice.dock.style.left), 8, 'Touch moves popup horizontally');
+touchDevice.windowEvents.emit('touchend', { changedTouches:[{ identifier:7 }] });
+assert.equal(touchDevice.dock.classList.contains('learning-dock-dragging'), false);
+touchDevice.win.closeLearningSplitDock();
+assert.equal(touchDevice.windowEvents.listeners('touchmove'), 0);
+
+// Legacy mobile webview without PointerEvent: mouse listener remains usable.
+const mouseDevice = fixture(360);
+vm.runInContext('setupLearningMobileDock(document.getElementById("learning-split-dock"))', mouseDevice.ctx);
+mouseDevice.gripEvents.emit('mousedown', { button:0, clientX:210, clientY:610, cancelable:true, preventDefault(){} });
+mouseDevice.windowEvents.emit('mousemove', { clientX:70, clientY:-500, cancelable:true, preventDefault(){} });
+assert.equal(parseFloat(mouseDevice.dock.style.top), 8, 'Mouse fallback moves popup');
+mouseDevice.windowEvents.emit('mouseup');
+mouseDevice.win.closeLearningSplitDock();
+assert.equal(mouseDevice.windowEvents.listeners('mousemove'), 0);
 
 const desktop = fixture(1080);
 vm.runInContext('setupLearningMobileDock(document.getElementById("learning-split-dock"))', desktop.ctx);
 assert(!desktop.dock.classList.contains('learning-dock-collapsed'), 'Desktop retains visible split reading dock');
 assert.equal(desktop.gripEvents.listeners('pointerdown'), 0, 'Desktop does not gain mobile drag behavior');
-console.log('PASS: mobile draggable study popup, compact default, expand/resize, bounds, cleanup, desktop parity');
+console.log('PASS: phone touch drag, window pointer capture fallback, tap-to-corner, minimized reading, viewport bounds, cleanup, desktop parity');
