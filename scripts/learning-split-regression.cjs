@@ -96,15 +96,16 @@ function testContext(allowExamReference = true) {
   const user = { id: 'STUDENT-1', role: 'student' };
   const material = {
     id: 'MATERIAL-1', title: 'Pelajaran Kimia',
-    examId: 'EXAM-1', learningDisplayMode: 'split',
+    examId: 'EXAM-1', lkpdId: 'LKPD-1', learningDisplayMode: 'split',
     allowExamReference, blocks: [{ type: 'text', content: 'Penjelasan atom' }]
   };
   const window = {
-    appState: { role: 'student', currentUser: user, exams: [{ id: 'EXAM-1' }], settings: {} },
+    appState: { role: 'student', currentUser: user, exams: [{ id: 'EXAM-1' }], lkpdList: [{ id: 'LKPD-1' }], settings: {} },
     __learningMaterials: [material],
     addEventListener() {},
     navigateTo() {},
-    confirmStartStudentExam() { confirmationCount++; }
+    confirmStartStudentExam() { confirmationCount++; },
+    openStudentLkpdWorksheetModal() {}
   };
   const context = vm.createContext({
     window, document, console,
@@ -145,5 +146,16 @@ function testContext(allowExamReference = true) {
   cancel.window.onLearningCbtSessionEnded();
   cancel.window.onLearningCbtScreenReady('EXAM-1');
   assert.equal(cancel.dock, null, 'Cancelled exam must not leave a pending reference');
-  console.log('PASS: split learning contract, CBT start isolation, teacher opt-in, focus guard, cleanup, URL allowlist');
+  const worksheet = testContext(true);
+  await worksheet.window.openLinkedLearningLkpd('LKPD-1', 'MATERIAL-1');
+  assert.equal(worksheet.dock, null, 'LKPD reference must wait until worksheet is ready');
+  worksheet.window.onLearningLkpdScreenReady('LKPD-1', 'OTHER-STUDENT');
+  assert.equal(worksheet.dock, null, 'Other student cannot get this reference');
+  const worksheet2 = testContext(true);
+  await worksheet2.window.openLinkedLearningLkpd('LKPD-1', 'MATERIAL-1');
+  worksheet2.window.onLearningLkpdScreenReady('LKPD-1', 'STUDENT-1');
+  assert.ok(worksheet2.dock, 'Verified worksheet should mount reference');
+  worksheet2.window.onLearningLkpdSessionEnded();
+  assert.equal(worksheet2.dock, null, 'Reference must be removed when LKPD exits');
+  console.log('PASS: split learning contract, CBT and LKPD readiness, teacher opt-in, focus guard, cleanup, URL allowlist');
 })().catch(err => { console.error(err); process.exitCode = 1; });
