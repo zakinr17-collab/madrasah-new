@@ -1336,12 +1336,19 @@ function openLearningSplitDock(materialId, activityLabel) {
     const style = document.createElement('style');
     style.id = 'learning-split-dock-style';
     style.textContent = `
-      #learning-split-dock { position:fixed; top:68px; left:10px; width:min(41vw,650px); height:calc(100dvh - 80px); z-index:2147483000; background:#fff; border:1px solid #cbd5e1; box-shadow:0 12px 36px #0f172a44; border-radius:16px; display:flex; flex-direction:column; overflow:hidden; }
+      body.learning-split-active #view-container { width:59%; margin-left:41%; max-width:none; }
+      #learning-split-dock { position:fixed; top:68px; left:10px; width:calc(41vw - 20px); height:calc(100dvh - 80px); z-index:80; background:#fff; border:1px solid #cbd5e1; box-shadow:0 12px 36px #0f172a44; border-radius:16px; display:flex; flex-direction:column; overflow:hidden; }
+      body.learning-split-active #learning-split-dock { z-index:90; }
+      body:not(.learning-split-active) #learning-split-dock { z-index:80; }
+      body.learning-split-active #view-container > * { max-width:100%; }
+      #learning-split-dock button { cursor:pointer; }
       #learning-split-dock [data-learning-dock-body] { flex:1; overflow:auto; padding:12px; overscroll-behavior:contain; }
       #learning-split-dock iframe { max-width:100%; }
       #learning-split-dock video { max-height:44vh; }
       #learning-split-dock.learning-dock-collapsed { height:auto; width:auto; max-width:calc(100vw - 20px); }
-      @media(max-width:800px) { #learning-split-dock {top:auto;bottom:12px;left:8px;width:calc(100vw - 16px);height:min(48dvh,460px);} }
+      @media(max-width:800px) { body.learning-split-active #view-container { width:100%; margin-left:0; padding-bottom:min(49dvh,470px); } #learning-split-dock {top:auto;bottom:12px;left:8px;width:calc(100vw - 16px);height:min(48dvh,460px);} }
+      @media(min-width:801px) { body.learning-split-active #view-container { padding-right:8px; } }
+      #learning-split-dock iframe { height:min(64vh,700px)!important; }
     `;
     document.head.appendChild(style);
     document.body.insertAdjacentHTML('beforeend', `
@@ -1380,6 +1387,8 @@ window.openLinkedLearningExam = async function(examId, materialId = null) {
     }
     const found = (learningState().exams || []).find(item => String(item.id) === String(examId));
     if (!found) return learningToast('Asesmen belum diaktifkan oleh guru.', 'info');
+    // Only linked activities requested from the student's material page opt into the dock.
+    // Proctoring, timer, attempts and monitoring retain their original implementation.
     if (materialId) openLearningSplitDock(materialId, 'CBT');
     if (typeof window.confirmStartStudentExam === 'function') window.confirmStartStudentExam(examId);
     else if (typeof window.startStudentExam === 'function') window.startStudentExam(examId);
