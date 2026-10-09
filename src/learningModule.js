@@ -1051,6 +1051,12 @@ window.showLearningEditor = async function(existing = null) {
                         </select>
                         <span class="block font-normal text-[11px] text-slate-500 mt-1">Khusus pembelajaran terbuka. Sesi, nilai, kamera dan monitoring tetap ditangani modul CBT/LKPD asli.</span>
                     </label>
+                    <label class="mt-3 flex items-start gap-2 text-xs font-bold text-amber-900 bg-amber-50 border border-amber-200 p-3 rounded-xl">
+                        <input id="learning-exam-reference" type="checkbox" ${material.allowExamReference === true ? 'checked' : ''} class="mt-0.5 rounded">
+                        <span>Izinkan materi saat CBT latihan / open-book
+                            <span class="block mt-1 text-[11px] font-normal text-amber-800">Aktif hanya jika Mode Interaktif dipilih. Jangan aktifkan untuk ujian tertutup/resmi; monitoring, kamera dan durasi tetap berjalan.</span>
+                        </span>
+                    </label>
                     <label class="mt-3 flex items-center gap-2 text-xs font-bold text-slate-600"><input id="learning-require-complete" type="checkbox" ${material.requiresCompletionForLinks === false ? '' : 'checked'} class="rounded">Kunci LKPD/asesmen sampai materi ditandai selesai</label>
                 </div>
                 <div class="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
@@ -1115,6 +1121,7 @@ window.saveLearningMaterial = async function(status) {
             createLkpdDraft: lkpdSelection === '__CREATE_DRAFT__',
             createExamDraft: examSelection === '__CREATE_DRAFT__',
             learningDisplayMode: document.getElementById('learning-display-mode')?.value === 'split' ? 'split' : 'sequential',
+            allowExamReference: document.getElementById('learning-display-mode')?.value === 'split' && document.getElementById('learning-exam-reference')?.checked === true,
             requiresCompletionForLinks: document.getElementById('learning-require-complete')?.checked !== false,
             engagementPolicy: {
                 minActiveSeconds: Math.max(0, Math.min(3600, Number(document.getElementById('learning-min-active-seconds')?.value || 0) || 0)),
@@ -1336,6 +1343,7 @@ function learningNextActions(material) {
  * No new iframe is used for the activity, avoiding a second assessment session.
  */
 function closeLearningSplitDock() {
+    window.__learningPendingCbtReference = null;
     document.getElementById('learning-split-dock')?.remove();
     document.getElementById('learning-split-dock-style')?.remove();
     document.body.classList.remove('learning-split-active');
@@ -1376,7 +1384,7 @@ function openLearningSplitDock(materialId, activityLabel) {
     `;
     document.head.appendChild(style);
     document.body.insertAdjacentHTML('beforeend', `
-      <aside id="learning-split-dock" role="complementary" aria-label="Materi pendamping ${learningAttr(activityLabel)}">
+      <aside id="learning-split-dock" data-learning-material-id="${learningAttr(material.id)}" data-learning-companion-kind="${learningAttr(activityLabel)}" role="complementary" aria-label="Materi pendamping ${learningAttr(activityLabel)}">
         <div class="p-3 border-b bg-emerald-50 flex flex-wrap items-center justify-between gap-2">
           <div class="min-w-0"><div class="text-[10px] font-bold text-emerald-700">MATERI + ${learningEsc(activityLabel)}</div>
           <div class="text-xs font-black text-slate-800 truncate">${learningEsc(material.title || 'Materi')}</div></div>
@@ -1411,21 +1419,67 @@ window.openLinkedLearningExam = async function(examId, materialId = null) {
     }
     const found = (learningState().exams || []).find(item => String(item.id) === String(examId));
     if (!found) return learningToast('Asesmen belum diaktifkan oleh guru.', 'info');
-    // Only linked activities requested from the student's material page opt into the dock.
-    // Proctoring, timer, attempts and monitoring retain their original implementation.
-    // CBT exam start and monitoring are security-sensitive. Do not display
-    // an auxiliary reference panel until the assessment module explicitly
-    // confirms an authorised active learning assessment session.
+    // Store only a short-lived, student-scoped request. No material is visible
+    // until the CBT module has authenticated/started and rendered its active screen.
+    window.__learningPendingCbtReference = null;
     if (materialId) {
         const selected = (window.__learningMaterials || []).find(row => String(row.id) === String(materialId));
-        if (selected?.learningDisplayMode === 'split') {
-            learningToast('Materi pendamping CBT akan tersedia setelah dukungan sesi latihan tervalidasi. CBT tetap berjalan dalam tampilan aman.', 'info');
+        if (selected?.learningDisplayMode === 'split' && selected.allowExamReference === true &&
+            String(selected.examId || '') === String(examId) && currentStudentId()) {
+            window.__learningPendingCbtReference = {
+                examId: String(examId),
+                materialId: String(materialId),
+                studentId: currentStudentId(),
+                createdAt: Date.now()
+            };
         }
     }
     if (typeof window.confirmStartStudentExam === 'function') window.confirmStartStudentExam(examId);
     else if (typeof window.startStudentExam === 'function') window.startStudentExam(examId);
     else window.navigateTo('asesmen_siswa');
 };
+
+/**
+ * The CBT module calls this only after it has rendered an ACTIVE, unblocked
+ * exam screen. It does not start a CBT session or bypass CBT permission checks.
+ */
+window.onLearningCbtScreenReady = function(examId) {
+    const pending = window.__learningPendingCbtReference;
+    if (!pending) return;
+    if (Date.now() - pending.createdAt > 180000 || pending.studentId !== currentStudentId()) {
+        window.__learningPendingCbtReference = null;
+        return;
+    }
+    if (String(examId) !== pending.examId) return;
+    const material = (window.__learningMaterials || []).find(row => String(row.id) === pending.materialId);
+    if (!material || material.learningDisplayMode !== 'split' || material.allowExamReference !== true ||
+        String(material.examId || '') !== pending.examId) {
+        window.__learningPendingCbtReference = null;
+        return;
+    }
+    // openLearningSplitDock clears the pending request, preventing duplicate media
+    // mounts on subsequent question renders and preserving current playback.
+    openLearningSplitDock(pending.materialId, 'CBT');
+};
+window.onLearningCbtSessionEnded = function() {
+    window.__learningPendingCbtReference = null;
+    if (document.getElementById('learning-split-dock')?.getAttribute('data-learning-companion-kind') === 'CBT') {
+        closeLearningSplitDock();
+    }
+};
+// A trusted embedded PDF/video counts as in-page interaction only when the
+// companion belongs to the currently active, explicitly allowed CBT.
+window.isTrustedLearningReferenceFocus = function(examId) {
+    const dock = document.getElementById('learning-split-dock');
+    if (!dock || dock.getAttribute('data-learning-companion-kind') !== 'CBT' || document.hidden) return false;
+    const active = document.activeElement;
+    if (!active || active.tagName !== 'IFRAME' || !dock.contains(active)) return false;
+    const context = dock.getAttribute('data-learning-material-id');
+    const material = (window.__learningMaterials || []).find(row => String(row.id) === String(context));
+    return Boolean(material && material.allowExamReference === true &&
+        material.learningDisplayMode === 'split' && String(material.examId) === String(examId));
+};
+
 window.openLearningMonitor = async function(id) {
     const container = document.getElementById('view-container');
     const material = (window.__learningMaterials || []).find(item => String(item.id) === String(id));
