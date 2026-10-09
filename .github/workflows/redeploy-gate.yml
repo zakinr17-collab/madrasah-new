@@ -42,6 +42,13 @@ jobs:
       - name: Hardening behavior regression
         run: npm run hardening:regression
 
+      - name: Learning mobile popup and split-mode regression
+        run: |
+          node scripts/learning-split-regression.cjs
+          node scripts/learning-mobile-popup-regression.cjs
+          node --check src/learningModule.js
+          cmp -s src/learningModule.js public/learningModule.js
+
       - name: Student CBT fullscreen isolation regression
         run: |
           node scripts/cbt-fullscreen-scope-regression.cjs
