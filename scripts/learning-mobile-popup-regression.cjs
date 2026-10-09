@@ -149,7 +149,7 @@ touchDevice.gripEvents.emit('touchstart', { changedTouches:[{ identifier:7, clie
 assert.equal(touchDevice.dock.classList.contains('learning-dock-dragging'), true, 'Finger press starts drag instantly');
 let dragPrevented = false;
 touchDevice.windowEvents.emit('touchmove', {
-  touches:[{ identifier:7, clientX:20, clientY:120 }], cancelable:true,
+  touches:[{ identifier:7, clientX:-400, clientY:-400 }], cancelable:true,
   preventDefault(){ dragPrevented=true; }
 });
 assert(dragPrevented, 'Finger dragging must prevent page scrolling');
@@ -164,7 +164,7 @@ assert.equal(touchDevice.windowEvents.listeners('touchmove'), 0);
 const mouseDevice = fixture(360);
 vm.runInContext('setupLearningMobileDock(document.getElementById("learning-split-dock"))', mouseDevice.ctx);
 mouseDevice.gripEvents.emit('mousedown', { button:0, clientX:210, clientY:610, cancelable:true, preventDefault(){} });
-mouseDevice.windowEvents.emit('mousemove', { clientX:70, clientY:80, cancelable:true, preventDefault(){} });
+mouseDevice.windowEvents.emit('mousemove', { clientX:70, clientY:-500, cancelable:true, preventDefault(){} });
 assert.equal(parseFloat(mouseDevice.dock.style.top), 8, 'Mouse fallback moves popup');
 mouseDevice.windowEvents.emit('mouseup');
 mouseDevice.win.closeLearningSplitDock();
