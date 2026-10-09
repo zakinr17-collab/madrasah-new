@@ -15090,14 +15090,19 @@ function rejectExamAttemptContext(res: any, context: any): boolean {
 }
 
 function getLearningCompletionGateForSchedule(req: any, scheduleId: string, studentId: string) {
-  // Only the concrete CBT schedule may be gated.
-  // material.examId is only the linked activity reference; it is NOT the gate relation.
+  // Prerequisites are scoped to ONE concrete CBT schedule and this student.
+  // Draft, unpublished, and other-class materials must never lock the exam.
+  const requestedScheduleId = String(scheduleId || '').trim();
+  if (!requestedScheduleId) return null;
+  const ownedStudent = findStudentForRequest(req, studentId);
+  if (ownedStudent.ambiguous || !ownedStudent.student) return null;
+
   const materials = (lessonPlans || []).filter((material: any) =>
     isLearningMaterialRecord(material) &&
-    // Canonical relation is scheduleId. Legacy materials stored the selected CBT schedule in examId.
-    // examId is used here only for backward compatibility with already-saved materials.
-    String(material.scheduleId || material.examId || '') === String(scheduleId) &&
+    // Canonical relation is scheduleId; examId supports legacy records only.
+    String(material.scheduleId || material.examId || '').trim() === requestedScheduleId &&
     isItemForCurrentMadrasah(material, req) &&
+    studentCanAccessLearningMaterial(ownedStudent.student, material) &&
     material.requiresCompletionForLinks !== false
   );
   if (materials.length === 0) return null;
@@ -15134,7 +15139,14 @@ app.post("/api/exam/attempt/start", async (req, res) => {
   if (rejectExamAttemptContext(res, context)) return;
   const matchedExam: any = context.exam;
 
-  if (String(authUser.role || '').toLowerCase() !== 'bos' && String(authUser.role || '').toLowerCase() !== 'superadmin') {
+  // A material prerequisite only controls starting a NEW attempt for its
+  // particular schedule. Never interrupt an existing valid in-progress CBT.
+  const currentAttempt = activeExamSessions[key];
+  const canResumeAttempt = currentAttempt?.status === 'active' &&
+    Number(currentAttempt.endsAt || 0) > Date.now();
+  if (!canResumeAttempt &&
+      String(authUser.role || '').toLowerCase() !== 'bos' &&
+      String(authUser.role || '').toLowerCase() !== 'superadmin') {
     const learningGate = getLearningCompletionGateForSchedule(req, eId, sId);
     if (learningGate) {
       return res.status(423).json({
