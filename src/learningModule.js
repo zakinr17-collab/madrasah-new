@@ -848,6 +848,7 @@ async function uploadPendingLearningAssets() {
 }
 
 window.renderLearningTeacher = async function(container) {
+    closeLearningSplitDock();
     stopLearningTracker();
     if (!container) return;
     container.innerHTML = '<div class="p-8 text-center text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-2"></i>Memuat materi...</div>';
@@ -1043,6 +1044,13 @@ window.showLearningEditor = async function(existing = null) {
                         <label class="text-xs font-bold">LKPD<select id="learning-lkpd" class="mt-1 w-full p-3 border rounded-xl font-normal bg-white">${lkpdOpts}</select></label>
                         <label class="text-xs font-bold">Jadwal Asesmen/CBT (yang dikunci)<select id="learning-exam" class="mt-1 w-full p-3 border rounded-xl font-normal bg-white">${examOpts}</select></label>
                     </div>
+                    <label class="mt-3 block text-xs font-bold text-slate-700">Mode Penyajian Aktivitas
+                        <select id="learning-display-mode" class="mt-1 w-full p-3 border rounded-xl font-normal bg-white">
+                            <option value="sequential" ${material.learningDisplayMode !== 'split' ? 'selected' : ''}>Bertahap (standar)</option>
+                            <option value="split" ${material.learningDisplayMode === 'split' ? 'selected' : ''}>Interaktif (materi berdampingan dengan latihan)</option>
+                        </select>
+                        <span class="block font-normal text-[11px] text-slate-500 mt-1">Khusus pembelajaran terbuka. Sesi, nilai, kamera dan monitoring tetap ditangani modul CBT/LKPD asli.</span>
+                    </label>
                     <label class="mt-3 flex items-center gap-2 text-xs font-bold text-slate-600"><input id="learning-require-complete" type="checkbox" ${material.requiresCompletionForLinks === false ? '' : 'checked'} class="rounded">Kunci LKPD/asesmen sampai materi ditandai selesai</label>
                 </div>
                 <div class="p-4 rounded-2xl bg-emerald-50 border border-emerald-100">
@@ -1106,6 +1114,7 @@ window.saveLearningMaterial = async function(status) {
             scheduleId: examSelection === '__CREATE_DRAFT__' ? '' : examSelection,
             createLkpdDraft: lkpdSelection === '__CREATE_DRAFT__',
             createExamDraft: examSelection === '__CREATE_DRAFT__',
+            learningDisplayMode: document.getElementById('learning-display-mode')?.value === 'split' ? 'split' : 'sequential',
             requiresCompletionForLinks: document.getElementById('learning-require-complete')?.checked !== false,
             engagementPolicy: {
                 minActiveSeconds: Math.max(0, Math.min(3600, Number(document.getElementById('learning-min-active-seconds')?.value || 0) || 0)),
@@ -1180,6 +1189,7 @@ window.deleteLearningMaterial = async function(id) {
 };
 
 window.renderLearningStudent = async function(container) {
+    closeLearningSplitDock();
     stopLearningTracker();
     if (!container) return;
     if (!featureEnabled('learning')) {
@@ -1286,16 +1296,71 @@ function learningNextActions(material) {
     if (material.lkpdId) {
         actions.push(readiness.lkpdReady === false
             ? '<div class="w-full mt-2 py-3 px-4 rounded-2xl bg-amber-50 text-amber-700 font-bold text-xs text-center"><i class="fa-solid fa-clock mr-2"></i>LKPD sedang disiapkan guru</div>'
-            : `<button type="button" onclick="openLinkedLearningLkpd(${learningInlineArg(material.lkpdId)})" class="w-full mt-2 py-3 rounded-2xl bg-blue-600 text-white font-bold text-sm"><i class="fa-solid fa-clipboard-list mr-2"></i>Lanjut Kerjakan LKPD</button>`);
+            : `<button type="button" onclick="openLinkedLearningLkpd(${learningInlineArg(material.lkpdId)}, ${learningInlineArg(material.id)})" class="w-full mt-2 py-3 rounded-2xl bg-blue-600 text-white font-bold text-sm"><i class="fa-solid fa-clipboard-list mr-2"></i>Lanjut Kerjakan LKPD</button>`);
     }
     if (material.examId) {
         actions.push(readiness.examReady === false
             ? '<div class="w-full mt-2 py-3 px-4 rounded-2xl bg-amber-50 text-amber-700 font-bold text-xs text-center"><i class="fa-solid fa-clock mr-2"></i>Asesmen sedang disiapkan guru</div>'
-            : `<button type="button" onclick="openLinkedLearningExam(${learningInlineArg(material.examId)})" class="w-full mt-2 py-3 rounded-2xl bg-violet-600 text-white font-bold text-sm"><i class="fa-solid fa-file-circle-check mr-2"></i>Lanjut ke Asesmen</button>`);
+            : `<button type="button" onclick="openLinkedLearningExam(${learningInlineArg(material.examId)}, ${learningInlineArg(material.id)})" class="w-full mt-2 py-3 rounded-2xl bg-violet-600 text-white font-bold text-sm"><i class="fa-solid fa-file-circle-check mr-2"></i>Lanjut ke Asesmen</button>`);
     }
     return actions.join('') || '<div class="text-center text-xs text-emerald-700 font-bold py-3">Pembelajaran selesai</div>';
 }
-window.openLinkedLearningLkpd = async function(lkpdId) {
+
+/**
+ * Optional companion study dock. This is a presentation-only layer: answers,
+ * camera, proctoring, session timers and scores remain owned by CBT/LKPD.
+ * No new iframe is used for the activity, avoiding a second assessment session.
+ */
+function closeLearningSplitDock() {
+    document.getElementById('learning-split-dock')?.remove();
+    document.getElementById('learning-split-dock-style')?.remove();
+    document.body.classList.remove('learning-split-active');
+}
+window.closeLearningSplitDock = closeLearningSplitDock;
+window.toggleLearningSplitDock = function() {
+    const dock = document.getElementById('learning-split-dock');
+    if (!dock) return;
+    const body = dock.querySelector('[data-learning-dock-body]');
+    const button = dock.querySelector('[data-learning-dock-toggle]');
+    if (!body || !button) return;
+    const collapsed = body.classList.toggle('hidden');
+    dock.classList.toggle('learning-dock-collapsed', collapsed);
+    document.body.classList.toggle('learning-split-active', !collapsed);
+    button.textContent = collapsed ? 'Tampilkan materi' : 'Perkecil materi';
+};
+function openLearningSplitDock(materialId, activityLabel) {
+    closeLearningSplitDock();
+    const material = (window.__learningMaterials || []).find(row => String(row.id) === String(materialId));
+    if (!material || material.learningDisplayMode !== 'split') return;
+    if (!Array.isArray(material.blocks) || !material.blocks.length) return;
+    const style = document.createElement('style');
+    style.id = 'learning-split-dock-style';
+    style.textContent = `
+      #learning-split-dock { position:fixed; top:68px; left:10px; width:min(41vw,650px); height:calc(100dvh - 80px); z-index:2147483000; background:#fff; border:1px solid #cbd5e1; box-shadow:0 12px 36px #0f172a44; border-radius:16px; display:flex; flex-direction:column; overflow:hidden; }
+      #learning-split-dock [data-learning-dock-body] { flex:1; overflow:auto; padding:12px; overscroll-behavior:contain; }
+      #learning-split-dock iframe { max-width:100%; }
+      #learning-split-dock video { max-height:44vh; }
+      #learning-split-dock.learning-dock-collapsed { height:auto; width:auto; max-width:calc(100vw - 20px); }
+      @media(max-width:800px) { #learning-split-dock {top:auto;bottom:12px;left:8px;width:calc(100vw - 16px);height:min(48dvh,460px);} }
+    `;
+    document.head.appendChild(style);
+    document.body.insertAdjacentHTML('beforeend', `
+      <aside id="learning-split-dock" role="complementary" aria-label="Materi pendamping ${learningAttr(activityLabel)}">
+        <div class="p-3 border-b bg-emerald-50 flex flex-wrap items-center justify-between gap-2">
+          <div class="min-w-0"><div class="text-[10px] font-bold text-emerald-700">MATERI + ${learningEsc(activityLabel)}</div>
+          <div class="text-xs font-black text-slate-800 truncate">${learningEsc(material.title || 'Materi')}</div></div>
+          <div class="flex items-center gap-2">
+            <button type="button" data-learning-dock-toggle onclick="toggleLearningSplitDock()" class="text-[11px] px-2 py-1 border rounded-lg bg-white">Perkecil materi</button>
+            <button type="button" onclick="closeLearningSplitDock()" aria-label="Tutup panel materi" class="text-xl px-2">&times;</button>
+          </div>
+        </div>
+        <div data-learning-dock-body class="space-y-4">${renderMaterialBlocks(material.blocks || [])}</div>
+      </aside>`);
+    document.body.classList.add('learning-split-active');
+    void hydrateProtectedLearningPdfs();
+}
+
+window.openLinkedLearningLkpd = async function(lkpdId, materialId = null) {
     if (!featureEnabled('cbt')) return learningToast('Menu CBT/LKPD sedang dinonaktifkan.', 'info');
     if (!Array.isArray(learningState().lkpdList) || !learningState().lkpdList.some(item => String(item.id) === String(lkpdId))) {
         const data = await fetch('/api/lkpds', { cache: 'no-store' }).then(r => r.json()).catch(() => ({}));
@@ -1303,10 +1368,11 @@ window.openLinkedLearningLkpd = async function(lkpdId) {
     }
     const found = (learningState().lkpdList || []).find(item => String(item.id) === String(lkpdId));
     if (!found) return learningToast('LKPD belum diaktifkan oleh guru.', 'info');
+    if (materialId) openLearningSplitDock(materialId, 'LKPD');
     if (typeof window.openStudentLkpdWorksheetModal === 'function') window.openStudentLkpdWorksheetModal(lkpdId, currentStudentId());
     else window.navigateTo('asesmen_siswa');
 };
-window.openLinkedLearningExam = async function(examId) {
+window.openLinkedLearningExam = async function(examId, materialId = null) {
     if (!featureEnabled('cbt')) return learningToast('Menu CBT sedang dinonaktifkan.', 'info');
     if (!Array.isArray(learningState().exams) || !learningState().exams.some(item => String(item.id) === String(examId))) {
         const data = await fetch('/api/exams', { cache: 'no-store' }).then(r => r.json()).catch(() => ({}));
@@ -1314,6 +1380,7 @@ window.openLinkedLearningExam = async function(examId) {
     }
     const found = (learningState().exams || []).find(item => String(item.id) === String(examId));
     if (!found) return learningToast('Asesmen belum diaktifkan oleh guru.', 'info');
+    if (materialId) openLearningSplitDock(materialId, 'CBT');
     if (typeof window.confirmStartStudentExam === 'function') window.confirmStartStudentExam(examId);
     else if (typeof window.startStudentExam === 'function') window.startStudentExam(examId);
     else window.navigateTo('asesmen_siswa');
