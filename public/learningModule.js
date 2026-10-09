@@ -1413,7 +1413,15 @@ window.openLinkedLearningExam = async function(examId, materialId = null) {
     if (!found) return learningToast('Asesmen belum diaktifkan oleh guru.', 'info');
     // Only linked activities requested from the student's material page opt into the dock.
     // Proctoring, timer, attempts and monitoring retain their original implementation.
-    if (materialId) openLearningSplitDock(materialId, 'CBT');
+    // CBT exam start and monitoring are security-sensitive. Do not display
+    // an auxiliary reference panel until the assessment module explicitly
+    // confirms an authorised active learning assessment session.
+    if (materialId) {
+        const selected = (window.__learningMaterials || []).find(row => String(row.id) === String(materialId));
+        if (selected?.learningDisplayMode === 'split') {
+            learningToast('Materi pendamping CBT akan tersedia setelah dukungan sesi latihan tervalidasi. CBT tetap berjalan dalam tampilan aman.', 'info');
+        }
+    }
     if (typeof window.confirmStartStudentExam === 'function') window.confirmStartStudentExam(examId);
     else if (typeof window.startStudentExam === 'function') window.startStudentExam(examId);
     else window.navigateTo('asesmen_siswa');
