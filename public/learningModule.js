@@ -1134,6 +1134,25 @@ window.saveLearningMaterial = async function(status) {
             throw new Error(data.message || 'Gagal menyimpan materi.');
         }
 
+        // The backend must persist the selected display mode. A successful POST
+        // alone is insufficient: older servers may silently drop unknown fields.
+        // Verify without deleting or resubmitting anything if persistence fails.
+        let modePersistenceWarning = '';
+        try {
+            const verifyResponse = await fetch('/api/learning/materials', { cache: 'no-store' });
+            if (!verifyResponse.ok) throw new Error('Tidak dapat membaca ulang materi.');
+            const verifyData = await verifyResponse.json();
+            const persisted = (Array.isArray(verifyData.materials) ? verifyData.materials : [])
+                .find(item => String(item.id) === String(id));
+            if (!persisted) throw new Error('Materi yang baru disimpan tidak ditemukan.');
+            const expectedMode = payload.learningDisplayMode;
+            const actualMode = persisted.learningDisplayMode === 'split' ? 'split' : 'sequential';
+            if (expectedMode !== actualMode) {
+                modePersistenceWarning = 'Materi tersimpan, tetapi server belum mempertahankan Mode Interaktif. Perlu dukungan penyimpanan learningDisplayMode pada API sebelum fitur digunakan.';
+            }
+        } catch (verificationError) {
+            modePersistenceWarning = 'Materi dikirim ke server, tetapi mode penyajian belum dapat diverifikasi: ' + (verificationError.message || 'Kesalahan pembacaan ulang.');
+        }
         document.getElementById('learning-editor-modal')?.remove();
         window.__learningEditorAssets = [];
         window.__learningSelectedClasses = [];
@@ -1142,7 +1161,12 @@ window.saveLearningMaterial = async function(status) {
         if (data.createdDrafts?.lkpdId) created.push('draft LKPD');
         if (data.createdDrafts?.examId) created.push('draft asesmen');
         const baseMessage = status === 'published' ? 'Materi dipublikasikan.' : 'Draft materi disimpan.';
-        learningToast(created.length ? `${baseMessage} ${created.join(' dan ')} dibuat dan belum terlihat oleh siswa.` : baseMessage, 'success');
+        if (modePersistenceWarning) {
+            learningToast(modePersistenceWarning, 'warning');
+            window.alert(modePersistenceWarning);
+        } else {
+            learningToast(created.length ? `${baseMessage} ${created.join(' dan ')} dibuat dan belum terlihat oleh siswa.` : baseMessage, 'success');
+        }
         window.renderLearningTeacher(document.getElementById('view-container'));
     } catch (err) {
         if (materialSaveRejected && uploadedThisSave.length) {
