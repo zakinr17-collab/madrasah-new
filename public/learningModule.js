@@ -1466,6 +1466,9 @@ if (typeof originalNavigateTo === 'function' && !window.__learningNavigateWrappe
                 return;
             }
         }
+        // Companion content may remain while navigating between assessment screens,
+        // but must never leak into unrelated modules or another student's workspace.
+        if (!['asesmen_siswa', 'lkpd_worksheet'].includes(routeText)) closeLearningSplitDock();
         const result = originalNavigateTo.call(this, route, ...args);
         setTimeout(injectLearningMenus, 0);
         return result;
