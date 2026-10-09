@@ -51,6 +51,57 @@ const EXAM_HEARTBEAT_BASE_MS = 15000;
 const EXAM_HEARTBEAT_MAX_BACKOFF_MS = 60000;
 window._cbtFinalizing = false;
 
+let cbtFullscreenOwned = false;
+let cbtFullscreenGeneration = 0;
+
+// Fullscreen belongs exclusively to the student's active CBT player.
+// Other student pages, the CBT list, LKPD and staff previews must not request it.
+function isStudentCbtFullscreenContext() {
+    const role = String(appState.role || appState.currentUser?.role || '').toLowerCase();
+    return ['student', 'siswa', 'murid', 'class_leader', 'ketua_kelas'].includes(role);
+}
+function exitCbtFullscreen() {
+    cbtFullscreenGeneration++;
+    if (!cbtFullscreenOwned) return;
+    cbtFullscreenOwned = false;
+    if (document.fullscreenElement === document.documentElement &&
+        typeof document.exitFullscreen === 'function') {
+        try { Promise.resolve(document.exitFullscreen()).catch(() => {}); } catch (_) {}
+    }
+}
+function requestCbtFullscreen() {
+    if (!activeExamSession || !isStudentCbtFullscreenContext() ||
+        !document.getElementById('cbt-active-exam-screen')) return;
+    const root = document.documentElement;
+    if (!root?.requestFullscreen || document.fullscreenElement) return;
+    const generation = ++cbtFullscreenGeneration;
+    try {
+        Promise.resolve(root.requestFullscreen()).then(() => {
+            if (document.fullscreenElement !== root) return;
+            cbtFullscreenOwned = true;
+            // The player could have been closed while the browser was granting permission.
+            if (generation !== cbtFullscreenGeneration || !activeExamSession ||
+                !document.getElementById('cbt-active-exam-screen')) exitCbtFullscreen();
+        }).catch(() => {});
+    } catch (_) {}
+}
+document.addEventListener('fullscreenchange', () => {
+    if (document.fullscreenElement !== document.documentElement) cbtFullscreenOwned = false;
+});
+window.requestCbtFullscreen = requestCbtFullscreen;
+window.__onCbtRouteNavigation = function(nextRoute) {
+    if (String(nextRoute || '') === 'asesmen_siswa') return;
+    exitCbtFullscreen();
+    // A student may navigate away while the attempt is still recoverable.
+    // Restore the normal app chrome without deleting answers or timer state.
+    if (activeExamSession) {
+        const sidebar = document.getElementById('sidebar');
+        const header = document.querySelector('header');
+        if (sidebar) sidebar.style.display = '';
+        if (header) header.style.display = '';
+    }
+};
+
 function getRetryAfterMs(response) {
     if (!response || !response.headers || typeof response.headers.get !== 'function') return 0;
     const raw = response.headers.get('Retry-After');
@@ -115,6 +166,7 @@ window.__resetCbtRuntimeOnLogout = function() {
         Promise.resolve(window._examWakeLock.release()).catch(() => {});
     }
     window._examWakeLock = null;
+    exitCbtFullscreen();
     activeExamSession = null;
     examHeartbeatInFlight = false;
     examHeartbeatNextAt = 0;
@@ -3739,7 +3791,7 @@ async function renderStudentCBTList(container, isRefresh = false) {
         window.__examTimerInterval = null;
     }
     activeExamSession = null;
-    
+    exitCbtFullscreen();
     // Performance Optimization: Non-blocking data refresh
     // We fetch fresh data in the background while showing the student the list instantly
     const refreshData = async () => {
@@ -4594,9 +4646,7 @@ async function startStudentExam(examId) {
         }).catch(() => {});
     }
 
-    if (document.documentElement.requestFullscreen) {
-        document.documentElement.requestFullscreen().catch(() => {});
-    }
+    // The CBT player requests fullscreen only after its actual screen renders.
 
     // Global Violation Handler
     window.triggerExamViolation = function(reason) {
@@ -4668,7 +4718,7 @@ async function startStudentExam(examId) {
                         <p class="text-xs text-slate-600 leading-relaxed">
                             Sistem mendeteksi bahwa layar Anda di-split screen, diubah ukurannya, atau Anda meninggalkan aplikasi ujian. Harap gunakan <strong>layar penuh (Fullscreen)</strong> dan tidak membuka aplikasi lain!
                         </p>
-                        <button type="button" onclick="document.getElementById('modal-container').innerHTML=''; if(document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{});" class="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-2xl text-xs shadow-md transition cursor-pointer">
+                        <button type="button" onclick="document.getElementById('modal-container').innerHTML=''; requestCbtFullscreen();" class="w-full py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-2xl text-xs shadow-md transition cursor-pointer">
                             <i class="fa-solid fa-expand mr-1.5"></i> Saya Mengerti & Kembalikan Layar Penuh
                         </button>
                     </div>
@@ -4981,6 +5031,7 @@ async function startStudentExam(examId) {
     }
 
     renderActiveExamScreen();
+    requestCbtFullscreen();
 }
 
 window.sendStudentSingleSnapshot = function() {
@@ -5167,6 +5218,7 @@ function renderActiveExamScreen() {
     const st = appState.currentUser && appState.currentUser.id ? appState.currentUser : (appState.students[0] || {});
     const isBlocked = isStudentBlocked(sess.exam.id, st.id);
     if (isBlocked) {
+        exitCbtFullscreen();
         if (typeof window.onLearningCbtSessionEnded === 'function') window.onLearningCbtSessionEnded();
         container.innerHTML = `
             <div class="max-w-md mx-auto mt-20 bg-white p-8 rounded-3xl shadow-2xl text-center space-y-4 border border-rose-200">
@@ -5199,7 +5251,7 @@ function renderActiveExamScreen() {
     }
 
     container.innerHTML = `
-        <div class="space-y-4 max-w-3xl mx-auto pb-16 relative">
+        <div id="cbt-active-exam-screen" class="space-y-4 max-w-3xl mx-auto pb-16 relative">
             ${modalOverlay}
 
             <!-- DND & Protection Status Banner -->
@@ -5210,7 +5262,7 @@ function renderActiveExamScreen() {
                     <span class="text-slate-400 text-[11px] hidden sm:inline">| Deteksi Split-Screen & Layar Nyala</span>
                 </div>
                 <div class="flex items-center gap-2 text-[11px]">
-                    <button type="button" onclick="if(document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{});" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-emerald-300 rounded-xl border border-slate-600 cursor-pointer">
+                    <button type="button" onclick="requestCbtFullscreen()" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-emerald-300 rounded-xl border border-slate-600 cursor-pointer">
                         <i class="fa-solid fa-expand mr-1"></i> Fullscreen
                     </button>
                 </div>
@@ -5730,6 +5782,7 @@ async function submitExamFinal() {
         }
 
         activeExamSession = null;
+        exitCbtFullscreen();
         const sidebar = document.getElementById('sidebar');
         const header = document.querySelector('header');
         if (sidebar) sidebar.style.display = '';

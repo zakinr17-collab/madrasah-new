@@ -22,6 +22,21 @@ const cssFiles = walk(auditDir).filter((file) => /\.css$/i.test(file));
 const problems = [];
 const info = [];
 
+// A missing icon stylesheet or a missing solid webfont previously allowed an
+// apparently successful audit (0 files scanned). In production, that causes
+// Font Awesome icons to render as empty square glyphs on student/admin pages.
+if (fs.existsSync(distDir)) {
+  const stylesheetIncludesFontAwesome = cssFiles.some((file) =>
+    /Font Awesome|fa-solid-900|fa-solid/i.test(fs.readFileSync(file, 'utf8'))
+  );
+  if (!stylesheetIncludesFontAwesome) {
+    problems.push({ file: 'dist/assets/*.css', reason: 'Font Awesome styles missing from production CSS' });
+  }
+  if (!fontFiles.some((file) => /fa-solid-900.*\.woff2$/i.test(path.basename(file)))) {
+    problems.push({ file: 'dist/assets/', reason: 'Font Awesome solid WOFF2 missing from production build' });
+  }
+}
+
 for (const file of fontFiles) {
   const buf = fs.readFileSync(file);
   const rel = path.relative(root, file).replaceAll(path.sep, '/');

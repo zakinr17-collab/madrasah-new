@@ -42,6 +42,14 @@ jobs:
       - name: Hardening behavior regression
         run: npm run hardening:regression
 
+      - name: Student CBT fullscreen isolation regression
+        run: |
+          node scripts/cbt-fullscreen-scope-regression.cjs
+          node --check src/assessmentModule.js
+          node --check src/lkpdModule.js
+          cmp -s src/assessmentModule.js public/assessmentModule.js
+          cmp -s src/lkpdModule.js public/lkpdModule.js
+
       - name: Frontend inline-handler audit
         run: npm run frontend:handler-audit
 

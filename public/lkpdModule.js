@@ -1700,11 +1700,6 @@ window.openStudentLkpdWorksheetModal = function(lkpdId, studentId = null) {
                         <span class="font-bold text-emerald-300"><i class="fa-solid fa-shield-halved mr-1"></i> Mode Ujian LKPD Aktif</span>
                         <span class="text-slate-400 text-[11px] hidden sm:inline">| Terkoneksi ke Monitoring Live Guru & Proteksi DND</span>
                     </div>
-                    <div class="flex items-center gap-2 text-[11px]">
-                        <button type="button" onclick="if(document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(()=>{});" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-emerald-300 rounded-xl border border-slate-600 cursor-pointer">
-                            <i class="fa-solid fa-expand mr-1"></i> Fullscreen
-                        </button>
-                    </div>
                 </div>
             `}
 
