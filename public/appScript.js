@@ -2851,6 +2851,11 @@ function navigateTo(route, options = {}) {
         if (history.length > 50) history.splice(0, history.length - 50);
     }
 
+    // CBT owns browser fullscreen only while its player is the visible page.
+    // Preserve the attempt/monitoring state; only release the presentation mode.
+    if (typeof window.__onCbtRouteNavigation === 'function') {
+        window.__onCbtRouteNavigation(route);
+    }
     localStorage.setItem('madrasah_last_route', route);
     appState.currentRoute = route;
     updateGlobalBackBar();
