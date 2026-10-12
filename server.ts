@@ -20,6 +20,7 @@ import { resolveSqlConnection, SqlConfigurationError } from "./src/db/connection
 import { encryptGoogleDriveOAuthToken, decryptGoogleDriveOAuthToken } from "./src/googleDriveOAuthStore.ts";
 import selfsigned from "selfsigned";
 import { GoogleGenAI } from "@google/genai";
+import { callAI } from "./aiProvider";
 import { v2 as cloudinary } from "cloudinary";
 import JSZip from "jszip";
 import mammoth from "mammoth";
@@ -19190,7 +19191,7 @@ Kunci: ${q.answer || "-"}
 Jawaban: ${studentAnswer || "(Tidak menjawab)"}`;
 }).join("\n---\n")}`;
 
-        const response = await generateGeminiContent(ai, {
+        const response = await callAI(ai, {
           model: "gemini-3.7-flash",
           contents: prompt
         });
@@ -19379,7 +19380,7 @@ Jawaban Siswa: ${studentAns || "(Tidak menjawab)"}
 ---`;
           });
 
-          const response = await generateGeminiContent(ai, {
+          const response = await callAI(ai, {
             model: "gemini-3.7-flash",
             contents: prompt
           });
@@ -19467,7 +19468,7 @@ Format JSON array of objects dengan properti: type ('mc' atau 'essay'), question
 ${NO_DASHES_PROMPT}
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
       config: {
@@ -19531,7 +19532,7 @@ Berikan penjelasan 2-3 paragraf yang bermutu tinggi dan profesional dalam bahasa
 ${NO_DASHES_PROMPT}
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt
     });
@@ -21747,7 +21748,7 @@ ${subjectRule}
 
 ${NO_DASHES_PROMPT}`;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt
     });
@@ -21839,7 +21840,7 @@ ${jsonSchemaInstructions}
 ${NO_DASHES_PROMPT}
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
       config: {
@@ -21937,7 +21938,7 @@ app.post("/api/modul/parse-document", requireAuth, requireRole(['teacher', 'guru
         if (apiKey) {
           try {
             const ai = new GoogleGenAI({ apiKey, httpOptions: { headers: { "User-Agent": "aistudio-build" } } });
-            const pdfExtractRes = await generateGeminiContent(ai, {
+            const pdfExtractRes = await callAI(ai, {
               model: "gemini-3.7-flash",
               contents: [
                 {
@@ -22083,7 +22084,7 @@ KEMBALIKAN HANYA OBJEK JSON MURNI DENGAN STRUKTUR:
 }
 `;
 
-        const response = await generateGeminiContent(ai, {
+        const response = await callAI(ai, {
           model: "gemini-3.7-flash",
           contents: prompt,
           config: {
@@ -22178,7 +22179,7 @@ Susun persis menyerupai format resmi yang mencakup:
 Pastikan isinya detail dan sangat profesional, serta tabel-tabelnya memiliki border dan padding yang rapi (class="w-full border-collapse border border-slate-800 text-sm").
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
     });
@@ -22253,7 +22254,7 @@ PENTING: Dilarang menggunakan simbol markdown seperti bintang (*, **), pagar (#)
 }
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
       config: {
@@ -22444,7 +22445,7 @@ Catatan: Buatkan total ${slideCount || 8} slide bertahap semuanya fokus mengupas
 ${NO_DASHES_PROMPT}
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
       config: { responseMimeType: "application/json" }
@@ -22565,7 +22566,7 @@ Pastikan koordinat x dan y bervariasi agar tidak bertumpuk di satu tempat.
 ${NO_DASHES_PROMPT}
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
       config: { responseMimeType: "application/json" }
@@ -22863,7 +22864,7 @@ Tuliskan hasil tanpa format markdown seperti bintang (**) atau pagar (#). Gunaka
 Pastikan kolom tanda tangan tersebut diformat dengan sangat rapi dan estetik menggunakan tabel atau struktur CSS flexbox/grid yang bersih (misalnya di sebelah kiri Kepala Sekolah dan sebelah kanan Guru), diletakkan di bagian akhir dokumen HTML.`;
     }
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
     });
@@ -22974,7 +22975,7 @@ Tuliskan hasil tanpa format markdown seperti bintang (**) atau pagar (#). Gunaka
 ${NO_DASHES_PROMPT}
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
       config: {
@@ -23596,7 +23597,7 @@ PENTING:
 TEMPLATE MANDATORI HTML:
 ${buildFallbackHTML(p, index)}`;
 
-          const response = await generateGeminiContent(ai, {
+          const response = await callAI(ai, {
             model: "gemini-3.7-flash",
             contents: prompt,
             config: {
@@ -24171,7 +24172,7 @@ SANGAT PENTING:
 TEMPLATE ACUAN:
 ${fallbackHtml}`;
 
-        const response = await generateGeminiContent(ai, {
+        const response = await callAI(ai, {
           model: "gemini-3.7-flash",
           contents: prompt,
           config: { responseMimeType: "text/plain" }
