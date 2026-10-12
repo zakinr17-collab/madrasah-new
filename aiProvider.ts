@@ -61,8 +61,16 @@ async function callCustom(contents: AIContents, config?: any, maxTokens?: number
   const body: any = {
     model: customModel(),
     messages: toChatMessages(contents, config),
+    // Model reasoning butuh ruang thinking; default cukup besar agar content tidak kosong.
+    max_tokens: maxTokens || 8192,
   };
-  if (maxTokens) body.max_tokens = maxTokens;
+  if (config?.responseMimeType === "application/json") {
+    // Provider ini belum dukung response_format konsisten: sisipkan instruksi JSON eksplisit
+    const last = body.messages[body.messages.length - 1];
+    if (typeof last.content === "string") {
+      last.content += "\n\nPENTING: Balas HANYA dengan JSON valid, tanpa teks pembuka, tanpa penjelasan, tanpa markdown fence.";
+    }
+  }
   // 3 percobaan: network glitch / overload / reasoning dipotong (finish_reason=length)
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
