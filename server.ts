@@ -21,6 +21,7 @@ import { encryptGoogleDriveOAuthToken, decryptGoogleDriveOAuthToken } from "./sr
 import selfsigned from "selfsigned";
 import { GoogleGenAI } from "@google/genai";
 import { callAI } from "./aiProvider";
+import { deriveAiProviderCredentialKey, encryptSecret, decryptSecret, sanitizeAiProviderInput, publicAiProviderView, AiProviderConfig } from "./aiProviderSettings";
 import { v2 as cloudinary } from "cloudinary";
 import JSZip from "jszip";
 import mammoth from "mammoth";
@@ -381,6 +382,23 @@ function sanitizeStudentForClient(student: any, includeAdminPassword = false): a
   const { password, passwordRaw, passwordAdminCipher, ...safe } = student;
   if (includeAdminPassword) safe.passwordDisplay = decryptStudentAdminPassword(passwordAdminCipher) || '';
   return safe;
+}
+
+const AI_PROVIDER_CREDENTIAL_KEY = deriveAiProviderCredentialKey(LOCAL_STORE_SECRET);
+
+function getAiProviderConfig(): AiProviderConfig | null {
+  const raw = (appSettings as any)?.aiProviderConfig;
+  return raw && typeof raw === 'object' ? raw as AiProviderConfig : null;
+}
+
+function applyAiProviderRuntime() {
+  const cfg = getAiProviderConfig();
+  const rt = (globalThis as any).__aiProviderRuntime || ((globalThis as any).__aiProviderRuntime = {});
+  if (!cfg) { delete (globalThis as any).__aiProviderRuntime; return; }
+  rt.customBaseUrl = cfg.customBaseUrl || '';
+  rt.customApiKey = decryptSecret(cfg.customApiKeyEnc || '', AI_PROVIDER_CREDENTIAL_KEY);
+  rt.customModel = cfg.customModel || 'auto';
+  rt.order = cfg.order || '';
 }
 
 function customAiAvailable(): boolean {
@@ -24175,6 +24193,42 @@ app.get("/api/settings", (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.json({ success: true, settings: safeSettings, isOfflineMode });
 });
+// ===== AI Provider Settings (BYOK dari UI) =====
+app.get("/api/ai-provider/settings", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    applyAiProviderRuntime();
+    res.json({ success: true, config: publicAiProviderView(getAiProviderConfig(), Boolean(process.env.CUSTOM_AI_API_KEY)) });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
+app.post("/api/ai-provider/settings", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    const cfg = sanitizeAiProviderInput(req.body, AI_PROVIDER_CREDENTIAL_KEY, getAiProviderConfig());
+    if (!cfg) return res.status(400).json({ success: false, message: "Payload tidak valid." });
+    appSettings = { ...appSettings, aiProviderConfig: cfg } as any;
+    await saveData('settings', appSettings);
+    applyAiProviderRuntime();
+    res.json({ success: true, config: publicAiProviderView(getAiProviderConfig(), Boolean(process.env.CUSTOM_AI_API_KEY)) });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
+app.post("/api/ai-provider/test", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    // Tes memakai kredensial yang AKAN aktif (DB runtime + env).
+    applyAiProviderRuntime();
+    const t0 = Date.now();
+    const response = await callAI(null, { contents: "Balas tepat satu kata: OK", config: {} });
+    const text = String((response as any).text || "").trim();
+    res.json({ success: text.length > 0, latencyMs: Date.now() - t0, sample: text.slice(0, 40) });
+  } catch (e: any) {
+    res.json({ success: false, message: String(e?.message || e).slice(0, 300) });
+  }
+});
+
 app.put("/api/settings", requireAuth, requireRole(['bos', 'superadmin']), async (req, res) => {
   if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)) {
     return res.status(400).json({ success: false, message: 'Payload settings tidak valid.' });

@@ -15,13 +15,21 @@ export interface AIContentPart { text?: string; inlineData?: { mimeType: string;
 export type AIContents = string | AIContentPart[] | any[];
 
 function customBase(): string {
-  return (process.env.CUSTOM_AI_BASE_URL || "https://token.lightvela.ai/v1").replace(/\/$/, "");
+  return (globalThis as any).__aiProviderRuntime?.customBaseUrl
+    || (process.env.CUSTOM_AI_BASE_URL || "https://token.lightvela.ai/v1").replace(/\/$/, "");
 }
-function customKey(): string { return process.env.CUSTOM_AI_API_KEY || ""; }
-function customModel(): string { return process.env.CUSTOM_AI_MODEL || "auto"; }
+function customKey(): string {
+  return (globalThis as any).__aiProviderRuntime?.customApiKey
+    || process.env.CUSTOM_AI_API_KEY || "";
+}
+function customModel(): string {
+  return (globalThis as any).__aiProviderRuntime?.customModel
+    || process.env.CUSTOM_AI_MODEL || "auto";
+}
 function providerOrder(): string[] {
-  return (process.env.AI_PROVIDER_ORDER || "custom,gemini")
-    .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+  const runtimeOrder = (globalThis as any).__aiProviderRuntime?.order;
+  const raw = runtimeOrder || process.env.AI_PROVIDER_ORDER || "custom,gemini";
+  return raw.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
 }
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
@@ -62,7 +70,7 @@ async function callCustom(contents: AIContents, config?: any, maxTokens?: number
     model: customModel(),
     messages: toChatMessages(contents, config),
     // Model reasoning butuh ruang thinking; default cukup besar agar content tidak kosong.
-    max_tokens: maxTokens || 8192,
+    max_tokens: maxTokens || 16384,
   };
   if (config?.responseMimeType === "application/json") {
     // Provider ini belum dukung response_format konsisten: sisipkan instruksi JSON eksplisit
@@ -75,7 +83,7 @@ async function callCustom(contents: AIContents, config?: any, maxTokens?: number
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 120_000);
+      const t = setTimeout(() => ctrl.abort(), 300_000);
       const res = await fetch(`${customBase()}/chat/completions`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${customKey()}`, "Content-Type": "application/json" },
@@ -91,8 +99,8 @@ async function callCustom(contents: AIContents, config?: any, maxTokens?: number
       const data: any = await res.json();
       const msg = data?.choices?.[0]?.message;
       let text: string = msg?.content || "";
-      // Beberapa model menaruh jawaban di reasoning_content bila content kosong
-      if (!text.trim() && msg?.reasoning_content) text = String(msg.reasoning_content);
+      // reasoning_content BUKAN jawaban (itu proses berpikir model) — jangan dipakai.
+      // Content kosong (mis. finish_reason=length karena reasoning) -> biarkan kosong agar retry terjadi.
       if (!text.trim()) { console.warn("[AIProvider:custom] Respons kosong"); await sleep(1500); continue; }
       return text;
     } catch (e: any) {
