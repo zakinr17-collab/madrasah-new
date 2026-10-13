@@ -1,35 +1,173 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900">
 <defs>
- <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#081229"/><stop offset=".48" stop-color="#16295b"/><stop offset="1" stop-color="#080f21"/></linearGradient>
- <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#263660"/><stop offset="1" stop-color="#0b1125"/></linearGradient>
- <filter id="glowB"><feGaussianBlur stdDeviation="10"/></filter><filter id="glowR"><feGaussianBlur stdDeviation="10"/></filter>
+ <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#050a1c"/><stop offset=".35" stop-color="#0d1b45"/>
+  <stop offset=".62" stop-color="#1b2f6e"/><stop offset="1" stop-color="#070d20"/>
+ </linearGradient>
+ <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#1a2450"/><stop offset=".18" stop-color="#141c40"/>
+  <stop offset="1" stop-color="#05070f"/>
+ </linearGradient>
+ <radialGradient id="stageGlow" cx=".5" cy=".58" r=".55">
+  <stop offset="0" stop-color="#2f4fd8" stop-opacity=".5"/><stop offset="1" stop-color="#2f4fd8" stop-opacity="0"/>
+ </radialGradient>
+ <linearGradient id="glassA" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#0f3f7a" stop-opacity=".92"/><stop offset="1" stop-color="#061a38" stop-opacity=".95"/>
+ </linearGradient>
+ <linearGradient id="glassB" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#7a1030" stop-opacity=".92"/><stop offset="1" stop-color="#38061a" stop-opacity=".95"/>
+ </linearGradient>
+ <linearGradient id="beamA" x1="0" y1="0" x2="1" y2="0">
+  <stop offset="0" stop-color="#54e2ff"/><stop offset="1" stop-color="#1c6dff"/>
+ </linearGradient>
+ <linearGradient id="beamB" x1="1" y1="0" x2="0" y2="0">
+  <stop offset="0" stop-color="#ff6fa5"/><stop offset="1" stop-color="#ff2f62"/>
+ </linearGradient>
+ <filter id="glowB" x="-60%" y="-60%" width="220%" height="220%">
+  <feGaussianBlur stdDeviation="14" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+ </filter>
+ <filter id="glowR" x="-60%" y="-60%" width="220%" height="220%">
+  <feGaussianBlur stdDeviation="14" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+ </filter>
+ <filter id="soft"><feGaussianBlur stdDeviation="22"/></filter>
+ <filter id="soft8"><feGaussianBlur stdDeviation="8"/></filter>
+ <radialGradient id="vign" cx=".5" cy=".5" r=".75">
+  <stop offset=".62" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".55"/>
+ </radialGradient>
+ <pattern id="gridFloor" width="80" height="56" patternUnits="userSpaceOnUse">
+  <path d="M0 0H80M0 0V56" stroke="#3d55b8" stroke-width="2" opacity=".5"/>
+ </pattern>
 </defs>
-<rect width="1600" height="900" fill="url(#bg)"/>
-<g stroke-width="8" fill="none" opacity=".95">
- <path d="M0 95h390l80 70h230l65 70" stroke="#1ccfff"/>
- <path d="M1600 95h-390l-80 70H900l-65 70" stroke="#ff4f87"/>
- <path d="M0 195h285l100 85" stroke="#1688ed"/><path d="M1600 195h-285l-100 85" stroke="#ef3e58"/>
+
+<rect width="1600" height="900" fill="url(#sky)"/>
+
+<!-- bintang / partikel atmosfer -->
+<g fill="#cfe6ff">
+ <circle cx="120" cy="70" r="2.4" opacity=".8"/><circle cx="340" cy="130" r="1.8" opacity=".55"/>
+ <circle cx="520" cy="55" r="2" opacity=".7"/><circle cx="760" cy="110" r="1.6" opacity=".5"/>
+ <circle cx="980" cy="60" r="2.2" opacity=".75"/><circle cx="1210" cy="140" r="1.8" opacity=".55"/>
+ <circle cx="1430" cy="70" r="2.4" opacity=".8"/><circle cx="1520" cy="180" r="1.6" opacity=".45"/>
+ <circle cx="60" cy="220" r="1.6" opacity=".4"/><circle cx="880" cy="200" r="1.4" opacity=".4"/>
 </g>
-<g fill="#0f2554" stroke="#229cff" stroke-width="7"><rect x="45" y="270" width="235" height="355" rx="22"/><rect x="310" y="410" width="190" height="190" rx="18"/><rect x="520" y="340" width="150" height="205" rx="18"/></g>
-<g fill="#4f1736" stroke="#ff4f87" stroke-width="7"><rect x="1320" y="270" width="235" height="355" rx="22"/><rect x="1100" y="410" width="190" height="190" rx="18"/><rect x="930" y="340" width="150" height="205" rx="18"/></g>
-<g fill="#132957" stroke="#8bcfff" stroke-width="5"><rect x="680" y="290" width="240" height="120" rx="18"/><rect x="730" y="410" width="140" height="130" rx="16"/></g>
-<path d="M715 335h170" stroke="#ffb33d" stroke-width="12" stroke-linecap="round"/><path d="M750 455h100" stroke="#27cfff" stroke-width="9" stroke-linecap="round"/>
-<rect y="570" width="1600" height="330" fill="url(#floor)"/>
-<g stroke-width="4" opacity=".74">
- <path d="M0 670h1600M0 755h1600M0 840h1600" stroke="#4664b9"/>
- <path d="M130 570L15 900M360 570L290 900M590 570L565 900" stroke="#1ccfff"/>
- <path d="M1470 570l115 330M1240 570l70 330M1010 570l25 330" stroke="#ff4f87"/>
+
+<!-- spotlight tengah -->
+<ellipse cx="800" cy="540" rx="720" ry="300" fill="url(#stageGlow)"/>
+
+<!-- skyline belakang (siluet parallax) -->
+<g opacity=".55">
+ <rect x="0" y="330" width="270" height="250" rx="18" fill="#0a1636"/>
+ <rect x="330" y="380" width="200" height="200" rx="14" fill="#0b1a3e"/>
+ <rect x="1050" y="380" width="210" height="200" rx="14" fill="#0b1a3e"/>
+ <rect x="1330" y="330" width="270" height="250" rx="18" fill="#0a1636"/>
 </g>
-<g opacity=".62" filter="url(#glowB)"><path d="M0 530h780" stroke="#1ccfff" stroke-width="20"/></g><g opacity=".62" filter="url(#glowR)"><path d="M820 530h780" stroke="#ff4f87" stroke-width="20"/></g>
-<g fill="#102047" stroke-width="7">
- <rect x="80" y="545" width="300" height="95" rx="18" stroke="#1ccfff"/><rect x="1220" y="545" width="300" height="95" rx="18" stroke="#ff4f87"/>
- <rect x="430" y="615" width="245" height="110" rx="18" stroke="#1ccfff"/><rect x="925" y="615" width="245" height="110" rx="18" stroke="#ff4f87"/>
- <rect x="620" y="735" width="360" height="95" rx="18" stroke="#8b74ff"/>
+
+<!-- menara tim A (kiri) dengan jendela menyala -->
+<g>
+ <rect x="60" y="250" width="270" height="380" rx="24" fill="url(#glassA)" stroke="#39b7ff" stroke-width="5"/>
+ <rect x="60" y="250" width="270" height="380" rx="24" fill="none" stroke="#9fdfff" stroke-width="1.5" opacity=".5"/>
+ <!-- jendela grid menyala -->
+ <g fill="#7fd8ff">
+  <rect x="92" y="285" width="56" height="42" rx="8" opacity=".85"/><rect x="168" y="285" width="56" height="42" rx="8" opacity=".55"/>
+  <rect x="244" y="285" width="56" height="42" rx="8" opacity=".9"/><rect x="92" y="345" width="56" height="42" rx="8" opacity=".6"/>
+  <rect x="168" y="345" width="56" height="42" rx="8" opacity=".95"/><rect x="244" y="345" width="56" height="42" rx="8" opacity=".5"/>
+  <rect x="92" y="405" width="56" height="42" rx="8" opacity=".9"/><rect x="168" y="405" width="56" height="42" rx="8" opacity=".7"/>
+  <rect x="244" y="405" width="56" height="42" rx="8" opacity=".85"/>
+ </g>
+ <!-- emblem heksagon tim -->
+ <path d="M155 470h80l40 46-40 46h-80l-40-46Z" fill="#0a3f74" stroke="#54e2ff" stroke-width="5" filter="url(#glowB)"/>
+ <circle cx="195" cy="516" r="26" fill="#1688ed" opacity=".85"/>
+ <path d="M185 516l8 9 16-19" stroke="#eaf9ff" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+ <!-- antena + lampu -->
+ <path d="M195 250v-46" stroke="#54e2ff" stroke-width="5"/>
+ <circle cx="195" cy="196" r="9" fill="#ff4f6f" filter="url(#glowR)"/>
+ <!-- layar skor di tower -->
+ <rect x="92" y="560" width="206" height="46" rx="12" fill="#04102a" stroke="#39b7ff" stroke-width="3"/>
+ <rect x="104" y="572" width="120" height="9" rx="4.5" fill="#54e2ff" opacity=".9"/>
+ <rect x="104" y="588" width="72" height="9" rx="4.5" fill="#54e2ff" opacity=".5"/>
+</g>
+
+<!-- menara tim B (kanan), mirror -->
+<g>
+ <rect x="1270" y="250" width="270" height="380" rx="24" fill="url(#glassB)" stroke="#ff6fa5" stroke-width="5"/>
+ <rect x="1270" y="250" width="270" height="380" rx="24" fill="none" stroke="#ffc2d9" stroke-width="1.5" opacity=".5"/>
+ <g fill="#ff9dc0">
+  <rect x="1302" y="285" width="56" height="42" rx="8" opacity=".85"/><rect x="1378" y="285" width="56" height="42" rx="8" opacity=".55"/>
+  <rect x="1454" y="285" width="56" height="42" rx="8" opacity=".9"/><rect x="1302" y="345" width="56" height="42" rx="8" opacity=".6"/>
+  <rect x="1378" y="345" width="56" height="42" rx="8" opacity=".95"/><rect x="1454" y="345" width="56" height="42" rx="8" opacity=".5"/>
+  <rect x="1302" y="405" width="56" height="42" rx="8" opacity=".9"/><rect x="1378" y="405" width="56" height="42" rx="8" opacity=".7"/>
+  <rect x="1454" y="405" width="56" height="42" rx="8" opacity=".85"/>
+ </g>
+ <path d="M1365 470h80l40 46-40 46h-80l-40-46Z" fill="#6b0f2e" stroke="#ff6fa5" stroke-width="5" filter="url(#glowR)"/>
+ <circle cx="1405" cy="516" r="26" fill="#d81f4e" opacity=".85"/>
+ <path d="M1395 516l8 9 16-19" stroke="#ffeaf2" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+ <path d="M1405 250v-46" stroke="#ff6fa5" stroke-width="5"/>
+ <circle cx="1405" cy="196" r="9" fill="#54e2ff" filter="url(#glowB)"/>
+ <rect x="1302" y="560" width="206" height="46" rx="12" fill="#2a0410" stroke="#ff6fa5" stroke-width="3"/>
+ <rect x="1314" y="572" width="120" height="9" rx="4.5" fill="#ff6fa5" opacity=".9"/>
+ <rect x="1314" y="588" width="72" height="9" rx="4.5" fill="#ff6fa5" opacity=".5"/>
+</g>
+
+<!-- jembatan laser atas: dua arah dengan glow -->
+<g>
+ <path d="M330 300 L620 360" stroke="#1c6dff" stroke-width="34" stroke-linecap="round" opacity=".18"/>
+ <path d="M330 300 L620 360" stroke="#54e2ff" stroke-width="18" stroke-linecap="round" opacity=".3"/>
+</g>
+<g filter="url(#glowB)">
+ <path d="M330 300 L620 360" stroke="url(#beamA)" stroke-width="10" stroke-linecap="round" opacity=".95"/>
+ <path d="M300 380 L560 420" stroke="#1c6dff" stroke-width="7" stroke-linecap="round" opacity=".7"/>
 </g>
 <g>
- <path d="M65 245h150l55 55-55 55H65Z" fill="#0759ad" stroke="#27cfff" stroke-width="7"/><circle cx="150" cy="300" r="39" fill="#1688ed" opacity=".55"/>
- <path d="M1535 245h-150l-55 55 55 55h150Z" fill="#8b173b" stroke="#ff4f87" stroke-width="7"/><circle cx="1450" cy="300" r="39" fill="#ef3e58" opacity=".55"/>
+ <path d="M1270 300 L980 360" stroke="#ff2f62" stroke-width="34" stroke-linecap="round" opacity=".18"/>
+ <path d="M1270 300 L980 360" stroke="#ff6fa5" stroke-width="18" stroke-linecap="round" opacity=".3"/>
 </g>
-<g opacity=".9"><path d="M90 390h130" stroke="#27cfff" stroke-width="12"/><path d="M1380 390h130" stroke="#ff4f87" stroke-width="12"/></g>
-<circle cx="800" cy="535" r="56" fill="#fff" opacity=".11"/><circle cx="800" cy="535" r="28" fill="#fff" opacity=".42"/>
+<g filter="url(#glowR)">
+ <path d="M1270 300 L980 360" stroke="url(#beamB)" stroke-width="10" stroke-linecap="round" opacity=".95"/>
+ <path d="M1300 380 L1040 420" stroke="#ff2f62" stroke-width="7" stroke-linecap="round" opacity=".7"/>
+</g>
+
+<!-- dudukan penonton kiri/kanan -->
+<g>
+ <rect x="0" y="560" width="360" height="120" rx="16" fill="#0a1226" stroke="#2c4bd6" stroke-width="4"/>
+ <rect x="1240" y="560" width="360" height="120" rx="16" fill="#0a1226" stroke="#d62c58" stroke-width="4"/>
+</g>
+
+<!-- lantai arena -->
+<rect y="620" width="1600" height="280" fill="url(#floor)"/>
+<rect y="620" width="1600" height="280" fill="url(#gridFloor)" opacity=".28"/>
+<!-- refleksi spotlight di lantai -->
+<ellipse cx="800" cy="700" rx="560" ry="70" fill="#3f63ff" opacity=".14" filter="url(#soft)"/>
+<!-- refleksi neon menara di lantai (wet floor) -->
+<g opacity=".2">
+ <rect x="60" y="905" width="270" height="200" rx="24" fill="#39b7ff" filter="url(#soft8)"/>
+ <rect x="1270" y="905" width="270" height="200" rx="24" fill="#ff6fa5" filter="url(#soft8)"/>
+ <ellipse cx="195" cy="1020" rx="60" ry="14" fill="#54e2ff"/><ellipse cx="1405" cy="1020" rx="60" ry="14" fill="#ff6fa5"/>
+</g>
+
+<!-- barikade foreground neon -->
+<g>
+ <rect x="120" y="660" width="320" height="86" rx="20" fill="#0d1c44" stroke="url(#beamA)" stroke-width="4" filter="url(#glowB)"/>
+ <rect x="510" y="700" width="240" height="96" rx="20" fill="#0c1838" stroke="#1c6dff" stroke-width="3.5" opacity=".9"/>
+ <rect x="850" y="700" width="240" height="96" rx="20" fill="#20081a" stroke="#ff2f62" stroke-width="3.5" opacity=".9"/>
+ <rect x="1160" y="660" width="320" height="86" rx="20" fill="#240a16" stroke="url(#beamB)" stroke-width="4" filter="url(#glowR)"/>
+</g>
+
+<!-- garis marka lantai menyala -->
+<g stroke-linecap="round" filter="url(#glowB)" opacity=".8">
+ <path d="M470 850h130" stroke="#54e2ff" stroke-width="8"/>
+ <path d="M620 850h90" stroke="#54e2ff" stroke-width="6" opacity=".6"/>
+</g>
+<g stroke-linecap="round" filter="url(#glowR)" opacity=".8">
+ <path d="M1000 850h130" stroke="#ff6fa5" stroke-width="8"/>
+ <path d="M890 850h90" stroke="#ff6fa5" stroke-width="6" opacity=".6"/>
+</g>
+
+<!-- bola energi pusat (ganti bola abu-abu) -->
+<g filter="url(#glowB)">
+ <circle cx="800" cy="640" r="34" fill="#0c2a6e" stroke="#54e2ff" stroke-width="5"/>
+ <circle cx="800" cy="640" r="20" fill="#54e2ff" opacity=".9"/>
+ <circle cx="800" cy="640" r="9" fill="#ffffff"/>
+</g>
+<ellipse cx="800" cy="700" rx="60" ry="12" fill="#54e2ff" opacity=".3" filter="url(#soft8)"/>
+
+<rect width="1600" height="900" fill="url(#vign)"/>
 </svg>
