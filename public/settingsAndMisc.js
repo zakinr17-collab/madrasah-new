@@ -148,12 +148,57 @@ let __aiProviderSelected = 'custom';
 function selectAiProviderCard(provider) {
     __aiProviderSelected = provider;
     const customCard = document.getElementById('ai-provider-card-custom');
-    const customFields = document.getElementById('ai-provider-custom-fields');
     if (!customCard) return;
-    const on = (el) => { el.classList.remove('border-slate-200'); el.classList.add('border-violet-500','bg-violet-50/50'); };
-    const off = (el) => { el.classList.add('border-slate-200'); el.classList.remove('border-violet-500','bg-violet-50/50'); };
-    on(customCard); if(customFields) customFields.classList.remove('hidden');
+    customCard.classList.remove('border-slate-200'); customCard.classList.add('border-violet-300');
+    updateAiProviderActiveInfo();
 }
+window.selectAiProviderCard = selectAiProviderCard;
+
+function updateAiProviderActiveInfo() {
+    const el = document.getElementById('ai-provider-active-info');
+    if (!el) return;
+    const bu = (document.getElementById('ai-provider-base-url') || {}).value || '';
+    const model = (document.getElementById('ai-provider-model') || {}).value || 'auto';
+    el.innerHTML = bu ? ('<i class="fa-solid fa-circle-check text-emerald-500 mr-1"></i>AI aktif: <b>' + escHtml(bu) + '</b> \u00b7 model <b>' + escHtml(model) + '</b>') : 'Belum ada AI aktif — klik Tambah AI Baru.';
+}
+
+function showAiProviderForm() {
+    const w = document.getElementById('ai-provider-form-wrap');
+    if (!w) return;
+    document.getElementById('ai-provider-form-title').textContent = 'Tambah AI Baru';
+    document.getElementById('ai-provider-profile-edit-id').value = '';
+    document.getElementById('ai-provider-profile-label').value = '';
+    document.getElementById('ai-provider-base-url').value = '';
+    document.getElementById('ai-provider-model').value = 'auto';
+    document.getElementById('ai-provider-api-key').value = '';
+    const hint = document.getElementById('ai-provider-key-hint');
+    if (hint) hint.textContent = '';
+    w.classList.remove('hidden');
+}
+window.showAiProviderForm = showAiProviderForm;
+
+function hideAiProviderForm() {
+    const w = document.getElementById('ai-provider-form-wrap');
+    if (w) w.classList.add('hidden');
+}
+window.hideAiProviderForm = hideAiProviderForm;
+
+async function editActiveAiProvider() {
+    try {
+        const res = await fetch('/api/ai-provider/settings', { headers: { 'Authorization': 'Bearer ' + (appState.token || localStorage.getItem('token') || '') } });
+        const data = await res.json();
+        if (!data.success) return;
+        const cfg = data.config || {};
+        showAiProviderForm();
+        document.getElementById('ai-provider-form-title').textContent = 'Edit AI Aktif';
+        document.getElementById('ai-provider-base-url').value = cfg.customBaseUrl || '';
+        document.getElementById('ai-provider-model').value = cfg.customModel || 'auto';
+        const hint = document.getElementById('ai-provider-key-hint');
+        if (hint) hint.textContent = cfg.hasApiKey ? ('API key sudah tersimpan (sumber: ' + (cfg.keySource === 'db' ? 'database' : '.env') + '). Kosongkan kolom key untuk tetap memakai key lama.') : 'Belum ada API key tersimpan.';
+        document.getElementById('ai-provider-base-url').focus();
+    } catch (e) { /* diam */ }
+}
+window.editActiveAiProvider = editActiveAiProvider;
 window.selectAiProviderCard = selectAiProviderCard;
 
 async function loadAiProviderSettings() {
@@ -167,10 +212,9 @@ async function loadAiProviderSettings() {
         loadAiProviderProfiles();
         const baseUrl = document.getElementById('ai-provider-base-url');
         const model = document.getElementById('ai-provider-model');
-        const hint = document.getElementById('ai-provider-key-hint');
         if (baseUrl) baseUrl.value = cfg.customBaseUrl || '';
         if (model) model.value = cfg.customModel || 'auto';
-        if (hint) hint.textContent = cfg.hasApiKey ? ('API key sudah tersimpan (sumber: ' + (cfg.keySource === 'db' ? 'database' : '.env') + ').' + (cfg.keySource === 'db' ? ' Kosongkan kolom untuk tetap memakai key lama.' : '')) : 'Belum ada API key tersimpan.';
+        updateAiProviderActiveInfo();
     } catch (e) { /* default tetap tampil */ }
 }
 window.loadAiProviderSettings = loadAiProviderSettings;
@@ -284,6 +328,7 @@ async function saveAiProviderProfile(button) {
             const lbl = document.getElementById('ai-provider-profile-label'); if (lbl) lbl.value = '';
             const eid = document.getElementById('ai-provider-profile-edit-id'); if (eid) eid.value = '';
             const k = document.getElementById('ai-provider-api-key'); if (k) k.value = '';
+            setTimeout(hideAiProviderForm, 900);
         }
     } catch (e) {
         if (status) { status.textContent = '\u2717 Gagal: ' + e.message; status.className = 'text-xs font-semibold text-red-500'; }
@@ -310,6 +355,7 @@ async function activateAiProviderProfile(id) {
             if (model) model.value = cfg.customModel || 'auto';
             if (hint) hint.textContent = cfg.hasApiKey ? ('\u2713 Profil aktif (key tersimpan)') : 'Profil aktif tanpa API key';
             if (status) { status.textContent = '\u2713 Profil diaktifkan'; status.className = 'text-xs font-semibold text-emerald-600'; }
+        updateAiProviderActiveInfo();
         } else if (status) { status.textContent = '\u2717 ' + (data.message || 'Gagal'); status.className = 'text-xs font-semibold text-red-500'; }
     } catch (e) {
         if (status) { status.textContent = '\u2717 Gagal: ' + e.message; status.className = 'text-xs font-semibold text-red-500'; }
@@ -403,33 +449,43 @@ function renderSettingModule(container) {
                             <p class="text-[11px] text-slate-500">Semua fitur AI lewat satu server AI. Isi API key di bawah, tes koneksi, selesai.</p>
                         </button>
                     </div>
-                    <div id="ai-provider-custom-fields" class="hidden mt-4 space-y-3">
+                    <div id="ai-provider-active-info" class="mt-3 text-[11px] text-slate-500"></div>
+                    <div id="ai-provider-form-wrap" class="hidden mt-4 space-y-3">
+                        <div class="flex items-center justify-between">
+                            <span id="ai-provider-form-title" class="text-xs font-bold text-slate-600 uppercase">Tambah AI Baru</span>
+                            <button type="button" onclick="hideAiProviderForm()" class="text-slate-400 hover:text-slate-600 cursor-pointer"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div>
                                 <label class="block text-xs uppercase font-bold text-slate-500 mb-1">Base URL</label>
-                                <input type="text" id="ai-provider-base-url" placeholder="https://token.lightvela.ai/v1" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500">
+                                <input type="text" id="ai-provider-base-url" placeholder="https://token.lightvela.ai/v1" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
                             </div>
                             <div>
                                 <label class="block text-xs uppercase font-bold text-slate-500 mb-1">Model</label>
-                                <input type="text" id="ai-provider-model" placeholder="auto" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500">
+                                <input type="text" id="ai-provider-model" placeholder="auto" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
                             </div>
                         </div>
                         <div>
                             <label class="block text-xs uppercase font-bold text-slate-500 mb-1">API Key</label>
-                            <input type="password" id="ai-provider-api-key" placeholder="Kosongkan jika tidak ingin mengganti" autocomplete="new-password" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500">
+                            <input type="password" id="ai-provider-api-key" placeholder="Kosongkan jika tidak ingin mengganti key lama" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
                             <p id="ai-provider-key-hint" class="text-[11px] text-slate-400 mt-1"></p>
+                        </div>
+                        <div class="flex gap-2">
+                            <input type="text" id="ai-provider-profile-label" placeholder="Nama profil (mis. Lightvela Kantor)" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+                            <input type="hidden" id="ai-provider-profile-edit-id" />
+                            <button type="button" onclick="saveAiProviderProfile(this)" class="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer whitespace-nowrap">Simpan sebagai Profil</button>
                         </div>
                     </div>
                     <div class="mt-4 pt-3 border-t border-slate-100">
                         <div class="flex items-center justify-between mb-2">
                             <label class="block text-xs uppercase font-bold text-slate-500">Daftar AI Tersimpan</label>
-                        </div>
-                        <div class="flex gap-2 mb-2">
-                            <input type="text" id="ai-provider-profile-label" placeholder="Nama profil (mis. Lightvela Kantor)" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
-                            <input type="hidden" id="ai-provider-profile-edit-id" />
-                            <button type="button" onclick="saveAiProviderProfile(this)" class="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer whitespace-nowrap">Simpan sebagai Profil</button>
+                            <div class="flex gap-1.5">
+                                <button type="button" onclick="showAiProviderForm()" class="px-2.5 py-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-plus mr-1"></i>Tambah AI Baru</button>
+                                <button type="button" onclick="editActiveAiProvider()" class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:border-violet-300 text-slate-600 text-[11px] font-bold cursor-pointer">Edit AI Aktif</button>
+                            </div>
                         </div>
                         <div id="ai-provider-profiles-list" class="space-y-1.5"></div>
+                    </div>
                     </div>
                     <div class="flex flex-wrap gap-2 mt-4 items-center">
                         <button type="button" onclick="saveAiProviderSettings(this)" class="px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition cursor-pointer">
