@@ -60,6 +60,54 @@ export function decryptSecret(value: string, key: Buffer): string {
   }
 }
 
+// ===== Profil AI tersimpan (daftar untuk ganti AI cepat) =====
+export interface AiProviderProfile {
+  id: string;
+  label: string;
+  customBaseUrl: string;
+  customModel: string;
+  customApiKeyEnc: string;
+  updatedAt: string;
+}
+
+/** Ambil daftar profil dari settings (aman). */
+export function getAiProviderProfiles(settings: any): AiProviderProfile[] {
+  const list = settings && Array.isArray(settings.aiProviderProfiles) ? settings.aiProviderProfiles : [];
+  return list.filter((p: any) => p && typeof p === 'object' && p.id);
+}
+
+/** Bentuk aman profil untuk klien — key tidak pernah dikirim balik. */
+export function publicProfileView(p: AiProviderProfile) {
+  return {
+    id: p.id,
+    label: p.label,
+    customBaseUrl: p.customBaseUrl,
+    customModel: p.customModel,
+    hasApiKey: Boolean(p.customApiKeyEnc),
+    updatedAt: p.updatedAt,
+  };
+}
+
+/** Sanitasi payload profil dari UI. */
+export function sanitizeProfileInput(body: any, key: Buffer, existing?: AiProviderProfile | null): AiProviderProfile | null {
+  if (!body || typeof body !== 'object') return null;
+  const label = String(body.label || '').trim().slice(0, 60);
+  if (!label) return null;
+  const baseUrl = String(body.customBaseUrl ?? existing?.customBaseUrl ?? '').trim().replace(/\/$/, '') || 'https://token.lightvela.ai/v1';
+  const model = String(body.customModel ?? existing?.customModel ?? 'auto').trim() || 'auto';
+  const prof: AiProviderProfile = {
+    id: String(existing?.id || body.id || '').trim() || ('AIP_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
+    label,
+    customBaseUrl: baseUrl,
+    customModel: model,
+    customApiKeyEnc: existing?.customApiKeyEnc || '',
+    updatedAt: new Date().toISOString(),
+  };
+  const newKey = String(body.customApiKey || '').trim();
+  if (newKey) prof.customApiKeyEnc = encryptSecret(newKey, key);
+  else if (body.clearApiKey === true) prof.customApiKeyEnc = '';
+  return prof;
+}
 /** Sanitasi input dari UI sebelum disimpan. */
 export function sanitizeAiProviderInput(body: any, key: Buffer, existing?: AiProviderConfig | null): AiProviderConfig | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
