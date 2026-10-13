@@ -3356,8 +3356,7 @@ export const appExport = app;
 export default app;
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
-// LAN HTTPS: sertifikat lokal (CA sendiri) agar kamera/mic jalan di HP via IP LAN, di mode storage apapun.
-const offlineHttpsRequested = !isTrustedCloudRunRuntime && /^(1|true|yes|on)$/i.test(String(process.env.USE_HTTPS || '').trim());
+const offlineHttpsRequested = !isTrustedCloudRunRuntime && isOfflineMode && /^(1|true|yes|on)$/i.test(String(process.env.USE_HTTPS || '').trim());
 
 type OfflineHttpsRuntimeOptions = {
   key: string | Buffer;
