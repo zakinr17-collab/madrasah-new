@@ -24237,9 +24237,17 @@ app.post("/api/ai-provider/settings", requireAuth, requireRole(['admin', 'admini
 
 app.get("/api/ai-provider/profiles", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
   try {
-    const profiles = getAiProviderProfiles(appSettings).map(publicProfileView);
-    const cfg = getAiProviderConfig();
-    res.json({ success: true, profiles, active: { customBaseUrl: cfg?.customBaseUrl || '', customModel: cfg?.customModel || 'auto' } });
+    // Auto-migrate: config aktif lama dijadikan profil pertama jika daftar masih kosong.
+    let profiles = getAiProviderProfiles(appSettings);
+    let migrated = false;
+    const activeCfg = getAiProviderConfig();
+    if (profiles.length === 0 && activeCfg && (activeCfg.customBaseUrl || activeCfg.customApiKeyEnc)) {
+      profiles = [{ id: 'AIP_' + Date.now().toString(36), label: 'Konfigurasi Lama', customBaseUrl: activeCfg.customBaseUrl || '', customModel: activeCfg.customModel || 'auto', customApiKeyEnc: activeCfg.customApiKeyEnc || '', updatedAt: new Date().toISOString() }];
+      appSettings = { ...appSettings, aiProviderProfiles: profiles } as any;
+      await saveData('settings', appSettings);
+      migrated = true;
+    }
+    res.json({ success: true, profiles: profiles.map(publicProfileView), migrated, active: { customBaseUrl: activeCfg?.customBaseUrl || '', customModel: activeCfg?.customModel || 'auto' } });
   } catch (e: any) {
     res.status(500).json({ success: false, message: safeServerError(e) });
   }
