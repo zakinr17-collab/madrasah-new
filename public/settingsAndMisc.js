@@ -295,7 +295,8 @@ function renderAiProviderProfiles(profiles) {
             </div>
             <div class="flex items-center gap-1 shrink-0">
                 <button type="button" onclick="activateAiProviderProfile('${p.id}')" title="Aktifkan" class="px-2 py-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold cursor-pointer">Aktifkan</button>
-                <button type="button" onclick="useAiProviderProfile('${p.id}')" title="Muat ke form" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-violet-300 text-slate-600 text-[11px] font-bold cursor-pointer">Muat</button>
+                <button type="button" onclick="viewAiProviderProfileKey('${p.id}')" title="Lihat API key" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-amber-300 text-amber-600 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-eye"></i></button>
+                <button type="button" <button type="button" onclick="useAiProviderProfile('${p.id}')" title="Muat ke form" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-violet-300 text-slate-600 text-[11px] font-bold cursor-pointer">Muat</button>
                 <button type="button" onclick="deleteAiProviderProfile('${p.id}')" title="Hapus" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-red-300 text-red-500 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-trash-can"></i></button>
             </div>
         </div>`).join('');
@@ -363,6 +364,64 @@ async function activateAiProviderProfile(id) {
 }
 window.activateAiProviderProfile = activateAiProviderProfile;
 
+let __profileKeyFull = {};
+async function viewAiProviderProfileKey(id) {
+    try {
+        const st = __profileKeyFull[id];
+        if (st && st.full) {
+            __profileKeyFull[id] = { full: false, masked: st.masked };
+            showProfileKeyRow(id, st.masked, false);
+            return;
+        }
+        const askFull = !(st && st.full === false);
+        const res = await fetch('/api/ai-provider/profiles/' + encodeURIComponent(id) + '/key?full=' + (askFull ? '1' : '0'), { headers: { 'Authorization': 'Bearer ' + (appState.token || '') } });
+        const data = await res.json();
+        if (!data.success) { showToast(data.message || 'Gagal membaca key', 'error'); return; }
+        __profileKeyFull[id] = { full: data.full, masked: data.masked };
+        showProfileKeyRow(id, data.full ? data.key : data.masked, data.full);
+        if (data.full) showToast('API key ditampilkan. Klik mata lagi untuk sembunyikan.', 'success');
+    } catch (e) { showToast('Gagal: ' + e.message, 'error'); }
+}
+window.viewAiProviderProfileKey = viewAiProviderProfileKey;
+
+function showProfileKeyRow(id, text, isFull) {
+    const list = document.getElementById('ai-provider-profiles-list');
+    if (!list) return;
+    const row = [...list.children].find(d => d.querySelector && [...d.querySelectorAll('button')].some(b => (b.getAttribute('onclick') || '').includes("'" + id + "'")));
+    if (!row) return;
+    let keyRow = row.nextElementSibling;
+    if (!keyRow || !keyRow.classList.contains('ai-profile-key-row')) {
+        keyRow = document.createElement('div');
+        keyRow.className = 'ai-profile-key-row px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-[11px] font-mono break-all';
+        row.after(keyRow);
+    }
+    if (isFull) {
+        keyRow.dataset.key = text;
+        keyRow.innerHTML = '<div class="flex items-center justify-between gap-2"><span class="font-mono break-all">' + escHtml(text) + '</span><button type="button" onclick="copyProfileKey(this)" class="shrink-0 px-2 py-1 rounded-lg bg-white border border-amber-300 text-amber-700 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-copy"></i></button></div>';
+    } else {
+        keyRow.dataset.key = '';
+        keyRow.innerHTML = '<span class="font-mono">' + escHtml(text) + '</span>';
+    }
+}
+window.showProfileKeyRow = showProfileKeyRow;
+
+function copyProfileKey(btn) {
+    const row = btn.closest('.ai-profile-key-row');
+    const val = row ? (row.dataset.key || '') : '';
+    if (!val) return;
+    const done = () => showToast('API key disalin ke clipboard', 'success');
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(val).then(done).catch(() => fallbackCopy(val, done));
+    else fallbackCopy(val, done);
+}
+window.copyProfileKey = copyProfileKey;
+
+function fallbackCopy(text, done) {
+    const ta = document.createElement('textarea'); ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand('copy'); done(); } catch (e) {}
+    ta.remove();
+}
+
 async function useAiProviderProfile(id) {
     try {
         const res = await fetch('/api/ai-provider/profiles', { headers: { 'Authorization': 'Bearer ' + (appState.token || '') } });
@@ -375,6 +434,14 @@ async function useAiProviderProfile(id) {
         const eid = document.getElementById('ai-provider-profile-edit-id'); if (eid) eid.value = prof.id;
         const hint = document.getElementById('ai-provider-key-hint');
         if (hint) hint.textContent = prof.hasApiKey ? 'Key tersimpan di profil — kosongkan kolom key agar tidak berubah.' : 'Profil ini belum punya API key.';
+        const keyInput = document.getElementById('ai-provider-api-key');
+        if (keyInput && prof.hasApiKey) {
+            try {
+                const kr = await fetch('/api/ai-provider/profiles/' + encodeURIComponent(prof.id) + '/key?full=1', { headers: { 'Authorization': 'Bearer ' + (appState.token || '') } });
+                const kd = await kr.json();
+                if (kd.success) keyInput.value = kd.key;
+            } catch (e) { /* biarkan kosong */ }
+        }
     } catch (e) { /* diam */ }
 }
 window.useAiProviderProfile = useAiProviderProfile;
