@@ -205,10 +205,11 @@ async function testAiProviderConnection(button) {
     try {
         if (button) { button.disabled = true; button.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Menguji...'; }
         if (status) { status.textContent = 'Menguji koneksi...'; status.className = 'text-xs font-semibold text-slate-500'; }
+        const keyVal = (document.getElementById('ai-provider-api-key')||{}).value?.trim() || '';
         const res = await fetch('/api/ai-provider/test', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (appState.token || localStorage.getItem('token') || '') },
-            body: JSON.stringify({})
+            body: JSON.stringify(keyVal ? { customApiKey: keyVal } : {})
         });
         const data = await res.json();
         if (status) {

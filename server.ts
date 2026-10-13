@@ -24220,6 +24220,11 @@ app.post("/api/ai-provider/test", requireAuth, requireRole(['admin', 'administra
   try {
     // Tes memakai kredensial yang AKAN aktif (DB runtime + env).
     applyAiProviderRuntime();
+    const reqKey = String((req.body || {}).customApiKey || '').trim();
+    if (reqKey) {
+      const rt = (globalThis as any).__aiProviderRuntime || ((globalThis as any).__aiProviderRuntime = {});
+      rt.customApiKey = reqKey;
+    }
     const t0 = Date.now();
     const response = await callAI(null, { contents: "Balas tepat satu kata: OK", config: {} });
     const text = String((response as any).text || "").trim();
