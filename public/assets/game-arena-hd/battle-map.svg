@@ -1,44 +1,97 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900">
 <defs>
- <linearGradient id="grass" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#a8df72"/><stop offset="1" stop-color="#67ad4d"/></linearGradient>
- <linearGradient id="water" x1="0" y1="0" x2="1"><stop stop-color="#47c8f0"/><stop offset=".5" stop-color="#168fc8"/><stop offset="1" stop-color="#47c8f0"/></linearGradient>
- <filter id="ds"><feDropShadow dx="0" dy="7" stdDeviation="7" flood-opacity=".24"/></filter>
+ <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#2a1a4e"/><stop offset=".45" stop-color="#5b3a86"/><stop offset=".8" stop-color="#c56a9a"/><stop offset="1" stop-color="#f0a37c"/>
+ </linearGradient>
+ <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#7a4ea8"/><stop offset=".4" stop-color="#4a6ec0"/><stop offset="1" stop-color="#2c4a90"/>
+ </linearGradient>
+ <linearGradient id="sand" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#f0d8a8"/><stop offset="1" stop-color="#d4b878"/>
+ </linearGradient>
+ <linearGradient id="grass" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#5aa653"/><stop offset="1" stop-color="#3d7a3d"/>
+ </linearGradient>
+ <radialGradient id="storm" cx=".5" cy=".5" r=".5">
+  <stop offset=".7" stop-color="#8a3ad6" stop-opacity="0"/><stop offset="1" stop-color="#8a3ad6" stop-opacity=".55"/>
+ </radialGradient>
+ <filter id="soft"><feGaussianBlur stdDeviation="14"/></filter>
+ <radialGradient id="vign" cx=".5" cy=".5" r=".75">
+  <stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#1a0a30" stop-opacity=".45"/>
+ </radialGradient>
 </defs>
-<rect width="1600" height="900" fill="#6cab50"/>
-<rect x="70" y="70" width="1460" height="760" rx="48" fill="url(#grass)" stroke="#566572" stroke-width="24"/>
-<path d="M0 0h1600v88H0Z" fill="url(#water)"/><path d="M0 812h1600v88H0Z" fill="url(#water)"/>
-<g fill="#8b6840" stroke="#5f452b" stroke-width="7"><rect x="650" y="70" width="300" height="75" rx="8"/><rect x="650" y="755" width="300" height="75" rx="8"/></g>
-<g stroke="#e4c27e" stroke-width="8"><line x1="670" y1="82" x2="670" y2="133"/><line x1="715" y1="82" x2="715" y2="133"/><line x1="760" y1="82" x2="760" y2="133"/><line x1="805" y1="82" x2="805" y2="133"/><line x1="850" y1="82" x2="850" y2="133"/><line x1="895" y1="82" x2="895" y2="133"/>
-<line x1="670" y1="767" x2="670" y2="818"/><line x1="715" y1="767" x2="715" y2="818"/><line x1="760" y1="767" x2="760" y2="818"/><line x1="805" y1="767" x2="805" y2="818"/><line x1="850" y1="767" x2="850" y2="818"/><line x1="895" y1="767" x2="895" y2="818"/></g>
-<g fill="#cdd4db" stroke="#838f99" stroke-width="7" filter="url(#ds)">
- <rect x="110" y="120" width="300" height="66" rx="12"/><rect x="1190" y="120" width="300" height="66" rx="12"/>
- <rect x="110" y="714" width="300" height="66" rx="12"/><rect x="1190" y="714" width="300" height="66" rx="12"/>
- <rect x="430" y="175" width="140" height="95" rx="12"/><rect x="1030" y="175" width="140" height="95" rx="12"/>
- <rect x="430" y="630" width="140" height="95" rx="12"/><rect x="1030" y="630" width="140" height="95" rx="12"/>
- <rect x="600" y="270" width="90" height="170" rx="12"/><rect x="910" y="460" width="90" height="170" rx="12"/>
+
+<rect width="1600" height="900" fill="url(#sky)"/>
+<!-- dua bulan/planet -->
+<circle cx="1200" cy="140" r="60" fill="#f5e9c8" opacity=".9"/>
+<circle cx="1200" cy="140" r="90" fill="#f5e9c8" opacity=".2" filter="url(#soft)"/>
+<g opacity=".85"><circle cx="320" cy="110" r="22" fill="#c8b0f0"/><circle cx="312" cy="104" r="5" fill="#a88ad0"/><circle cx="328" cy="116" r="3.5" fill="#a88ad0"/><circle cx="326" cy="102" r="2.5" fill="#a88ad0"/></g>
+<!-- bintang -->
+<g fill="#fff">
+ <circle cx="150" cy="60" r="2.2" opacity=".8"/><circle cx="480" cy="80" r="1.8" opacity=".6"/>
+ <circle cx="720" cy="50" r="2" opacity=".7"/><circle cx="950" cy="90" r="1.6" opacity=".5"/>
+ <circle cx="1440" cy="70" r="2.2" opacity=".8"/><circle cx="880" cy="140" r="1.5" opacity=".4"/>
 </g>
-<g fill="#278449">
- <ellipse cx="275" cy="245" rx="115" ry="62"/><ellipse cx="1320" cy="245" rx="120" ry="62"/>
- <ellipse cx="270" cy="540" rx="125" ry="72"/><ellipse cx="1325" cy="545" rx="125" ry="72"/>
- <ellipse cx="540" cy="470" rx="100" ry="58"/><ellipse cx="1060" cy="355" rx="100" ry="58"/>
- <ellipse cx="720" cy="690" rx="105" ry="56"/><ellipse cx="875" cy="220" rx="88" ry="50"/>
+
+<!-- laut -->
+<rect y="300" width="1600" height="600" fill="url(#sea)"/>
+<rect y="292" width="1600" height="26" fill="#c8a8d8" opacity=".3" filter="url(#soft)"/>
+<g stroke="#b8a0e8" stroke-width="3" opacity=".4" fill="none">
+ <path d="M80 340q40 -10 80 0t80 0"/><path d="M1240 350q40 -10 80 0t80 0"/>
+ <path d="M200 320q30 -8 60 0t60 0"/><path d="M1120 325q30 -8 60 0t60 0"/>
 </g>
-<g fill="#9c6b35" stroke="#68451f" stroke-width="7" filter="url(#ds)">
- <rect x="215" y="315" width="112" height="112" rx="8"/><rect x="1280" y="315" width="112" height="112" rx="8"/>
- <rect x="390" y="440" width="100" height="100" rx="8"/><rect x="1110" y="440" width="100" height="100" rx="8"/>
- <rect x="720" y="320" width="85" height="85" rx="8"/><rect x="815" y="320" width="85" height="85" rx="8"/>
- <rect x="720" y="520" width="85" height="85" rx="8"/><rect x="815" y="520" width="85" height="85" rx="8"/>
- <rect x="500" y="670" width="105" height="105" rx="8"/><rect x="995" y="145" width="105" height="105" rx="8"/>
+<!-- kilau bulan di air -->
+<ellipse cx="1200" cy="360" rx="140" ry="12" fill="#f5e9c8" opacity=".25" filter="url(#soft)"/>
+
+<!-- pulau -->
+<path d="M180 640 Q400 560 800 575 Q1200 560 1420 640 Q1200 720 800 725 Q400 720 180 640 Z" fill="url(#sand)"/>
+<path d="M260 630 Q460 565 800 578 Q1140 565 1340 630 Q1140 700 800 705 Q460 700 260 630 Z" fill="url(#grass)"/>
+<!-- batu karang -->
+<g fill="#6a5a50">
+ <g><ellipse cx="230" cy="620" rx="46" ry="30"/><ellipse cx="218" cy="612" rx="26" ry="16" fill="#8a7a6e" opacity=".7"/><ellipse cx="1390" cy="618" rx="52" ry="32"/><ellipse cx="1376" cy="608" rx="30" ry="17" fill="#8a7a6e" opacity=".7"/></g>
 </g>
-<g stroke="#e7be62" stroke-width="8"><path d="M215 315l112 112M327 315l-112 112M1280 315l112 112M1392 315l-112 112M390 440l100 100M490 440l-100 100M1110 440l100 100M1210 440l-100 100"/></g>
-<g fill="#3e72ac" stroke="#26507a" stroke-width="5"><rect x="95" y="500" width="175" height="120" rx="10"/><rect x="510" y="160" width="140" height="102" rx="9"/></g>
-<g fill="#d84a52" stroke="#9b2e35" stroke-width="5"><rect x="1330" y="495" width="175" height="120" rx="10"/><rect x="950" y="650" width="140" height="102" rx="9"/></g>
-<g fill="#2c7ab5"><circle cx="660" cy="430" r="28"/><circle cx="695" cy="430" r="28"/></g><g fill="#c9424d"><circle cx="905" cy="470" r="28"/><circle cx="940" cy="470" r="28"/></g>
-<circle cx="800" cy="450" r="132" fill="#c7cfd6" stroke="#7d8993" stroke-width="14"/>
-<circle cx="800" cy="450" r="88" fill="#eef2f6" stroke="#a4afb8" stroke-width="8"/>
-<path d="M800 362l27 57 63 9-45 44 11 62-56-30-56 30 11-62-45-44 63-9Z" fill="#ffd246"/>
+<!-- pohon palem -->
 <g>
- <rect x="85" y="220" width="18" height="215" fill="#4b5563"/><path d="M103 225h155l-38 56 38 56H103Z" fill="#1688ed"/>
- <rect x="1497" y="220" width="18" height="215" fill="#4b5563"/><path d="M1497 225h-155l38 56-38 56h155Z" fill="#ef3e58"/>
+ <path d="M420 600q-8 -80 20 -130" stroke="#7a5230" stroke-width="14" fill="none" stroke-linecap="round"/>
+ <g fill="#3d9a4d">
+  <ellipse cx="440" cy="450" rx="52" ry="18" transform="rotate(-18 440 450)"/>
+  <ellipse cx="380" cy="452" rx="52" ry="18" transform="rotate(18 380 452)"/>
+  <ellipse cx="412" cy="428" rx="50" ry="16" transform="rotate(-60 412 428)"/>
+  <ellipse cx="410" cy="478" rx="50" ry="16" transform="rotate(60 410 478)"/>
+ </g>
+ <path d="M1180 598q8 -80 -20 -130" stroke="#7a5230" stroke-width="14" fill="none" stroke-linecap="round"/>
+ <g fill="#3d9a4d">
+  <ellipse cx="1160" cy="448" rx="52" ry="18" transform="rotate(18 1160 448)"/>
+  <ellipse cx="1220" cy="450" rx="52" ry="18" transform="rotate(-18 1220 450)"/>
+  <ellipse cx="1188" cy="426" rx="50" ry="16" transform="rotate(60 1188 426)"/>
+  <ellipse cx="1190" cy="476" rx="50" ry="16" transform="rotate(-60 1190 476)"/>
+ </g>
 </g>
+<!-- menara pengawas kayu -->
+<g>
+ <rect x="770" y="440" width="14" height="120" fill="#6a4a30"/>
+ <rect x="816" y="440" width="14" height="120" fill="#6a4a30"/>
+ <rect x="742" y="424" width="116" height="22" rx="6" fill="#8a6244" stroke="#5a3a24" stroke-width="3"/>
+ <path d="M742 424l58 -40 58 40" fill="none" stroke="#5a3a24" stroke-width="6"/>
+ <rect x="748" y="446" width="104" height="5" fill="#5a3a24" opacity=".5"/>
+ <circle cx="800" cy="418" r="9" fill="#ffcf6a" opacity=".95"/>
+ <circle cx="800" cy="418" r="18" fill="#ffcf6a" opacity=".25" filter="url(#soft)"/>
+ <g stroke="#5a3a24" stroke-width="3.5"><path d="M788 560h24M788 540h24M788 520h24"/></g>
+</g>
+<!-- peti harta -->
+<g>
+ <rect x="600" y="600" width="70" height="46" rx="6" fill="#a3722f" stroke="#6d4a1e" stroke-width="3"/>
+ <path d="M600 616h70" stroke="#6d4a1e" stroke-width="3"/>
+ <rect x="626" y="608" width="18" height="30" rx="4" fill="#e8c34d" stroke="#a3822a" stroke-width="2"/>
+</g>
+<!-- barikade sandbag -->
+<g fill="#c9b890" stroke="#9a8a68" stroke-width="2.5">
+ <ellipse cx="1000" cy="630" rx="34" ry="16"/><ellipse cx="1042" cy="638" rx="34" ry="16"/>
+ <ellipse cx="1020" cy="612" rx="34" ry="16"/><ellipse cx="1062" cy="620" rx="34" ry="16"/><ellipse cx="1034" cy="626" rx="34" ry="16" fill="#b8a678"/>
+</g>
+<!-- gap zona tengah (play area) -->
+<circle cx="800" cy="640" r="330" fill="none" stroke="#b84fd6" stroke-width="6" opacity=".8" stroke-dasharray="18 12"/>
+<rect width="1600" height="900" fill="url(#storm)" opacity=".6"/>
+
+<rect width="1600" height="900" fill="url(#vign)"/>
 </svg>

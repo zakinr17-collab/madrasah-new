@@ -1,41 +1,143 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900">
 <defs>
- <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#3dc5ff"/><stop offset=".78" stop-color="#dff8ff"/><stop offset="1" stop-color="#f8feff"/></linearGradient>
- <linearGradient id="road" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#737b89"/><stop offset="1" stop-color="#343b49"/></linearGradient>
- <filter id="ds"><feDropShadow dx="0" dy="7" stdDeviation="7" flood-opacity=".22"/></filter>
+ <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#7fc4f5"/><stop offset=".55" stop-color="#b8e2fb"/><stop offset="1" stop-color="#e8f6ff"/>
+ </linearGradient>
+ <linearGradient id="hill1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7cba62"/><stop offset="1" stop-color="#5e9a4c"/></linearGradient>
+ <linearGradient id="hill2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#95cf77"/><stop offset="1" stop-color="#74ad5c"/></linearGradient>
+ <linearGradient id="hill3" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a8dd86"/><stop offset="1" stop-color="#8cc46c"/></linearGradient>
+ <linearGradient id="track" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#9aa3ad"/><stop offset=".5" stop-color="#7e8791"/><stop offset="1" stop-color="#5d656e"/>
+ </linearGradient>
+ <filter id="soft"><feGaussianBlur stdDeviation="16"/></filter>
+ <radialGradient id="vign" cx=".5" cy=".5" r=".75">
+  <stop offset=".65" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#0a2010" stop-opacity=".35"/>
+ </radialGradient>
 </defs>
+
 <rect width="1600" height="900" fill="url(#sky)"/>
-<g fill="#fff" opacity=".92"><ellipse cx="240" cy="100" rx="195" ry="55"/><ellipse cx="1260" cy="90" rx="230" ry="62"/></g>
-<g fill="#54ae58"><path d="M0 400Q210 245 430 390T835 360T1200 380T1600 320V560H0Z"/></g>
-<g fill="#2f8148"><path d="M0 450Q250 320 500 430T965 400T1600 385V570H0Z"/></g>
-<g filter="url(#ds)">
- <path d="M180 900Q250 585 535 500Q800 420 1080 505Q1370 595 1430 900Z" fill="url(#road)"/>
- <path d="M350 900Q405 650 585 590Q800 520 1015 590Q1195 650 1250 900Z" fill="#484f5e"/>
+<!-- matahari + awan -->
+<circle cx="1310" cy="130" r="70" fill="#fffbe8" opacity=".95"/>
+<g fill="#fff" opacity=".85">
+ <ellipse cx="280" cy="120" rx="120" ry="24"/><ellipse cx="360" cy="100" rx="70" ry="16"/>
+ <ellipse cx="900" cy="90" rx="100" ry="20"/>
 </g>
-<path d="M800 900V515" stroke="#fff" stroke-width="14" stroke-dasharray="45 31" opacity=".9"/>
-<g stroke-width="30" fill="none"><path d="M210 900Q270 605 545 520" stroke="#fff"/><path d="M1390 900Q1330 605 1055 520" stroke="#fff"/></g>
-<g stroke-width="16" fill="none"><path d="M190 900Q255 595 533 503" stroke="#ec4747"/><path d="M1410 900Q1345 595 1067 503" stroke="#ec4747"/></g>
+
+<!-- bukit 3 lapis -->
+<path d="M0 330 Q400 240 800 310 T1600 300 V420 H0 Z" fill="url(#hill1)" opacity=".8"/>
+<path d="M0 380 Q500 300 1000 370 T1600 360 V460 H0 Z" fill="url(#hill2)" opacity=".9"/>
+<path d="M0 430 Q450 360 900 425 T1600 415 V500 H0 Z" fill="url(#hill3)"/>
+
+<!-- penonton di bukit (varian) -->
+<g opacity=".95">
+ <g transform="translate(120 452)"><circle cx="12" cy="10" r="10" fill="#e8b98d"/><path d="M3 8Q4 0 12 0Q20 0 21 8Q15 4 12 4Q9 4 3 8Z" fill="#2b2119"/><path d="M0 24h24v9H0z" fill="#3b6fd6"/></g>
+ <g transform="translate(170 458)"><circle cx="12" cy="10" r="10" fill="#d9a575"/><path d="M3 10Q2 0 12 0Q22 0 21 10L17 5Q12 2 7 5Z" fill="#15100c"/><path d="M0 24h24v9H0z" fill="#d65a5a"/></g>
+ <g transform="translate(220 452)"><circle cx="12" cy="10" r="10" fill="#f0c49a"/><path d="M2 7Q7 0 12 2Q17 0 22 7L19 4Q12 1 5 4Z" fill="#5a3a20"/><path d="M0 24h24v9H0z" fill="#4a9a52"/></g>
+ <g transform="translate(270 458)"><circle cx="12" cy="10" r="10" fill="#e0ac7e"/><path d="M3 8Q4 0 12 0Q20 0 21 8Q14 4 12 4Q10 4 3 8Z" fill="#0e0a08"/><path d="M0 24h24v9H0z" fill="#8a5ad6"/></g>
+ <g transform="translate(1330 452)"><circle cx="12" cy="10" r="10" fill="#caa070"/><path d="M3 9Q6 0 12 2Q18 0 21 9Q14 4 12 4Q10 4 3 9Z" fill="#3a2a18"/><path d="M0 24h24v9H0z" fill="#d6a53b"/></g>
+ <g transform="translate(1380 458)"><circle cx="12" cy="10" r="10" fill="#e8b98d"/><path d="M3 7Q8 0 12 2Q16 0 21 7L18 4Q12 1 6 4Z" fill="#241a12"/><path d="M0 24h24v9H0z" fill="#3b6fd6"/></g>
+ <g transform="translate(1430 452)"><circle cx="12" cy="10" r="10" fill="#d9a575"/><path d="M3 8Q4 0 12 0Q20 0 21 8Q15 4 12 4Q9 4 3 8Z" fill="#2b2119"/><path d="M0 24h24v9H0z" fill="#d65a5a"/></g>
+</g>
+
+<!-- rumput tengah -->
+<rect y="470" width="1600" height="90" fill="#6da852"/>
+<g opacity=".25" fill="#4c8238">
+ <rect x="0" y="478" width="1600" height="12"/><rect x="0" y="505" width="1600" height="12"/>
+</g>
+
+<!-- penonton baris kedua -->
+<g opacity=".9">
+ <g transform="translate(420 492)"><circle cx="12" cy="10" r="10" fill="#f0c49a"/><path d="M2 7Q7 0 12 2Q17 0 22 7L19 4Q12 1 5 4Z" fill="#5a3a20"/><path d="M0 24h24v9H0z" fill="#d6a53b"/></g>
+ <g transform="translate(470 496)"><circle cx="12" cy="10" r="10" fill="#e0ac7e"/><path d="M3 8Q4 0 12 0Q20 0 21 8Q14 4 12 4Q10 4 3 8Z" fill="#0e0a08"/><path d="M0 24h24v9H0z" fill="#8a5ad6"/></g>
+ <g transform="translate(1080 492)"><circle cx="12" cy="10" r="10" fill="#e8b98d"/><path d="M3 7Q8 0 12 2Q16 0 21 7L18 4Q12 1 6 4Z" fill="#241a12"/><path d="M0 24h24v9H0z" fill="#3b6fd6"/></g>
+ <g transform="translate(1130 496)"><circle cx="12" cy="10" r="10" fill="#caa070"/><path d="M3 9Q6 0 12 2Q18 0 21 9Q14 4 12 4Q10 4 3 9Z" fill="#3a2a18"/><path d="M0 24h24v9H0z" fill="#4a9a52"/></g>
+</g>
+
+<!-- bendera warna di bukit -->
+<g stroke="#9aa3ad" stroke-width="5">
+ <path d="M600 470v-70" stroke="#8a8f96"/><path d="M1000 470v-70" stroke="#8a8f96"/>
+</g>
+<path d="M600 400l44 12-44 12Z" fill="#2f6fd0"/>
+<path d="M1000 400l44 12-44 12Z" fill="#e05252"/>
+
+<!-- sirkuit aspal -->
+<rect y="560" width="1600" height="340" fill="url(#track)"/>
+<!-- tekstur aspal halus -->
+<g opacity=".14" stroke="#3d444c" stroke-width="2">
+ <path d="M0 610h1600M0 665h1600M0 720h1600M0 775h1600M0 830h1600"/>
+</g>
+<!-- kerb merah-putih atas & bawah -->
 <g>
- <rect x="515" y="280" width="570" height="145" rx="25" fill="#fff" stroke="#27558f" stroke-width="10"/>
- <rect x="540" y="305" width="520" height="96" rx="18" fill="#f5f7fa"/>
- <g fill="#202631"><rect x="550" y="314" width="65" height="78"/><rect x="680" y="314" width="65" height="78"/><rect x="810" y="314" width="65" height="78"/><rect x="940" y="314" width="65" height="78"/></g>
- <g fill="#fff"><rect x="615" y="314" width="65" height="78"/><rect x="745" y="314" width="65" height="78"/><rect x="875" y="314" width="65" height="78"/><rect x="1005" y="314" width="55" height="78"/></g>
+ <g transform="translate(0 560)">
+  <rect x="0" y="0" width="80" height="22" fill="#e05252"/><rect x="80" y="0" width="80" height="22" fill="#f7f3e8"/>
+  <rect x="160" y="0" width="80" height="22" fill="#e05252"/><rect x="240" y="0" width="80" height="22" fill="#f7f3e8"/>
+  <rect x="320" y="0" width="80" height="22" fill="#e05252"/><rect x="400" y="0" width="80" height="22" fill="#f7f3e8"/>
+  <rect x="480" y="0" width="80" height="22" fill="#e05252"/><rect x="560" y="0" width="80" height="22" fill="#f7f3e8"/>
+  <rect x="640" y="0" width="80" height="22" fill="#e05252"/><rect x="720" y="0" width="80" height="22" fill="#f7f3e8"/>
+  <rect x="800" y="0" width="80" height="22" fill="#e05252"/><rect x="880" y="0" width="80" height="22" fill="#f7f3e8"/>
+  <rect x="960" y="0" width="80" height="22" fill="#e05252"/><rect x="1040" y="0" width="80" height="22" fill="#f7f3e8"/>
+  <rect x="1120" y="0" width="80" height="22" fill="#e05252"/><rect x="1200" y="0" width="80" height="22" fill="#f7f3e8"/>
+  <rect x="1280" y="0" width="80" height="22" fill="#e05252"/><rect x="1360" y="0" width="80" height="22" fill="#f7f3e8"/>
+  <rect x="1440" y="0" width="80" height="22" fill="#e05252"/><rect x="1520" y="0" width="80" height="22" fill="#f7f3e8"/>
+ </g>
+ <g transform="translate(0 878)">
+  <rect x="0" y="0" width="80" height="22" fill="#f7f3e8"/><rect x="80" y="0" width="80" height="22" fill="#e05252"/>
+  <rect x="160" y="0" width="80" height="22" fill="#f7f3e8"/><rect x="240" y="0" width="80" height="22" fill="#e05252"/>
+  <rect x="320" y="0" width="80" height="22" fill="#f7f3e8"/><rect x="400" y="0" width="80" height="22" fill="#e05252"/>
+  <rect x="480" y="0" width="80" height="22" fill="#f7f3e8"/><rect x="560" y="0" width="80" height="22" fill="#e05252"/>
+  <rect x="640" y="0" width="80" height="22" fill="#f7f3e8"/><rect x="720" y="0" width="80" height="22" fill="#e05252"/>
+  <rect x="800" y="0" width="80" height="22" fill="#f7f3e8"/><rect x="880" y="0" width="80" height="22" fill="#e05252"/>
+  <rect x="960" y="0" width="80" height="22" fill="#f7f3e8"/><rect x="1040" y="0" width="80" height="22" fill="#e05252"/>
+  <rect x="1120" y="0" width="80" height="22" fill="#f7f3e8"/><rect x="1200" y="0" width="80" height="22" fill="#e05252"/>
+  <rect x="1280" y="0" width="80" height="22" fill="#f7f3e8"/><rect x="1360" y="0" width="80" height="22" fill="#e05252"/>
+  <rect x="1440" y="0" width="80" height="22" fill="#f7f3e8"/><rect x="1520" y="0" width="80" height="22" fill="#e05252"/>
+ </g>
 </g>
-<g fill="#155cae"><rect x="485" y="275" width="38" height="205" rx="10"/><rect x="1077" y="275" width="38" height="205" rx="10"/></g>
+<!-- dua kart kompetitor di lintasan -->
 <g>
- <path d="M0 500h260v115H0Z" fill="#1688ed"/><path d="M1340 500h260v115h-260Z" fill="#ef3e58"/>
- <g fill="#ffd64c"><path d="M160 530l12 25 28 4-20 20 5 28-25-13-25 13 5-28-20-20 28-4Z"/><path d="M1440 530l12 25 28 4-20 20 5 28-25-13-25 13 5-28-20-20 28-4Z"/></g>
+ <g transform="translate(300 640)">
+  <path d="M-70 36 Q-70 8 -30 6 L20 4 Q60 8 70 30 L70 42 Q70 52 58 52 L-58 52 Q-70 52 -70 40 Z" fill="#2f6fd0"/>
+  <path d="M-40 8 L-24 -18 L20 -18 L34 6" fill="none" stroke="#1a3a7a" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="-38" cy="52" r="20" fill="#1c2433" stroke="#c8cdd4" stroke-width="6"/>
+  <circle cx="44" cy="52" r="20" fill="#1c2433" stroke="#c8cdd4" stroke-width="6"/>
+  <circle cx="-38" cy="52" r="7" fill="#8a9098"/><circle cx="44" cy="52" r="7" fill="#8a9098"/>
+  <ellipse cx="10" cy="56" rx="70" ry="9" fill="#2a2f36" opacity=".4"/>
+  <path d="M60 16h30l-8 14h-24Z" fill="#e05252"/>
+ </g>
+ <g transform="translate(1150 700)">
+  <path d="M-70 36 Q-70 8 -30 6 L20 4 Q60 8 70 30 L70 42 Q70 52 58 52 L-58 52 Q-70 52 -70 40 Z" fill="#e05252"/>
+  <path d="M-40 8 L-24 -18 L20 -18 L34 6" fill="none" stroke="#7a1a2a" stroke-width="8" stroke-linecap="round"/>
+  <circle cx="-38" cy="52" r="20" fill="#1c2433" stroke="#c8cdd4" stroke-width="6"/>
+  <circle cx="44" cy="52" r="20" fill="#1c2433" stroke="#c8cdd4" stroke-width="6"/>
+  <circle cx="-38" cy="52" r="7" fill="#8a9098"/><circle cx="44" cy="52" r="7" fill="#8a9098"/>
+  <ellipse cx="10" cy="56" rx="70" ry="9" fill="#2a2f36" opacity=".4"/>
+  <path d="M60 16h30l-8 14h-24Z" fill="#2f6fd0"/>
+ </g>
 </g>
-<g fill="#f8bc93" stroke="#8d5b46" stroke-width="2">
- <circle cx="55" cy="405" r="13"/><circle cx="97" cy="396" r="13"/><circle cx="139" cy="387" r="13"/><circle cx="181" cy="405" r="13"/><circle cx="223" cy="396" r="13"/><circle cx="265" cy="387" r="13"/><circle cx="307" cy="405" r="13"/><circle cx="349" cy="396" r="13"/><circle cx="391" cy="387" r="13"/><circle cx="433" cy="405" r="13"/><circle cx="475" cy="396" r="13"/><circle cx="517" cy="387" r="13"/>
- <circle cx="1085" cy="396" r="13"/><circle cx="1127" cy="387" r="13"/><circle cx="1169" cy="405" r="13"/><circle cx="1211" cy="396" r="13"/><circle cx="1253" cy="387" r="13"/><circle cx="1295" cy="405" r="13"/><circle cx="1337" cy="396" r="13"/><circle cx="1379" cy="387" r="13"/><circle cx="1421" cy="405" r="13"/><circle cx="1463" cy="396" r="13"/><circle cx="1505" cy="387" r="13"/><circle cx="1547" cy="405" r="13"/>
+<!-- panel kuis menggantung di gerbang -->
+<g transform="translate(800 268)">
+ <rect x="-64" y="-26" width="128" height="52" rx="12" fill="#f2b93b" stroke="#a3742a" stroke-width="4"/>
+ <text x="0" y="10" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="bold" fill="#5a3a10">?</text>
+ <path d="M0 -26v-22" stroke="#a3742a" stroke-width="4"/>
 </g>
-<g fill="#1f2937"><path d="M43 402q12-18 24 0Z"/><path d="M85 393q12-18 24 0Z"/><path d="M127 384q12-18 24 0Z"/><path d="M169 402q12-18 24 0Z"/><path d="M211 393q12-18 24 0Z"/><path d="M253 384q12-18 24 0Z"/><path d="M295 402q12-18 24 0Z"/><path d="M337 393q12-18 24 0Z"/><path d="M379 384q12-18 24 0Z"/><path d="M421 402q12-18 24 0Z"/><path d="M463 393q12-18 24 0Z"/><path d="M505 384q12-18 24 0Z"/><path d="M1073 393q12-18 24 0Z"/><path d="M1115 384q12-18 24 0Z"/><path d="M1157 402q12-18 24 0Z"/><path d="M1199 393q12-18 24 0Z"/><path d="M1241 384q12-18 24 0Z"/><path d="M1283 402q12-18 24 0Z"/><path d="M1325 393q12-18 24 0Z"/><path d="M1367 384q12-18 24 0Z"/><path d="M1409 402q12-18 24 0Z"/><path d="M1451 393q12-18 24 0Z"/><path d="M1493 384q12-18 24 0Z"/><path d="M1535 402q12-18 24 0Z"/></g>
+<!-- garis putih tengah trek putus-putus -->
+<g fill="#f2f4f6" opacity=".9">
+ <rect x="120" y="726" width="140" height="10" rx="5"/><rect x="340" y="726" width="140" height="10" rx="5"/>
+ <rect x="560" y="726" width="140" height="10" rx="5"/><rect x="780" y="726" width="140" height="10" rx="5"/>
+ <rect x="1000" y="726" width="140" height="10" rx="5"/><rect x="1220" y="726" width="140" height="10" rx="5"/>
+ <rect x="1440" y="726" width="120" height="10" rx="5"/>
+</g>
+
+<!-- gerbang start/finish -->
 <g>
- <rect x="235" y="225" width="16" height="195" fill="#4b5563"/><path d="M251 230h110l-27 47 27 47H251Z" fill="#1688ed"/>
- <rect x="1349" y="225" width="16" height="195" fill="#4b5563"/><path d="M1349 230h-110l27 47-27 47h110Z" fill="#ef3e58"/>
- <rect x="390" y="185" width="14" height="170" fill="#4b5563"/><path d="M404 190h88l-22 38 22 38H404Z" fill="#f4b72a"/>
- <rect x="1196" y="185" width="14" height="170" fill="#4b5563"/><path d="M1196 190h-88l22 38-22 38h88Z" fill="#21a55b"/>
+ <rect x="640" y="330" width="320" height="26" rx="6" fill="#f7f3e8" stroke="#8a6b45" stroke-width="3"/>
+ <rect x="656" y="306" width="288" height="28" rx="6" fill="#1c2433"/>
+ <g fill="#f7f3e8"><rect x="668" y="312" width="22" height="16"/><rect x="712" y="312" width="22" height="16"/><rect x="756" y="312" width="22" height="16"/><rect x="800" y="312" width="22" height="16"/><rect x="844" y="312" width="22" height="16"/><rect x="888" y="312" width="22" height="16"/></g>
+ <rect x="652" y="356" width="18" height="204" fill="#2f6fd0"/>
+ <rect x="930" y="356" width="18" height="204" fill="#2f6fd0"/>
+ <!-- spanduk START-FINISH -->
+ <rect x="676" y="342" width="248" height="0" fill="none"/>
 </g>
-<g fill="#fff" opacity=".75"><circle cx="350" cy="145" r="9"/><circle cx="1260" cy="150" r="8"/><circle cx="1135" cy="200" r="7"/></g>
+
+<rect width="1600" height="900" fill="url(#vign)"/>
 </svg>
