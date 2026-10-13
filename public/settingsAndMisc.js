@@ -270,11 +270,13 @@ async function testAiProviderConnection(button) {
 window.testAiProviderConnection = testAiProviderConnection;
 
 // ===== Profil AI tersimpan =====
+let __activeAiProfileId = null;
 async function loadAiProviderProfiles() {
     try {
         const res = await fetch('/api/ai-provider/profiles', { headers: { 'Authorization': 'Bearer ' + (appState.token || '') } });
         const data = await res.json();
         if (!data.success) return;
+        __activeAiProfileId = data.activeProfileId || null;
         renderAiProviderProfiles(data.profiles || []);
     } catch (e) { /* diam */ }
 }
@@ -284,22 +286,35 @@ function renderAiProviderProfiles(profiles) {
     const wrap = document.getElementById('ai-provider-profiles-list');
     if (!wrap) return;
     if (!profiles.length) {
-        wrap.innerHTML = '<p class="text-[11px] text-slate-400">Belum ada profil tersimpan. Isi form di atas lalu klik "Simpan sebagai Profil".</p>';
+        wrap.innerHTML = '<p class="text-[11px] text-slate-400">Belum ada profil tersimpan. Klik "Tambah AI Baru", isi form, lalu klik "Simpan sebagai Profil".</p>';
         return;
     }
-    wrap.innerHTML = profiles.map(p => `
-        <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white">
-            <div class="min-w-0">
-                <p class="text-xs font-bold text-slate-700 truncate">${escHtml(p.label || p.id)}</p>
-                <p class="text-[11px] text-slate-400 truncate">${escHtml(p.customBaseUrl || '')} \u00b7 ${escHtml(p.customModel || 'auto')}${p.hasApiKey ? '' : ' \u00b7 tanpa key'}</p>
+    wrap.innerHTML = profiles.map(p => {
+        const isActive = __activeAiProfileId === p.id;
+        const border = isActive ? 'border-emerald-400 bg-emerald-50/60' : 'border-slate-200 bg-white';
+        const badge = isActive
+            ? '<span class="shrink-0 px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-bold"><i class="fa-solid fa-bolt mr-0.5"></i>AKTIF</span>'
+            : '<span class="shrink-0 px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-400 text-[10px] font-semibold">tidak dipakai</span>';
+        const btnAktifkan = isActive
+            ? '<span class="px-2 py-1 rounded-lg bg-emerald-100 text-emerald-700 text-[11px] font-bold cursor-default"><i class="fa-solid fa-check mr-0.5"></i>Dipakai</span>'
+            : `<button type="button" onclick="activateAiProviderProfile('${p.id}')" title="Aktifkan" class="px-2 py-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold cursor-pointer">Aktifkan</button>`;
+        return `
+        <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border-2 ${border}">
+            <div class="min-w-0 flex items-center gap-2">
+                ${badge}
+                <div class="min-w-0">
+                    <p class="text-xs font-bold ${isActive ? 'text-emerald-800' : 'text-slate-700'} truncate">${escHtml(p.label || p.id)}</p>
+                    <p class="text-[11px] text-slate-400 truncate">${escHtml(p.customBaseUrl || '')} \u00b7 ${escHtml(p.customModel || 'auto')}${p.hasApiKey ? '' : ' \u00b7 tanpa key'}</p>
+                </div>
             </div>
             <div class="flex items-center gap-1 shrink-0">
-                <button type="button" onclick="activateAiProviderProfile('${p.id}')" title="Aktifkan" class="px-2 py-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold cursor-pointer">Aktifkan</button>
+                ${btnAktifkan}
                 <button type="button" onclick="viewAiProviderProfileKey('${p.id}')" title="Lihat API key" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-amber-300 text-amber-600 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-eye"></i></button>
-                <button type="button" <button type="button" onclick="useAiProviderProfile('${p.id}')" title="Muat ke form" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-violet-300 text-slate-600 text-[11px] font-bold cursor-pointer">Muat</button>
+                <button type="button" onclick="useAiProviderProfile('${p.id}')" title="Muat ke form" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-violet-300 text-slate-600 text-[11px] font-bold cursor-pointer">Muat</button>
                 <button type="button" onclick="deleteAiProviderProfile('${p.id}')" title="Hapus" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-red-300 text-red-500 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-trash-can"></i></button>
             </div>
-        </div>`).join('');
+        </div>`;
+    }).join('');
 }
 window.renderAiProviderProfiles = renderAiProviderProfiles;
 
@@ -357,6 +372,8 @@ async function activateAiProviderProfile(id) {
             if (hint) hint.textContent = cfg.hasApiKey ? ('\u2713 Profil aktif (key tersimpan)') : 'Profil aktif tanpa API key';
             if (status) { status.textContent = '\u2713 Profil diaktifkan'; status.className = 'text-xs font-semibold text-emerald-600'; }
         updateAiProviderActiveInfo();
+            __activeAiProfileId = data.activeProfileId || null;
+            loadAiProviderProfiles();
         } else if (status) { status.textContent = '\u2717 ' + (data.message || 'Gagal'); status.className = 'text-xs font-semibold text-red-500'; }
     } catch (e) {
         if (status) { status.textContent = '\u2717 Gagal: ' + e.message; status.className = 'text-xs font-semibold text-red-500'; }
