@@ -383,6 +383,10 @@ function sanitizeStudentForClient(student: any, includeAdminPassword = false): a
   return safe;
 }
 
+function customAiAvailable(): boolean {
+  return Boolean(process.env.CUSTOM_AI_API_KEY);
+}
+
 function verifyAndLockMadrasahTokens() {
   if (!Array.isArray(madrasahs)) return;
   let tampered = false;
@@ -19147,7 +19151,7 @@ app.post("/api/gemini/auto-koreksi", requireAuth, requireRole(['teacher', 'guru'
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
-    const useAi = method !== 'keyword' && Boolean(apiKey);
+    const useAi = method !== 'keyword' && (Boolean(apiKey) || customAiAvailable());
     const ai = useAi ? new GoogleGenAI({
       apiKey: apiKey!,
       httpOptions: { headers: { "User-Agent": "aistudio-build" } }
@@ -21880,7 +21884,7 @@ app.post("/api/modul/parse-document", requireAuth, requireRole(['teacher', 'guru
       } else if (isPdf) {
         const apiKey = process.env.GEMINI_API_KEY;
         let pdfParsedWithAi = false;
-        if (apiKey) {
+        if (apiKey || customAiAvailable()) {
           try {
             const ai = null /* custom-first */;
             const pdfExtractRes = await callAI(ai, {
@@ -21959,7 +21963,7 @@ app.post("/api/modul/import-ai-structure", requireAuth, requireRole(['teacher', 
     const safeGrade = grade || 'X (Sepuluh)';
 
     let ai: any = null;
-    if (apiKey) {
+    if (apiKey || customAiAvailable()) {
       try {
         ai = null /* custom-first */;
       } catch (e) {
@@ -23476,7 +23480,7 @@ app.post("/api/gemini/generate-rpp", requireAuth, requireRole(['teacher', 'guru'
     };
 
     let ai: any = null;
-    if (apiKey) {
+    if (apiKey || customAiAvailable()) {
       try {
         ai = null /* custom-first */;
       } catch (e) {
@@ -24050,7 +24054,7 @@ app.post("/api/gemini/generate-device", requireAuth, requireRole(['teacher', 'gu
     };
 
     let ai: any = null;
-    if (apiKey) {
+    if (apiKey || customAiAvailable()) {
       try {
         ai = null /* custom-first */;
       } catch (e) {
