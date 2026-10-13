@@ -164,6 +164,7 @@ async function loadAiProviderSettings() {
         const cfg = data.config || {};
         __aiProviderSelected = 'custom';
         selectAiProviderCard(__aiProviderSelected);
+        loadAiProviderProfiles();
         const baseUrl = document.getElementById('ai-provider-base-url');
         const model = document.getElementById('ai-provider-model');
         const hint = document.getElementById('ai-provider-key-hint');
@@ -223,6 +224,129 @@ async function testAiProviderConnection(button) {
     }
 }
 window.testAiProviderConnection = testAiProviderConnection;
+
+// ===== Profil AI tersimpan =====
+async function loadAiProviderProfiles() {
+    try {
+        const res = await fetch('/api/ai-provider/profiles', { headers: { 'Authorization': 'Bearer ' + (appState.token || '') } });
+        const data = await res.json();
+        if (!data.success) return;
+        renderAiProviderProfiles(data.profiles || []);
+    } catch (e) { /* diam */ }
+}
+window.loadAiProviderProfiles = loadAiProviderProfiles;
+
+function renderAiProviderProfiles(profiles) {
+    const wrap = document.getElementById('ai-provider-profiles-list');
+    if (!wrap) return;
+    if (!profiles.length) {
+        wrap.innerHTML = '<p class="text-[11px] text-slate-400">Belum ada profil tersimpan. Isi form di atas lalu klik "Simpan sebagai Profil".</p>';
+        return;
+    }
+    wrap.innerHTML = profiles.map(p => `
+        <div class="flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white">
+            <div class="min-w-0">
+                <p class="text-xs font-bold text-slate-700 truncate">${escHtml(p.label || p.id)}</p>
+                <p class="text-[11px] text-slate-400 truncate">${escHtml(p.customBaseUrl || '')} \u00b7 ${escHtml(p.customModel || 'auto')}${p.hasApiKey ? '' : ' \u00b7 tanpa key'}</p>
+            </div>
+            <div class="flex items-center gap-1 shrink-0">
+                <button type="button" onclick="activateAiProviderProfile('${p.id}')" title="Aktifkan" class="px-2 py-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold cursor-pointer">Aktifkan</button>
+                <button type="button" onclick="useAiProviderProfile('${p.id}')" title="Muat ke form" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-violet-300 text-slate-600 text-[11px] font-bold cursor-pointer">Muat</button>
+                <button type="button" onclick="deleteAiProviderProfile('${p.id}')" title="Hapus" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-red-300 text-red-500 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-trash-can"></i></button>
+            </div>
+        </div>`).join('');
+}
+window.renderAiProviderProfiles = renderAiProviderProfiles;
+
+async function saveAiProviderProfile(button) {
+    const status = document.getElementById('ai-provider-status');
+    try {
+        if (button) button.disabled = true;
+        const editId = (document.getElementById('ai-provider-profile-edit-id') || {}).value || '';
+        const body = {
+            label: (document.getElementById('ai-provider-profile-label') || {}).value?.trim() || '',
+            customBaseUrl: (document.getElementById('ai-provider-base-url') || {}).value?.trim() || '',
+            customModel: (document.getElementById('ai-provider-model') || {}).value?.trim() || 'auto'
+        };
+        if (editId) body.id = editId;
+        const keyVal = (document.getElementById('ai-provider-api-key') || {}).value?.trim() || '';
+        if (keyVal) body.customApiKey = keyVal;
+        if (!body.label) { if (status) { status.textContent = '\u2717 Isi nama profil dulu'; status.className = 'text-xs font-semibold text-red-500'; } return; }
+        const res = await fetch('/api/ai-provider/profiles', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (appState.token || '') },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (status) { status.textContent = data.success ? '\u2713 Profil tersimpan' : ('\u2717 ' + (data.message || 'Gagal')); status.className = 'text-xs font-semibold ' + (data.success ? 'text-emerald-600' : 'text-red-500'); }
+        if (data.success) {
+            renderAiProviderProfiles(data.profiles || []);
+            const lbl = document.getElementById('ai-provider-profile-label'); if (lbl) lbl.value = '';
+            const eid = document.getElementById('ai-provider-profile-edit-id'); if (eid) eid.value = '';
+            const k = document.getElementById('ai-provider-api-key'); if (k) k.value = '';
+        }
+    } catch (e) {
+        if (status) { status.textContent = '\u2717 Gagal: ' + e.message; status.className = 'text-xs font-semibold text-red-500'; }
+    } finally { if (button) button.disabled = false; }
+}
+window.saveAiProviderProfile = saveAiProviderProfile;
+
+async function activateAiProviderProfile(id) {
+    const status = document.getElementById('ai-provider-status');
+    try {
+        if (status) { status.textContent = 'Mengaktifkan profil...'; status.className = 'text-xs font-semibold text-slate-500'; }
+        const res = await fetch('/api/ai-provider/profiles/' + encodeURIComponent(id) + '/activate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (appState.token || '') },
+            body: '{}'
+        });
+        const data = await res.json();
+        if (data.success) {
+            const cfg = data.config || {};
+            const baseUrl = document.getElementById('ai-provider-base-url');
+            const model = document.getElementById('ai-provider-model');
+            const hint = document.getElementById('ai-provider-key-hint');
+            if (baseUrl) baseUrl.value = cfg.customBaseUrl || '';
+            if (model) model.value = cfg.customModel || 'auto';
+            if (hint) hint.textContent = cfg.hasApiKey ? ('\u2713 Profil aktif (key tersimpan)') : 'Profil aktif tanpa API key';
+            if (status) { status.textContent = '\u2713 Profil diaktifkan'; status.className = 'text-xs font-semibold text-emerald-600'; }
+        } else if (status) { status.textContent = '\u2717 ' + (data.message || 'Gagal'); status.className = 'text-xs font-semibold text-red-500'; }
+    } catch (e) {
+        if (status) { status.textContent = '\u2717 Gagal: ' + e.message; status.className = 'text-xs font-semibold text-red-500'; }
+    }
+}
+window.activateAiProviderProfile = activateAiProviderProfile;
+
+async function useAiProviderProfile(id) {
+    try {
+        const res = await fetch('/api/ai-provider/profiles', { headers: { 'Authorization': 'Bearer ' + (appState.token || '') } });
+        const data = await res.json();
+        const prof = (data.profiles || []).find(p => p.id === id);
+        if (!prof) return;
+        document.getElementById('ai-provider-base-url').value = prof.customBaseUrl || '';
+        document.getElementById('ai-provider-model').value = prof.customModel || 'auto';
+        const lbl = document.getElementById('ai-provider-profile-label'); if (lbl) lbl.value = prof.label || '';
+        const eid = document.getElementById('ai-provider-profile-edit-id'); if (eid) eid.value = prof.id;
+        const hint = document.getElementById('ai-provider-key-hint');
+        if (hint) hint.textContent = prof.hasApiKey ? 'Key tersimpan di profil — kosongkan kolom key agar tidak berubah.' : 'Profil ini belum punya API key.';
+    } catch (e) { /* diam */ }
+}
+window.useAiProviderProfile = useAiProviderProfile;
+
+async function deleteAiProviderProfile(id) {
+    if (!confirm('Hapus profil AI ini?')) return;
+    try {
+        const res = await fetch('/api/ai-provider/profiles/' + encodeURIComponent(id), {
+            method: 'DELETE',
+            headers: { 'Authorization': 'Bearer ' + (appState.token || '') }
+        });
+        const data = await res.json();
+        if (data.success) renderAiProviderProfiles(data.profiles || []);
+    } catch (e) { /* diam */ }
+}
+window.deleteAiProviderProfile = deleteAiProviderProfile;
+
+function escHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
 // Settings, Geofencing, Class Leader, Assessment & Data Sync Module
 
@@ -295,6 +419,17 @@ function renderSettingModule(container) {
                             <input type="password" id="ai-provider-api-key" placeholder="Kosongkan jika tidak ingin mengganti" autocomplete="new-password" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500">
                             <p id="ai-provider-key-hint" class="text-[11px] text-slate-400 mt-1"></p>
                         </div>
+                    </div>
+                    <div class="mt-4 pt-3 border-t border-slate-100">
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="block text-xs uppercase font-bold text-slate-500">Daftar AI Tersimpan</label>
+                        </div>
+                        <div class="flex gap-2 mb-2">
+                            <input type="text" id="ai-provider-profile-label" placeholder="Nama profil (mis. Lightvela Kantor)" class="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs" />
+                            <input type="hidden" id="ai-provider-profile-edit-id" />
+                            <button type="button" onclick="saveAiProviderProfile(this)" class="px-3 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold cursor-pointer whitespace-nowrap">Simpan sebagai Profil</button>
+                        </div>
+                        <div id="ai-provider-profiles-list" class="space-y-1.5"></div>
                     </div>
                     <div class="flex flex-wrap gap-2 mt-4 items-center">
                         <button type="button" onclick="saveAiProviderSettings(this)" class="px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition cursor-pointer">
@@ -1146,6 +1281,11 @@ function renderSettingModule(container) {
             window.updateThemeSelectionUI();
         }
     }, 50);
+    setTimeout(() => {
+        if (document.getElementById('ai-provider-card-custom') && window.loadAiProviderSettings) {
+            loadAiProviderSettings();
+        }
+    }, 120);
 }
 
 function searchUserAccounts(query = '') {
@@ -2161,7 +2301,6 @@ async function reloadAuthoritativeAttendance(payload = null) {
     }
     safeSetLocalStorage('madrasah_attendance', appState.attendance);
     return appState.attendance;
-    setTimeout(() => { loadAiProviderSettings(); }, 50);
 }
 
 async function markAllStudentsPresent() {
@@ -5193,6 +5332,7 @@ async function runTeacherPhotoCleanup() {
 }
 
 // Window Globals
+setTimeout(() => { if (document.getElementById('ai-provider-card-custom')) loadAiProviderSettings(); }, 80);
 window.renderSettingModule = renderSettingModule;
 window.saveLoginCustomization = saveLoginCustomization;
 window.toggleCustomLoginBgColor = toggleCustomLoginBgColor;

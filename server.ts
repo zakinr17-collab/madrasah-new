@@ -21,7 +21,7 @@ import { encryptGoogleDriveOAuthToken, decryptGoogleDriveOAuthToken } from "./sr
 import selfsigned from "selfsigned";
 import { GoogleGenAI } from "@google/genai";
 import { callAI } from "./aiProvider";
-import { deriveAiProviderCredentialKey, encryptSecret, decryptSecret, sanitizeAiProviderInput, publicAiProviderView, AiProviderConfig } from "./aiProviderSettings";
+import { deriveAiProviderCredentialKey, encryptSecret, decryptSecret, sanitizeAiProviderInput, publicAiProviderView, AiProviderConfig, AiProviderProfile, getAiProviderProfiles, publicProfileView, sanitizeProfileInput } from "./aiProviderSettings";
 import { v2 as cloudinary } from "cloudinary";
 import JSZip from "jszip";
 import mammoth from "mammoth";
@@ -24230,6 +24230,73 @@ app.post("/api/ai-provider/settings", requireAuth, requireRole(['admin', 'admini
     await saveData('settings', appSettings);
     applyAiProviderRuntime();
     res.json({ success: true, config: publicAiProviderView(getAiProviderConfig(), Boolean(process.env.CUSTOM_AI_API_KEY)) });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
+app.get("/api/ai-provider/profiles", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    const profiles = getAiProviderProfiles(appSettings).map(publicProfileView);
+    const cfg = getAiProviderConfig();
+    res.json({ success: true, profiles, active: { customBaseUrl: cfg?.customBaseUrl || '', customModel: cfg?.customModel || 'auto' } });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
+// Simpan (create/update) satu profil AI. body: { id?, label, customBaseUrl, customModel, customApiKey?, clearApiKey? }
+app.post("/api/ai-provider/profiles", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    const body = req.body || {};
+    const existingList = getAiProviderProfiles(appSettings);
+    const existing = body.id ? existingList.find((p) => p.id === String(body.id)) : null;
+    const prof = sanitizeProfileInput(body, AI_PROVIDER_CREDENTIAL_KEY, existing);
+    if (!prof) return res.status(400).json({ success: false, message: "Label dan data profil tidak valid." });
+    const list = existing
+      ? existingList.map((p) => (p.id === prof.id ? prof : p))
+      : [...existingList, prof];
+    if (list.length > 20) return res.status(400).json({ success: false, message: "Maksimal 20 profil AI." });
+    appSettings = { ...appSettings, aiProviderProfiles: list } as any;
+    await saveData('settings', appSettings);
+    res.json({ success: true, profiles: list.map(publicProfileView) });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
+// Aktifkan profil: salin kredensial profil menjadi config aktif.
+app.post("/api/ai-provider/profiles/:id/activate", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    const prof = getAiProviderProfiles(appSettings).find((p) => p.id === String(req.params.id));
+    if (!prof) return res.status(404).json({ success: false, message: "Profil tidak ditemukan." });
+    const cfg = sanitizeAiProviderInput({
+      provider: 'custom',
+      order: 'custom,gemini',
+      customBaseUrl: prof.customBaseUrl,
+      customModel: prof.customModel,
+      // kunci dikirim "kembali" untuk disalin ke config aktif (tidak pernah ke klien)
+      customApiKeyEncPassthrough: prof.customApiKeyEnc,
+    }, AI_PROVIDER_CREDENTIAL_KEY, getAiProviderConfig());
+    // salin terenkripsi langsung (tanpa dekripsi): set manual setelah sanitize
+    cfg.customApiKeyEnc = prof.customApiKeyEnc;
+    appSettings = { ...appSettings, aiProviderConfig: cfg } as any;
+    await saveData('settings', appSettings);
+    applyAiProviderRuntime();
+    res.json({ success: true, config: publicAiProviderView(cfg, Boolean(process.env.CUSTOM_API_KEY || process.env.GEMINI_API_KEY)) });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
+// Hapus profil.
+app.delete("/api/ai-provider/profiles/:id", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    const id = String(req.params.id);
+    const list = getAiProviderProfiles(appSettings).filter((p) => p.id !== id);
+    appSettings = { ...appSettings, aiProviderProfiles: list } as any;
+    await saveData('settings', appSettings);
+    res.json({ success: true, profiles: list.map(publicProfileView) });
   } catch (e: any) {
     res.status(500).json({ success: false, message: safeServerError(e) });
   }
