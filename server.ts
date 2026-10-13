@@ -24297,6 +24297,21 @@ app.post("/api/ai-provider/profiles/:id/activate", requireAuth, requireRole(['ad
   }
 });
 
+// Lihat API key profil (admin/bos). Default: disamarkan; query ?full=1 untuk utuh (tombol mata di UI).
+app.get("/api/ai-provider/profiles/:id/key", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    const prof = getAiProviderProfiles(appSettings).find((p) => p.id === String(req.params.id));
+    if (!prof || !prof.customApiKeyEnc) return res.status(404).json({ success: false, message: "Profil tidak ditemukan atau tidak punya API key." });
+    const key = decryptSecret(prof.customApiKeyEnc, AI_PROVIDER_CREDENTIAL_KEY);
+    if (!key) return res.status(404).json({ success: false, message: "API key tidak dapat dibaca." });
+    const full = String((req.query || {}).full || '') === '1';
+    const masked = key.length > 10 ? (key.slice(0, 6) + '****' + key.slice(-4)) : '****';
+    res.json({ success: true, masked, key: full ? key : '', full });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
 // Hapus profil.
 app.delete("/api/ai-provider/profiles/:id", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
   try {
