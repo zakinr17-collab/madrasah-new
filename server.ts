@@ -20,6 +20,7 @@ import { resolveSqlConnection, SqlConfigurationError } from "./src/db/connection
 import { encryptGoogleDriveOAuthToken, decryptGoogleDriveOAuthToken } from "./src/googleDriveOAuthStore.ts";
 import selfsigned from "selfsigned";
 import { GoogleGenAI } from "@google/genai";
+import { callAI } from "./aiProvider";
 import { v2 as cloudinary } from "cloudinary";
 import JSZip from "jszip";
 import mammoth from "mammoth";
@@ -380,6 +381,10 @@ function sanitizeStudentForClient(student: any, includeAdminPassword = false): a
   const { password, passwordRaw, passwordAdminCipher, ...safe } = student;
   if (includeAdminPassword) safe.passwordDisplay = decryptStudentAdminPassword(passwordAdminCipher) || '';
   return safe;
+}
+
+function customAiAvailable(): boolean {
+  return Boolean(process.env.CUSTOM_AI_API_KEY);
 }
 
 function verifyAndLockMadrasahTokens() {
@@ -19146,7 +19151,7 @@ app.post("/api/gemini/auto-koreksi", requireAuth, requireRole(['teacher', 'guru'
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
-    const useAi = method !== 'keyword' && Boolean(apiKey);
+    const useAi = method !== 'keyword' && (Boolean(apiKey) || customAiAvailable());
     const ai = useAi ? new GoogleGenAI({
       apiKey: apiKey!,
       httpOptions: { headers: { "User-Agent": "aistudio-build" } }
@@ -19190,7 +19195,7 @@ Kunci: ${q.answer || "-"}
 Jawaban: ${studentAnswer || "(Tidak menjawab)"}`;
 }).join("\n---\n")}`;
 
-        const response = await generateGeminiContent(ai, {
+        const response = await callAI(ai, {
           model: "gemini-3.7-flash",
           contents: prompt
         });
@@ -19325,19 +19330,8 @@ app.post("/api/gemini/auto-koreksi-lkpd", requireAuth, requireRole(['teacher', '
       }
     } else {
       // AI-based correction with Gemini 3.7 Flash
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        throw new Error("GEMINI_API_KEY environment variable is missing on server.");
-      }
 
-      const ai = new GoogleGenAI({
-        apiKey: apiKey,
-        httpOptions: {
-          headers: {
-            "User-Agent": "aistudio-build"
-          }
-        }
-      });
+      const ai = null; /* custom-first: client Gemini opsional */
 
       for (const sub of submissionsToGrade) {
         try {
@@ -19379,7 +19373,7 @@ Jawaban Siswa: ${studentAns || "(Tidak menjawab)"}
 ---`;
           });
 
-          const response = await generateGeminiContent(ai, {
+          const response = await callAI(ai, {
             model: "gemini-3.7-flash",
             contents: prompt
           });
@@ -19441,19 +19435,8 @@ app.post("/api/gemini/generate-questions", requireAuth, requireRole(['teacher', 
   try {
     const { topic, mcCount = 5, essayCount = 0, optionCount = 4, level = "Sedang" } = req.body;
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY environment variable is missing on server.");
-    }
 
-    const ai = new GoogleGenAI({
-      apiKey: apiKey,
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build"
-        }
-      }
-    });
+    const ai = null; /* custom-first: client Gemini opsional */
 
     const prompt = `
 Buatkan soal ujian untuk madrasah.
@@ -19467,7 +19450,7 @@ Format JSON array of objects dengan properti: type ('mc' atau 'essay'), question
 ${NO_DASHES_PROMPT}
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
       config: {
@@ -19511,19 +19494,8 @@ app.post("/api/gemini/generate-enrichment", requireAuth, requireRole(['teacher',
   try {
     const { topic } = req.body;
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY environment variable is missing on server.");
-    }
 
-    const ai = new GoogleGenAI({
-      apiKey: apiKey,
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build"
-        }
-      }
-    });
+    const ai = null; /* custom-first: client Gemini opsional */
 
     const prompt = `
 Buatkan uraian pengayaan pembelajaran atau ringkasan materi pembelajaran madrasah yang mendalam dan edukatif untuk topik: "${topic}".
@@ -19531,7 +19503,7 @@ Berikan penjelasan 2-3 paragraf yang bermutu tinggi dan profesional dalam bahasa
 ${NO_DASHES_PROMPT}
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt
     });
@@ -21722,19 +21694,8 @@ app.post("/api/gemini/generate-modul", requireAuth, requireRole(['teacher', 'gur
   try {
     const { subjectName, topic, grade, fieldName } = req.body;
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY tidak dikonfigurasi di server.");
-    }
 
-    const ai = new GoogleGenAI({
-      apiKey: apiKey,
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build"
-        }
-      }
-    });
+    const ai = null; /* custom-first: client Gemini opsional */
 
     const category = detectSubjectCategoryServer(subjectName, topic);
     const subjectRule = getSubjectTemplateInstructions(subjectName, topic);
@@ -21747,7 +21708,7 @@ ${subjectRule}
 
 ${NO_DASHES_PROMPT}`;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt
     });
@@ -21785,19 +21746,8 @@ app.post("/api/gemini/generate-modul-all", requireAuth, requireRole(['teacher', 
   try {
     const { subjectName, topic, materiDetail, grade, model = "Deep Learning" } = req.body;
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY tidak dikonfigurasi di server.");
-    }
 
-    const ai = new GoogleGenAI({
-      apiKey: apiKey,
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build"
-        }
-      }
-    });
+    const ai = null; /* custom-first: client Gemini opsional */
 
     const category = detectSubjectCategoryServer(subjectName, topic, materiDetail);
     const subjectRule = getSubjectTemplateInstructions(subjectName, topic);
@@ -21839,7 +21789,7 @@ ${jsonSchemaInstructions}
 ${NO_DASHES_PROMPT}
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
       config: {
@@ -21934,10 +21884,10 @@ app.post("/api/modul/parse-document", requireAuth, requireRole(['teacher', 'guru
       } else if (isPdf) {
         const apiKey = process.env.GEMINI_API_KEY;
         let pdfParsedWithAi = false;
-        if (apiKey) {
+        if (apiKey || customAiAvailable()) {
           try {
-            const ai = new GoogleGenAI({ apiKey, httpOptions: { headers: { "User-Agent": "aistudio-build" } } });
-            const pdfExtractRes = await generateGeminiContent(ai, {
+            const ai = null /* custom-first */;
+            const pdfExtractRes = await callAI(ai, {
               model: "gemini-3.7-flash",
               contents: [
                 {
@@ -22013,9 +21963,9 @@ app.post("/api/modul/import-ai-structure", requireAuth, requireRole(['teacher', 
     const safeGrade = grade || 'X (Sepuluh)';
 
     let ai: any = null;
-    if (apiKey) {
+    if (apiKey || customAiAvailable()) {
       try {
-        ai = new GoogleGenAI({ apiKey, httpOptions: { headers: { "User-Agent": "aistudio-build" } } });
+        ai = null /* custom-first */;
       } catch (e) {
         console.warn("GoogleGenAI init failed:", e);
       }
@@ -22083,7 +22033,7 @@ KEMBALIKAN HANYA OBJEK JSON MURNI DENGAN STRUKTUR:
 }
 `;
 
-        const response = await generateGeminiContent(ai, {
+        const response = await callAI(ai, {
           model: "gemini-3.7-flash",
           contents: prompt,
           config: {
@@ -22142,11 +22092,8 @@ KEMBALIKAN HANYA OBJEK JSON MURNI DENGAN STRUKTUR:
 // AI Generate Modul 2 General (Alokasi Waktu, Silabus, ATP, KKTP)
 app.post("/api/gemini/generate-modul2-general", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
   try {
+    const ai = null; /* custom-first: client Gemini opsional */
     const { subjectName, babs } = req.body;
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error("GEMINI_API_KEY tidak dikonfigurasi di server.");
-
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { headers: { "User-Agent": "aistudio-build" } } });
     
     const prompt = `
 Sebagai guru profesional, buatkan dokumen administrasi pembelajaran UMUM untuk mata pelajaran "${subjectName}" yang mencakup bab-bab berikut: ${babs.join(', ')}.
@@ -22178,7 +22125,7 @@ Susun persis menyerupai format resmi yang mencakup:
 Pastikan isinya detail dan sangat profesional, serta tabel-tabelnya memiliki border dan padding yang rapi (class="w-full border-collapse border border-slate-800 text-sm").
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
     });
@@ -22214,11 +22161,8 @@ Pastikan isinya detail dan sangat profesional, serta tabel-tabelnya memiliki bor
 // AI Generate Modul 2 Bab (RPP, Analisis SKL, Modul Ajar)
 app.post("/api/gemini/generate-modul2-bab", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
   try {
+    const ai = null; /* custom-first: client Gemini opsional */
     const { subjectName, babTitle, grade = "X" } = req.body;
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error("GEMINI_API_KEY tidak dikonfigurasi di server.");
-
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { headers: { "User-Agent": "aistudio-build" } } });
     
     const subjectRule = getSubjectTemplateInstructions(subjectName, babTitle);
 
@@ -22253,7 +22197,7 @@ PENTING: Dilarang menggunakan simbol markdown seperti bintang (*, **), pagar (#)
 }
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
       config: {
@@ -22398,12 +22342,8 @@ PENTING: Dilarang menggunakan simbol markdown seperti bintang (*, **), pagar (#)
 app.post("/api/gemini/generate-ppt", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
   try {
     const { subjectName, topic, materiDetail, grade = "X", slideCount = 8, theme = "midnight" } = req.body;
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY tidak dikonfigurasi di server.");
-    }
 
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { headers: { "User-Agent": "aistudio-build" } } });
+    const ai = null /* custom-first */;
 
     const prompt = `
 Sebagai pengembang media pembelajaran digital interaktif berbasis AI, buatkan draf slide presentasi PPT murni berisi materi inti secara lengkap dan mendalam.
@@ -22444,7 +22384,7 @@ Catatan: Buatkan total ${slideCount || 8} slide bertahap semuanya fokus mengupas
 ${NO_DASHES_PROMPT}
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
       config: { responseMimeType: "application/json" }
@@ -22503,12 +22443,8 @@ ${NO_DASHES_PROMPT}
 app.post("/api/gemini/generate-poster", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
   try {
     const { subjectName, topic, grade = "X", theme = "modern", notes = "" } = req.body;
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY tidak dikonfigurasi di server.");
-    }
 
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { headers: { "User-Agent": "aistudio-build" } } });
+    const ai = null /* custom-first */;
 
     let prompt = `
 Sebagai ahli visualisasi materi dan media pembelajaran (infografis/poster), buatkan rancangan data visual poster interaktif edukasi berbobot tinggi untuk:
@@ -22565,7 +22501,7 @@ Pastikan koordinat x dan y bervariasi agar tidak bertumpuk di satu tempat.
 ${NO_DASHES_PROMPT}
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
       config: { responseMimeType: "application/json" }
@@ -22690,11 +22626,8 @@ ${NO_DASHES_PROMPT}
 // AI Generate Document Pack (12 Categories)
 app.post("/api/gemini/generate-kbc-document", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
   try {
+    const ai = null; /* custom-first: client Gemini opsional */
     const { docType, subjectName, babs = [], babIndex, babTitle, grade = "X", guruName, guruNip, kepsekName, kepsekNip } = req.body;
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) throw new Error("GEMINI_API_KEY tidak dikonfigurasi di server.");
-
-    const ai = new GoogleGenAI({ apiKey, httpOptions: { headers: { "User-Agent": "aistudio-build" } } });
     
     let prompt = "";
     const babsList = babs.join(", ");
@@ -22863,7 +22796,7 @@ Tuliskan hasil tanpa format markdown seperti bintang (**) atau pagar (#). Gunaka
 Pastikan kolom tanda tangan tersebut diformat dengan sangat rapi dan estetik menggunakan tabel atau struktur CSS flexbox/grid yang bersih (misalnya di sebelah kiri Kepala Sekolah dan sebelah kanan Guru), diletakkan di bagian akhir dokumen HTML.`;
     }
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
     });
@@ -22884,19 +22817,8 @@ app.post("/api/gemini/generate-soal-kisi", requireAuth, requireRole(['teacher', 
   try {
     const { subjectName, mcCount = 10, essayCount = 5, optionCount = 5, lessons = [], difficulty = "sedang" } = req.body;
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      throw new Error("GEMINI_API_KEY tidak dikonfigurasi di server.");
-    }
 
-    const ai = new GoogleGenAI({
-      apiKey: apiKey,
-      httpOptions: {
-        headers: {
-          "User-Agent": "aistudio-build"
-        }
-      }
-    });
+    const ai = null; /* custom-first: client Gemini opsional */
 
     let lessonsContext = "";
     if (lessons && lessons.length > 0) {
@@ -22974,7 +22896,7 @@ Tuliskan hasil tanpa format markdown seperti bintang (**) atau pagar (#). Gunaka
 ${NO_DASHES_PROMPT}
 `;
 
-    const response = await generateGeminiContent(ai, {
+    const response = await callAI(ai, {
       model: "gemini-3.7-flash",
       contents: prompt,
       config: {
@@ -23558,9 +23480,9 @@ app.post("/api/gemini/generate-rpp", requireAuth, requireRole(['teacher', 'guru'
     };
 
     let ai: any = null;
-    if (apiKey) {
+    if (apiKey || customAiAvailable()) {
       try {
-        ai = new GoogleGenAI({ apiKey, httpOptions: { headers: { "User-Agent": "aistudio-build" } } });
+        ai = null /* custom-first */;
       } catch (e) {
         console.warn("GoogleGenAI init failed:", e);
       }
@@ -23596,7 +23518,7 @@ PENTING:
 TEMPLATE MANDATORI HTML:
 ${buildFallbackHTML(p, index)}`;
 
-          const response = await generateGeminiContent(ai, {
+          const response = await callAI(ai, {
             model: "gemini-3.7-flash",
             contents: prompt,
             config: {
@@ -24132,9 +24054,9 @@ app.post("/api/gemini/generate-device", requireAuth, requireRole(['teacher', 'gu
     };
 
     let ai: any = null;
-    if (apiKey) {
+    if (apiKey || customAiAvailable()) {
       try {
-        ai = new GoogleGenAI({ apiKey, httpOptions: { headers: { "User-Agent": "aistudio-build" } } });
+        ai = null /* custom-first */;
       } catch (e) {
         console.warn("GoogleGenAI init failed:", e);
       }
@@ -24171,7 +24093,7 @@ SANGAT PENTING:
 TEMPLATE ACUAN:
 ${fallbackHtml}`;
 
-        const response = await generateGeminiContent(ai, {
+        const response = await callAI(ai, {
           model: "gemini-3.7-flash",
           contents: prompt,
           config: { responseMimeType: "text/plain" }
