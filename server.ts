@@ -19451,18 +19451,37 @@ Jawaban Siswa: ${studentAns || "(Tidak menjawab)"}
 // 12. Server-side Gemini AI Questions Generation API
 app.post("/api/gemini/generate-questions", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
   try {
-    const { topic, mcCount = 5, essayCount = 0, optionCount = 4, level = "Sedang" } = req.body;
+    const { topic, mcCount = 5, essayCount = 0, optionCount = 4, level = "Sedang", sourceMaterialText = "", instruksiKhusus = "" } = req.body;
+    const materialText = String(sourceMaterialText || "").trim().slice(0, 30000);
+    const extraInstr = String(instruksiKhusus || "").trim().slice(0, 1000);
 
 
     const ai = null; /* custom-first: client Gemini opsional */
 
+    const sumberMateriBlock = materialText
+      ? `
+
+=== SUMBER MATERI GURU (UTAMAKAN INI) ===
+${materialText}
+=== AKHIR SUMBER MATERI ===
+
+ATURAN WAJIB:
+- Buat SEMUA soal BERDASARKAN sumber materi guru di atas. Jangan mengarang materi di luar sumber.
+- Jika sumber materi tidak mencakup suatu aspek, jangan membuat soal tentang aspek tersebut.
+- Gunakan istilah-istilah penting yang muncul di sumber materi dalam bahasa soal.`
+      : "";
+
+    const instruksiKhususBlock = extraInstr ? `
+
+INSTRUKSI KHUSUS DARI GURU (WAJIB DIIKUTI): ${extraInstr}` : "";
+
     const prompt = `
 Buatkan soal ujian untuk madrasah.
-Topik: ${topic}
+Topik: ${topic || (materialText ? "Sesuai sumber materi guru di bawah" : "Materi Umum")}
 Tingkat kesulitan: ${level}
 Jumlah soal pilihan ganda: ${mcCount}
 Jumlah soal esay: ${essayCount}
-Jumlah opsi pilihan ganda: ${optionCount}
+Jumlah opsi pilihan ganda: ${optionCount}${sumberMateriBlock}${instruksiKhususBlock}
 
 Format JSON array of objects dengan properti: type ('mc' atau 'essay'), question, options (array string), answer, explanation.
 ${NO_DASHES_PROMPT}

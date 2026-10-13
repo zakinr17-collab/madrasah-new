@@ -510,6 +510,48 @@ async function deleteIndividualQuestion(id) {
     });
 }
 
+window.__genMaterialText = '';
+
+window.handleGenMaterialFile = async function(input) {
+    const file = input.files && input.files[0];
+    const info = document.getElementById('ai-gen-material-file-info');
+    if (!file) return;
+    if (info) info.textContent = 'Membaca ' + file.name + '...';
+    try {
+        const reader = new FileReader();
+        const base64 = await new Promise((resolve, reject) => {
+            reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+        const res = await fetch('/api/modul/parse-document', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ fileName: file.name, fileType: file.type, fileBase64: base64 })
+        });
+        const data = await res.json();
+        const text = String(data.extractedText || data.textContent || '').trim();
+        if (!text) throw new Error('Tidak ada teks terbaca dari file.');
+        window.__genMaterialText = text.slice(0, 30000);
+        if (info) info.innerHTML = '<i class="fa-solid fa-check text-emerald-600 mr-1"></i>' + file.name + ' (' + Math.min(text.length, 30000).toLocaleString() + ' karakter)';
+        showToast('Materi dari file siap dipakai.', 'success');
+    } catch (err) {
+        window.__genMaterialText = '';
+        if (info) info.textContent = 'Gagal membaca file.';
+        showToast('Gagal membaca file: ' + (err.message || err), 'error');
+    }
+};
+
+window.resetGenMaterial = function() {
+    window.__genMaterialText = '';
+    const ta = document.getElementById('ai-gen-material');
+    if (ta) ta.value = '';
+    const fi = document.getElementById('ai-gen-material-file');
+    if (fi) fi.value = '';
+    const info = document.getElementById('ai-gen-material-file-info');
+    if (info) info.textContent = '';
+};
+
 function openAIGeneratorModal(code) {
     const modal = document.getElementById('modal-container');
     modal.innerHTML = `
@@ -529,7 +571,7 @@ function openAIGeneratorModal(code) {
                 <form id="hybrid-gen-soal-form" class="space-y-3 text-xs sm:text-sm">
                     <div>
                         <label class="block text-xs uppercase text-slate-500 mb-1">Topik Materi</label>
-                        <input type="text" id="ai-gen-topic" required class="w-full px-4 py-2.5 bg-slate-50 border rounded-2xl" placeholder="Contoh: Hukum Tajwid & Mad Thabi'i">
+                        <input type="text" id="ai-gen-topic" class="w-full px-4 py-2.5 bg-slate-50 border rounded-2xl" placeholder="Contoh: Hukum Tajwid & Mad Thabi'i">
                     </div>
                     <div class="grid grid-cols-2 gap-3">
                         <div>
@@ -558,6 +600,22 @@ function openAIGeneratorModal(code) {
                             </select>
                         </div>
                     </div>
+                    <div class="pt-2 border-t border-slate-100 space-y-2">
+                        <label class="block text-xs uppercase text-slate-500 mb-1"><i class="fa-solid fa-book mr-1 text-teal-600"></i> Materi Sumber (opsional — soal dibuat dari materi ini)</label>
+                        <textarea id="ai-gen-material" rows="3" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs" placeholder="Tempel materi di sini (opsional). Jika diisi + file diunggah, keduanya digabung."></textarea>
+                        <div class="flex items-center gap-2 flex-wrap">
+                            <label class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-[11px] font-bold cursor-pointer">
+                                <i class="fa-solid fa-file-import mr-1"></i> Impor Word/PDF
+                                <input type="file" id="ai-gen-material-file" accept=".docx,.pdf,.txt" class="hidden" onchange="handleGenMaterialFile(this)" />
+                            </label>
+                            <span id="ai-gen-material-file-info" class="text-[11px] text-slate-500"></span>
+                        </div>
+                        <div>
+                            <label class="block text-xs uppercase text-slate-500 mb-1">Instruksi Khusus (opsional)</label>
+                            <input type="text" id="ai-gen-instruksi" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs" placeholder="Contoh: fokus pada subbab 2, tanpa soal hitungan" />
+                        </div>
+                        <p class="text-[10px] text-slate-400">Tanpa materi sumber: soal dibuat dari topik. Dengan materi sumber: topik boleh dikosongkan.</p>
+                    </div>
                     <div class="flex items-center justify-end space-x-2 pt-3 border-t border-slate-100">
                         <button type="button" onclick="closeModal()" class="px-3.5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer transition">Batal</button>
                         <button type="button" onclick="executeNonAIGenerator(event, '${code}')" class="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow flex items-center space-x-1.5 cursor-pointer transition">
@@ -577,9 +635,11 @@ function executeNonAIGenerator(e, code) {
     if (e) e.preventDefault();
     const topicInput = document.getElementById('ai-gen-topic');
     const topic = topicInput ? topicInput.value.trim() : '';
-    if (!topic) {
-        showToast('Mohon isi Topik Materi terlebih dahulu!', 'error');
-        if (topicInput) topicInput.focus();
+    const materialTyped = (document.getElementById('ai-gen-material') || {}).value || '';
+    const materialText = ((window.__genMaterialText || '') + '\n\n' + materialTyped).trim();
+    const instruksiKhusus = ((document.getElementById('ai-gen-instruksi') || {}).value || '').trim();
+    if (!topic && !materialText) {
+        showToast('Isi Topik Materi ATAU tempel/impor materi sumber!', 'error');
         return;
     }
     const mcCount = parseInt(document.getElementById('ai-gen-mc-count').value) || 5;
@@ -686,8 +746,11 @@ async function executeAIGenerator(e, code) {
     if (e) e.preventDefault();
     const topicInput = document.getElementById('ai-gen-topic');
     const topic = topicInput ? topicInput.value.trim() : '';
-    if (!topic) {
-        showToast('Mohon isi Topik Materi terlebih dahulu!', 'error');
+    const materialTyped = (document.getElementById('ai-gen-material') || {}).value || '';
+    const materialText = ((window.__genMaterialText || '') + '\n\n' + materialTyped).trim();
+    const instruksiKhusus = ((document.getElementById('ai-gen-instruksi') || {}).value || '').trim();
+    if (!topic && !materialText) {
+        showToast('Isi Topik Materi ATAU tempel/impor materi sumber!', 'error');
         if (topicInput) topicInput.focus();
         return;
     }
@@ -709,7 +772,7 @@ async function executeAIGenerator(e, code) {
         const response = await fetch('/api/gemini/generate-questions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ topic, mcCount, essayCount, optionCount, level })
+            body: JSON.stringify({ topic, mcCount, essayCount, optionCount, level, sourceMaterialText: materialText.slice(0, 30000), instruksiKhusus })
         });
         const data = await response.json();
 
@@ -743,6 +806,7 @@ async function executeAIGenerator(e, code) {
         saveState('questionBank');
         closeModal();
         showToast(`Berhasil generate ${generatedItems.length} soal AI Gemini!`, 'success');
+        resetGenMaterial();
         renderQuestionBankModule(document.getElementById('view-container'));
     } catch (err) {
         console.error('Error generating:', err);
