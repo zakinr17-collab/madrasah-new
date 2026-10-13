@@ -148,14 +148,11 @@ let __aiProviderSelected = 'custom';
 function selectAiProviderCard(provider) {
     __aiProviderSelected = provider;
     const customCard = document.getElementById('ai-provider-card-custom');
-    const geminiCard = document.getElementById('ai-provider-card-gemini');
     const customFields = document.getElementById('ai-provider-custom-fields');
-    const geminiFields = document.getElementById('ai-provider-gemini-fields');
-    if (!customCard || !geminiCard) return;
+    if (!customCard) return;
     const on = (el) => { el.classList.remove('border-slate-200'); el.classList.add('border-violet-500','bg-violet-50/50'); };
     const off = (el) => { el.classList.add('border-slate-200'); el.classList.remove('border-violet-500','bg-violet-50/50'); };
-    if (provider === 'gemini') { off(customCard); on(geminiCard); if(customFields) customFields.classList.add('hidden'); if(geminiFields) geminiFields.classList.remove('hidden'); }
-    else { on(customCard); off(geminiCard); if(customFields) customFields.classList.remove('hidden'); if(geminiFields) geminiFields.classList.add('hidden'); }
+    on(customCard); if(customFields) customFields.classList.remove('hidden');
 }
 window.selectAiProviderCard = selectAiProviderCard;
 
@@ -165,7 +162,7 @@ async function loadAiProviderSettings() {
         const data = await res.json();
         if (!data.success) return;
         const cfg = data.config || {};
-        __aiProviderSelected = cfg.provider === 'gemini' ? 'gemini' : 'custom';
+        __aiProviderSelected = 'custom';
         selectAiProviderCard(__aiProviderSelected);
         const baseUrl = document.getElementById('ai-provider-base-url');
         const model = document.getElementById('ai-provider-model');
@@ -181,15 +178,13 @@ async function saveAiProviderSettings(button) {
     const status = document.getElementById('ai-provider-status');
     try {
         if (button) button.disabled = true;
-        const body = { provider: __aiProviderSelected };
-        if (__aiProviderSelected === 'custom') {
+        const body = { provider: 'custom' };
+        if (true) {
             body.customBaseUrl = (document.getElementById('ai-provider-base-url')||{}).value?.trim() || '';
             body.customModel = (document.getElementById('ai-provider-model')||{}).value?.trim() || 'auto';
             const keyVal = (document.getElementById('ai-provider-api-key')||{}).value?.trim() || '';
             if (keyVal) body.customApiKey = keyVal;
             body.order = 'custom,gemini';
-        } else {
-            body.order = 'gemini,custom';
         }
         const res = await fetch('/api/ai-provider/settings', {
             method: 'POST',
@@ -274,17 +269,13 @@ function renderSettingModule(container) {
                         </div>
                         <div class="min-w-0">
                             <h2 class="text-base font-bold text-slate-800">Hubungkan AI</h2>
-                            <p class="text-xs text-slate-500 mt-0.5">Pilih otak AI untuk koreksi esai, buat soal, modul ajar, materi &amp; pengayaan. API key disimpan terenkripsi di server.</p>
+                            <p class="text-xs text-slate-500 mt-0.5">Otak AI untuk koreksi esai, buat soal, modul ajar, materi &amp; pengayaan — semua lewat satu server AI. API key disimpan terenkripsi di server.</p>
                         </div>
                     </div>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <button type="button" id="ai-provider-card-custom" onclick="selectAiProviderCard('custom')" class="ai-provider-card text-left p-4 rounded-2xl border-2 border-slate-200 hover:border-violet-300 transition">
-                            <div class="flex items-center gap-2 mb-1"><i class="fa-solid fa-bolt text-violet-600"></i><span class="font-bold text-sm text-slate-800">Custom / Hermes</span></div>
-                            <p class="text-[11px] text-slate-500">Server OpenAI-compatible milik sendiri. Default: Lightvela.</p>
-                        </button>
-                        <button type="button" id="ai-provider-card-gemini" onclick="selectAiProviderCard('gemini')" class="ai-provider-card text-left p-4 rounded-2xl border-2 border-slate-200 hover:border-blue-300 transition">
-                            <div class="flex items-center gap-2 mb-1"><i class="fa-brands fa-google text-blue-600"></i><span class="font-bold text-sm text-slate-800">Gemini</span></div>
-                            <p class="text-[11px] text-slate-500">Google AI Studio. API key gratis dari aistudio.google.com.</p>
+                    <div>
+                        <button type="button" id="ai-provider-card-custom" onclick="selectAiProviderCard('custom')" class="ai-provider-card text-left w-full p-4 rounded-2xl border-2 border-slate-200 hover:border-violet-300 transition">
+                            <div class="flex items-center gap-2 mb-1"><i class="fa-solid fa-bolt text-violet-600"></i><span class="font-bold text-sm text-slate-800">Custom AI (OpenAI-compatible)</span></div>
+                            <p class="text-[11px] text-slate-500">Semua fitur AI lewat satu server AI. Isi API key di bawah, tes koneksi, selesai.</p>
                         </button>
                     </div>
                     <div id="ai-provider-custom-fields" class="hidden mt-4 space-y-3">
@@ -303,9 +294,6 @@ function renderSettingModule(container) {
                             <input type="password" id="ai-provider-api-key" placeholder="Kosongkan jika tidak ingin mengganti" autocomplete="new-password" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-violet-500">
                             <p id="ai-provider-key-hint" class="text-[11px] text-slate-400 mt-1"></p>
                         </div>
-                    </div>
-                    <div id="ai-provider-gemini-fields" class="hidden mt-4">
-                        <p class="text-xs text-slate-500">Gemini memakai <span class="font-semibold">GEMINI_API_KEY</span> yang sudah diset di server (.env). Jika kosong, fitur AI memakai provider custom.</p>
                     </div>
                     <div class="flex flex-wrap gap-2 mt-4 items-center">
                         <button type="button" onclick="saveAiProviderSettings(this)" class="px-4 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition cursor-pointer">
@@ -5329,3 +5317,4 @@ window.markAllStudentsUnmarked = markAllStudentsUnmarked;
 window.refreshStudentAttendanceData = refreshStudentAttendanceData;
 window.showStudentAttendancePhotoModal = showStudentAttendancePhotoModal;
 window.setAttendancePhotoAsStudentProfile = setAttendancePhotoAsStudentProfile;
+
