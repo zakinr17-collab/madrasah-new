@@ -24247,7 +24247,7 @@ app.get("/api/ai-provider/profiles", requireAuth, requireRole(['admin', 'adminis
       await saveData('settings', appSettings);
       migrated = true;
     }
-    res.json({ success: true, profiles: profiles.map(publicProfileView), migrated, active: { customBaseUrl: activeCfg?.customBaseUrl || '', customModel: activeCfg?.customModel || 'auto' } });
+    res.json({ success: true, profiles: profiles.map(publicProfileView), migrated, activeProfileId: appSettings.activeAiProfileId || null, active: { customBaseUrl: activeCfg?.customBaseUrl || '', customModel: activeCfg?.customModel || 'auto' } });
   } catch (e: any) {
     res.status(500).json({ success: false, message: safeServerError(e) });
   }
@@ -24288,10 +24288,10 @@ app.post("/api/ai-provider/profiles/:id/activate", requireAuth, requireRole(['ad
     }, AI_PROVIDER_CREDENTIAL_KEY, getAiProviderConfig());
     // salin terenkripsi langsung (tanpa dekripsi): set manual setelah sanitize
     cfg.customApiKeyEnc = prof.customApiKeyEnc;
-    appSettings = { ...appSettings, aiProviderConfig: cfg } as any;
+    appSettings = { ...appSettings, aiProviderConfig: cfg, activeAiProfileId: prof.id } as any;
     await saveData('settings', appSettings);
     applyAiProviderRuntime();
-    res.json({ success: true, config: publicAiProviderView(cfg, Boolean(process.env.CUSTOM_API_KEY || process.env.GEMINI_API_KEY)) });
+    res.json({ success: true, activeProfileId: prof.id, config: publicAiProviderView(cfg, Boolean(process.env.CUSTOM_API_KEY || process.env.GEMINI_API_KEY)) });
   } catch (e: any) {
     res.status(500).json({ success: false, message: safeServerError(e) });
   }
@@ -24317,7 +24317,9 @@ app.delete("/api/ai-provider/profiles/:id", requireAuth, requireRole(['admin', '
   try {
     const id = String(req.params.id);
     const list = getAiProviderProfiles(appSettings).filter((p) => p.id !== id);
-    appSettings = { ...appSettings, aiProviderProfiles: list } as any;
+    const patch: any = { aiProviderProfiles: list };
+    if (appSettings.activeAiProfileId === id) patch.activeAiProfileId = null;
+    appSettings = { ...appSettings, ...patch } as any;
     await saveData('settings', appSettings);
     res.json({ success: true, profiles: list.map(publicProfileView) });
   } catch (e: any) {
