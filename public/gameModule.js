@@ -174,9 +174,8 @@ export const SAMPLE_SEED_GAMES = [
             gridSize: { rows: 8, cols: 8 },
             clues: [
                 { number: 1, direction: 'across', row: 1, col: 1, clue: 'Otak pemroses utama pada komputer (3 Huruf)', answer: 'CPU', points: 30, initialHint: true },
-                { number: 2, direction: 'down', row: 1, col: 1, clue: 'Perangkat keras pengolah data utama (8 Huruf)', answer: 'COMPUTER', points: 50, initialHint: true },
-                { number: 3, direction: 'across', row: 3, col: 1, clue: 'Modulasi sinyal jaringan internet (5 Huruf)', answer: 'MODEM', points: 30, initialHint: true },
-                { number: 4, direction: 'across', row: 4, col: 1, clue: 'Perangkat pencetak dokumen kertas (7 Huruf)', answer: 'PRINTER', points: 40, initialHint: true }
+                { number: 2, direction: 'across', row: 3, col: 1, clue: 'Memori penyimpanan sementara acak (3 Huruf)', answer: 'RAM', points: 30, initialHint: true },
+                { number: 3, direction: 'down', row: 1, col: 1, clue: 'Perangkat pencetak dokumen di kertas (7 Huruf)', answer: 'PRINTER', points: 40, initialHint: true },
             ]
         }
     },
@@ -3168,9 +3167,8 @@ function renderSpecializedGameEditor(game) {
     if (type === 'crossword') {
         const clues = game.crosswordData?.clues || [
             { number: 1, direction: 'across', row: 1, col: 1, clue: 'Otak pemroses utama pada komputer (3 Huruf)', answer: 'CPU', points: 30, initialHint: true },
-            { number: 2, direction: 'down', row: 1, col: 1, clue: 'Perangkat keras pengolah data utama (8 Huruf)', answer: 'COMPUTER', points: 50, initialHint: true },
-            { number: 3, direction: 'across', row: 3, col: 1, clue: 'Modulasi sinyal jaringan internet (5 Huruf)', answer: 'MODEM', points: 30, initialHint: true },
-            { number: 4, direction: 'across', row: 4, col: 1, clue: 'Perangkat pencetak dokumen kertas (7 Huruf)', answer: 'PRINTER', points: 40, initialHint: true }
+                { number: 2, direction: 'across', row: 3, col: 1, clue: 'Memori penyimpanan sementara acak (3 Huruf)', answer: 'RAM', points: 30, initialHint: true },
+                { number: 3, direction: 'down', row: 1, col: 1, clue: 'Perangkat pencetak dokumen di kertas (7 Huruf)', answer: 'PRINTER', points: 40, initialHint: true },
         ];
 
         return `
@@ -6775,8 +6773,10 @@ window.submitGameSessionAnswer = async function(overrideAns = null, overridePass
                     </div>
                     <h2 class="text-2xl font-black text-emerald-800">Jawaban Benar! Hebat!</h2>
                     ${data.rewardVerified === false
-                        ? '<p class="text-xs font-bold text-slate-500">Tantangan selesai. Mode interaktif ini tidak memberi XP tanpa verifikasi server.</p>'
-                        : `<p class="text-xs font-bold text-slate-600">Kamu mendapatkan <span class="text-amber-600 font-extrabold">+${Number(data.earnedXp || 0)} XP</span></p>`}
+                        ? '<p class="text-xs font-bold text-slate-500">Tantangan selesai! (Mode ini tidak memberi XP — hanya soal & kuis berjawaban tetap yang diberi XP)</p>'
+                        : (Number(data.earnedXp || 0) > 0
+                        ? `<p class="text-xs font-bold text-slate-600">Kamu mendapatkan <span class="text-amber-600 font-extrabold">+${Number(data.earnedXp)} XP</span></p>`
+                        : `<p class="text-xs font-bold text-slate-500">XP harian untuk game ini sudah diklaim hari ini — kembali lagi besok untuk XP baru! 🔥 Streak: ${appState.currentUser?.dailyStreak || 1} hari</p>`)}
 
                     <button type="button" onclick="closeActiveGameSession(); if(window.renderGameStudentModule) renderGameStudentModule(document.getElementById('view-container'));" class="px-8 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs rounded-2xl shadow-lg transition cursor-pointer">
                         Lanjutkan Belajar
@@ -6814,9 +6814,8 @@ window.submitGameSessionAnswer = async function(overrideAns = null, overridePass
 export function buildCrosswordGrid(cluesInput) {
     let clues = Array.isArray(cluesInput) && cluesInput.length > 0 ? cluesInput : [
         { number: 1, direction: 'across', row: 1, col: 1, clue: 'Otak pemroses utama pada komputer (3 Huruf)', answer: 'CPU', points: 30, initialHint: true },
-        { number: 2, direction: 'down', row: 1, col: 1, clue: 'Perangkat keras pengolah data utama (8 Huruf)', answer: 'COMPUTER', points: 50, initialHint: true },
-        { number: 3, direction: 'across', row: 3, col: 1, clue: 'Modulasi sinyal jaringan internet (5 Huruf)', answer: 'MODEM', points: 30, initialHint: true },
-        { number: 4, direction: 'across', row: 4, col: 1, clue: 'Perangkat pencetak dokumen kertas (7 Huruf)', answer: 'PRINTER', points: 40, initialHint: true }
+                { number: 2, direction: 'across', row: 3, col: 1, clue: 'Memori penyimpanan sementara acak (3 Huruf)', answer: 'RAM', points: 30, initialHint: true },
+                { number: 3, direction: 'down', row: 1, col: 1, clue: 'Perangkat pencetak dokumen di kertas (7 Huruf)', answer: 'PRINTER', points: 40, initialHint: true },
     ];
 
     const processedClues = clues.map((c, idx) => {
