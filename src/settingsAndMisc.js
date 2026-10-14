@@ -420,6 +420,11 @@ async function activateAiProviderProfile(id) {
         });
         const data = await res.json();
         if (data.success) {
+            // Profil ganti -> key aktif berubah: reset cache kredit & cek ulang otomatis
+            __aiCreditInfo = null;
+            const creditEl = document.getElementById('ai-provider-credit-info');
+            if (creditEl) creditEl.innerHTML = '';
+            checkAiProviderCredit(null);
             const cfg = data.config || {};
             const baseUrl = document.getElementById('ai-provider-base-url');
             const model = document.getElementById('ai-provider-model');
