@@ -24388,6 +24388,18 @@ app.get("/api/ai-provider/credit", requireAuth, requireRole(['admin', 'administr
         } catch (_) { /* lanjut kandidat berikutnya */ }
       }
     }
+    // Konversi ke unit kredit LV: sisa = kredit awal - pemakaian (sesuai tampilan dashboard LV).
+    // Dapat diatur via env: LV_CREDIT_TOTAL (default 5000), LV_CREDIT_PER_USD (unit kredit per $1, default 1).
+    if (credit && credit.usedUsd !== null && credit.usedUsd !== undefined) {
+      const totalKredit = Number(process.env.LV_CREDIT_TOTAL || 5000);
+      const perUsd = Number(process.env.LV_CREDIT_PER_USD || 1) || 1;
+      const usedKredit = credit.usedUsd * perUsd;
+      credit.kredit = {
+        total: totalKredit,
+        terpakai: Math.round(usedKredit * 100) / 100,
+        sisa: Math.max(0, Math.round((totalKredit - usedKredit) * 100) / 100)
+      };
+    }
     if (!credit) {
       return res.json({ success: false, message: 'Endpoint kredit tidak dikenali pada server AI ini.', probes: results.map(x => ({ ep: x.ep, status: x.status, error: x.error, keys: x.json && typeof x.json === 'object' ? Object.keys(x.json).slice(0, 12) : null })) });
     }
