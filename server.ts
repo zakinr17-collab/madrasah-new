@@ -21729,7 +21729,19 @@ ATURAN WAJIB:
 // AI Field Generation Endpoint
 app.post("/api/gemini/generate-modul", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
   try {
-    const { subjectName, topic, grade, fieldName } = req.body;
+    const { subjectName, topic, grade, fieldName, bookId } = req.body;
+    let bookContext = '';
+    try {
+      if (bookId) {
+        await ensureBookSourcesLoaded();
+        const bk = bookSources.find(b => b.id === String(bookId) && b.status === 'ready');
+        if (bk) {
+          const chunks = await loadBookChunks(bk.id);
+          const picked = pickRelevantBookChunks(chunks, `${subjectName} ${topic}`);
+          if (picked.length) bookContext = `\nRUJUKAN BUKU "${bk.title}":\n${picked.map(p => `[${p.label}]\n${p.text}`).join('\n\n')}\n`;
+        }
+      }
+    } catch (e: any) { console.warn('[Books] context load gagal:', e?.message || e); }
 
 
     const ai = null; /* custom-first: client Gemini opsional */
@@ -21742,6 +21754,7 @@ Gunakan bahasa Indonesia yang profesional (atau kombinasi bahasa target seperti 
 DILARANG keras menggunakan format markdown seperti bintang (**) atau pagar (#).
 
 ${subjectRule}
+${bookContext}
 
 ${NO_DASHES_PROMPT}`;
 
@@ -21781,9 +21794,19 @@ ${NO_DASHES_PROMPT}`;
 // Generate All Fields at Once
 app.post("/api/gemini/generate-modul-all", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
   try {
-    const { subjectName, topic, materiDetail, grade, model = "Deep Learning" } = req.body;
-
-
+    const { subjectName, topic, materiDetail, grade, model = "Deep Learning", bookId } = req.body;
+    let bookContext = '';
+    try {
+      if (bookId) {
+        await ensureBookSourcesLoaded();
+        const bk = bookSources.find(b => b.id === String(bookId) && b.status === 'ready');
+        if (bk) {
+          const chunks = await loadBookChunks(bk.id);
+          const picked = pickRelevantBookChunks(chunks, `${subjectName} ${topic} ${materiDetail || ''}`);
+          if (picked.length) bookContext = `\nRUJUKAN BUKU "${bk.title}" (gunakan sebagai sumber materi utama, sesuaikan dengan kurikulum):\n${picked.map(p => `[${p.label}]\n${p.text}`).join('\n\n')}\n`;
+        }
+      }
+    } catch (e: any) { console.warn('[Books] context load gagal:', e?.message || e); }
     const ai = null; /* custom-first: client Gemini opsional */
 
     const category = detectSubjectCategoryServer(subjectName, topic, materiDetail);
@@ -21819,7 +21842,7 @@ app.post("/api/gemini/generate-modul-all", requireAuth, requireRole(['teacher', 
 Buatkan draf LENGKAP, SANGAT PANJANG, RINCI, DAN TERSTRUKTUR "Modul Ajar" Kurikulum Merdeka untuk mata pelajaran "${subjectName}", materi/topik "${topic}", kelas/tingkat "${grade}", menggunakan Model/Metode Pembelajaran "${modelDesc}".
 ${subjectRule}
 ${materiDetail ? `\nURAIAN / CATATAN DETAIL MATERI DARI GURU:\n"${materiDetail}"\n\nInstruksi Tambahan: AI HARUS mengelaborasi dan menguraikan poin-poin materi di atas secara sangat mendalam, terperinci, terstruktur, dan komprehensif ke dalam seluruh komponen modul ajar.` : ''}
-
+${bookContext}
 DILARANG MEMBUAT RINGKASAN ATAU SINGKAT! Tuliskan setiap komponen secara terurai panjang dan komprehensif.
 Tuliskan hasil TANPA format markdown bintang (**) atau pagar (#). Gunakan penomoran huruf (A, B, C) atau angka (1, 2, 3) biasa yang rapi.
 ${jsonSchemaInstructions}
@@ -24273,6 +24296,79 @@ app.post("/api/ai-provider/profiles", requireAuth, requireRole(['admin', 'admini
   }
 });
 
+// Cek sisa kredit/kuota provider custom aktif (Lightvela-style, OpenAI-compatible).
+// Mencoba beberapa endpoint umum (one-api/new-api style) & mengembalikan nilai ternormalisasi.
+app.get("/api/ai-provider/credit", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    const cfg = getAiProviderConfig();
+    const rt = (globalThis as any).__aiProviderRuntime || {};
+    const baseUrl = String(rt.customBaseUrl || cfg?.customBaseUrl || process.env.CUSTOM_AI_BASE_URL || 'https://token.lightvela.ai/v1').replace(/\/$/, '');
+    const apiKey = String(rt.customApiKey || process.env.CUSTOM_AI_API_KEY || '');
+    if (!apiKey) return res.json({ success: false, message: 'API key aktif tidak tersedia.' });
+    const candidates = ['/dashboard/billing/subscription', '/v1/dashboard/billing/subscription', '/v1/usage', '/v1/credits', '/v1/balance', '/v1/quota'];
+    const results: any[] = [];
+    for (const ep of candidates) {
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 8000);
+        const r = await fetch(`${baseUrl}${ep}`, { headers: { 'Authorization': `Bearer ${apiKey}` }, signal: ctrl.signal });
+        clearTimeout(t);
+        const txt = await r.text();
+        let json: any = null;
+        try { json = JSON.parse(txt); } catch (_) { json = null; }
+        results.push({ ep, status: r.status, json });
+        if (r.status === 200 && json && typeof json === 'object') break;
+      } catch (err: any) {
+        results.push({ ep, error: String(err?.message || err).slice(0, 120) });
+      }
+    }
+    // Normalisasi dari respons pertama yang berhasil
+    let credit: any = null;
+    for (const r of results) {
+      const j = r.json;
+      if (r.status !== 200 || !j || typeof j !== 'object') continue;
+      const d = j.data && typeof j.data === 'object' ? j.data : j;
+      const usd = (v: any) => Number.isFinite(Number(v)) ? Number(v) : null;
+      const fromUsd = usd(d.hard_limit_usd) !== null || usd(d.total_granted) !== null || usd(d.total_used) !== null;
+      if (usd(d.hard_limit_usd) !== null || fromUsd) {
+        const granted = usd(d.hard_limit_usd) ?? usd(d.total_granted);
+        // total_used kadang tidak ada pada endpoint subscription -> jangan pakai fallback system_hard_limit_usd (bisa menghasilkan sisa palsu 0)
+        const used = usd(d.total_used);
+        if (granted !== null) {
+          credit = {
+            grantedUsd: granted,
+            usedUsd: used,
+            remainingUsd: (used === null) ? null : Math.max(0, granted - used),
+            unlimited: used === null && granted >= 100000000,
+            source: r.ep,
+            raw: j
+          };
+          break;
+        }
+      }
+      if (d.quota !== undefined || d.remaining !== undefined) {
+        // one-api: 500000 quota unit = $1
+        const quota = Number(d.quota);
+        const usedQ = Number(d.used_quota ?? 0);
+        if (Number.isFinite(quota)) {
+          credit = { grantedUsd: quota / 500000, usedUsd: usedQ / 500000, remainingUsd: Math.max(0, (quota - usedQ) / 500000), quotaRaw: quota, source: r.ep, raw: j };
+          break;
+        }
+      }
+      if (d.balance !== undefined || d.credits !== undefined) {
+        credit = { remainingUsd: Number(d.balance ?? d.credits) || 0, grantedUsd: null, usedUsd: null, source: r.ep, raw: j };
+        break;
+      }
+    }
+    if (!credit) {
+      return res.json({ success: false, message: 'Endpoint kredit tidak dikenali pada server AI ini.', probes: results.map(x => ({ ep: x.ep, status: x.status, error: x.error, keys: x.json && typeof x.json === 'object' ? Object.keys(x.json).slice(0, 12) : null })) });
+    }
+    res.json({ success: true, credit });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
 // Aktifkan profil: salin kredensial profil menjadi config aktif.
 app.post("/api/ai-provider/profiles/:id/activate", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
   try {
@@ -26075,6 +26171,351 @@ app.get('/api/google-drive/oauth/callback', async (req: any, res: any) => {
 // ----------------------------------------------------
 // Vite Middleware / Static File Serving
 // ----------------------------------------------------
+// ============================================================
+// BUKU SUMBER (RAG sederhana): upload PDF/Word/teks/foto -> indeks chunks -> injeksi prompt
+// ============================================================
+type BookSource = {
+  id: string;
+  madrasahId: string;
+  ownerName: string;
+  subject: string;
+  title: string;
+  status: 'processing' | 'ready' | 'error';
+  progress: number;
+  sourceType: 'pdf' | 'docx' | 'text' | 'photos';
+  chunkCount: number;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+type BookChunk = { idx: number; label: string; text: string };
+
+let bookSources: BookSource[] = [];
+let bookSourcesLoaded = false;
+const BOOKS_KEY = 'bookSources';
+const bookChunksCache = new Map<string, BookChunk[]>();
+
+async function ensureBookSourcesLoaded() {
+  if (bookSourcesLoaded) return;
+  const loaded = await loadData(BOOKS_KEY, [] as any[]);
+  bookSources = Array.isArray(loaded) ? loaded : [];
+  bookSourcesLoaded = true;
+}
+
+async function persistBookSources() {
+  await saveData(BOOKS_KEY, bookSources);
+}
+
+async function loadBookChunks(bookId: string): Promise<BookChunk[]> {
+  const cached = bookChunksCache.get(bookId);
+  if (cached) return cached;
+  const data = await loadData(`bookChunks_${bookId}`, { chunks: [] as BookChunk[] });
+  const chunks = Array.isArray(data?.chunks) ? data.chunks : [];
+  bookChunksCache.set(bookId, chunks);
+  return chunks;
+}
+
+async function persistBookChunks(bookId: string, chunks: BookChunk[]) {
+  bookChunksCache.set(bookId, chunks);
+  await saveData(`bookChunks_${bookId}`, { chunks });
+}
+
+function splitTextIntoChunks(text: string): BookChunk[] {
+  const MAX = 3000;
+  const paras = text.split(/\n\s*\n+/);
+  const chunks: BookChunk[] = [];
+  let buf = '';
+  let label = '';
+  for (const p of paras) {
+    const para = p.trim();
+    if (!para) continue;
+    if (!label && /^(BAB|Bab|UNIT|Unit|CHAPTER)\s+[IVXLC0-9]/i.test(para.slice(0, 40))) label = para.slice(0, 80);
+    if (buf && (buf.length + para.length) > MAX) {
+      chunks.push({ idx: chunks.length, label: label || `Bagian ${chunks.length + 1}`, text: buf });
+      buf = '';
+    }
+    buf += (buf ? '\n\n' : '') + para;
+  }
+  if (buf) chunks.push({ idx: chunks.length, label: label || `Bagian ${chunks.length + 1}`, text: buf });
+  return chunks;
+}
+
+/** Pilih chunk paling relevan dgn topik (keyword overlap sederhana). */
+function pickRelevantBookChunks(chunks: BookChunk[], query: string, maxChars = 28000): BookChunk[] {
+  if (!chunks.length) return [];
+  const qWords = String(query || '').toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 3);
+  const scored = chunks.map(c => {
+    const lower = c.text.toLowerCase();
+    let score = 0;
+    for (const w of qWords) {
+      let pos = 0, count = 0;
+      while ((pos = lower.indexOf(w, pos)) !== -1 && count < 20) { count++; pos += w.length; }
+      score += count;
+    }
+    return { c, score };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  const picked: BookChunk[] = [];
+  let total = 0;
+  for (const s of scored) {
+    if (picked.length >= 5 || total + s.c.text.length > maxChars) break;
+    picked.push(s.c);
+    total += s.c.text.length;
+  }
+  picked.sort((a, b) => a.idx - b.idx);
+  return picked;
+}
+
+/** OCR satu gambar via vision-capable provider. Gemini langsung (vision), custom dilewati. */
+async function ocrBookImage(base64Image: string, mimeType: string): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('VISION_UNAVAILABLE: GEMINI_API_KEY belum diisi di server (butuh untuk membaca foto).');
+  const ai = new GoogleGenAI({ apiKey });
+  const prompt = 'Ekstrak SELURUH teks yang terlihat pada gambar halaman buku ini. Tuliskan apa adanya dalam urutan yang benar, tanpa komentar, tanpa markdown. Jika bagian tidak terbaca, tulis [...] di posisinya.';
+  const response = await generateGeminiContent(ai, {
+    model: 'gemini-flash-latest',
+    contents: [{ text: prompt }, { inlineData: { mimeType, data: base64Image } }]
+  });
+  return String(response?.text || '').trim();
+}
+
+// Antrean OCR serial agar tidak meledakkan kuota vision.
+type BookOcrJob = { bookId: string; items: { mime: string; b64: string }[] };
+const bookOcrQueue: BookOcrJob[] = [];
+let bookOcrRunning = false;
+async function runBookOcrQueue() {
+  if (bookOcrRunning) return;
+  bookOcrRunning = true;
+  while (bookOcrQueue.length) {
+    const job = bookOcrQueue.shift()!;
+    const book = bookSources.find(b => b.id === job.bookId);
+    if (!book) continue;
+    try {
+      const chunks = await loadBookChunks(book.id);
+      for (let i = 0; i < job.items.length; i++) {
+        try {
+          const text = await ocrBookImage(job.items[i].b64, job.items[i].mime);
+          if (text) {
+            chunks.push(...splitTextIntoChunks(text));
+            await persistBookChunks(book.id, chunks);
+          }
+        } catch (e: any) {
+          console.warn('[Books] OCR item gagal:', e?.message || e);
+          if (String(e?.message || '').includes('VISION_UNAVAILABLE')) {
+            book.status = 'error'; book.error = 'GEMINI_API_KEY belum diisi di server (dibutuhkan untuk membaca foto).';
+            break;
+          }
+        }
+        book.progress = Math.min(99, Math.round(((i + 1) / job.items.length) * 100));
+        book.updatedAt = new Date().toISOString();
+        await persistBookSources();
+        await new Promise(r => setTimeout(r, 1500)); // jeda antar-request vision
+      }
+      if (book.status !== 'error') {
+        book.status = 'ready';
+        book.progress = 100;
+        book.chunkCount = (await loadBookChunks(book.id)).length;
+      }
+    } catch (e: any) {
+      book.status = 'error';
+      book.error = String(e?.message || e).slice(0, 200);
+    }
+    book.updatedAt = new Date().toISOString();
+    await persistBookSources();
+  }
+  bookOcrRunning = false;
+}
+
+function bookPublicView(b: BookSource) {
+  return { id: b.id, title: b.title, subject: b.subject, ownerName: b.ownerName, status: b.status, progress: b.progress, sourceType: b.sourceType, chunkCount: b.chunkCount, error: b.error || null, createdAt: b.createdAt, updatedAt: b.updatedAt };
+}
+
+function tenantBooks(madrasahId: string) {
+  return bookSources.filter(b => String(b.madrasahId) === String(madrasahId));
+}
+
+async function extractBookFileText(fileName: string, mimeType: string, base64Data: string): Promise<string> {
+  const buffer = Buffer.from(base64Data.replace(/^data:[^;]+;base64,/, ''), 'base64');
+  const lower = String(fileName || '').toLowerCase();
+  const isDocx = lower.endsWith('.docx') || (mimeType || '').includes('wordprocessing');
+  const isPdf = lower.endsWith('.pdf') || (mimeType || '').includes('pdf');
+  if (isDocx) {
+    try {
+      const res = await mammoth.extractRawText({ buffer });
+      return String(res?.value || '');
+    } catch (docxErr: any) {
+      // Fallback: baca word/document.xml langsung (mammoth bisa gagal pada @xmldom 0.9)
+      const JSZip = (await import('jszip')).default;
+      const zip = await JSZip.loadAsync(buffer);
+      const docXml = await zip.file('word/document.xml')?.async('string');
+      if (!docXml) throw new Error('File Word tidak berisi dokumen yang valid.');
+      const text = docXml
+        .replace(/<w:p[ >][^]*?<\/w:p>|<w:p\/>/g, (m: string) => m + '\n')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+      const cleaned = text.replace(/\n{3,}/g, '\n\n').trim();
+      if (!cleaned) throw docxErr;
+      return cleaned;
+    }
+  }
+  if (isPdf) {
+    try {
+      const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+      const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer), useSystemFonts: true }).promise;
+      let out = '';
+      const maxPages = Math.min(doc.numPages, 600);
+      for (let p = 1; p <= maxPages; p++) {
+        const page = await doc.getPage(p);
+        const content = await page.getTextContent();
+        const line = content.items.map((it: any) => String(it.str || '')).join(' ');
+        out += `\n\n[Halaman ${p}]\n${line}`;
+      }
+      const trimmed = out.trim();
+      if (trimmed.replace(/\[Halaman \d+\]/g, '').replace(/\s/g, '').length < 30) {
+        throw new Error('PDF_SCAN_TANPA_TEKS');
+      }
+      return trimmed;
+    } catch (e: any) {
+      if (String(e?.message) === 'PDF_SCAN_TANPA_TEKS') {
+        throw new Error('PDF ini tidak memiliki lapisan teks (kemungkinan hasil scan). Silakan foto halamannya atau gunakan PDF/Word asli.');
+      }
+      throw e;
+    }
+  }
+  return buffer.toString('utf8');
+}
+
+app.get("/api/books", requireAuth, async (req: any, res) => {
+  try {
+    await ensureBookSourcesLoaded();
+    const tenant = getRequestMadrasahId(req) || req.user?.madrasahId || 'default';
+    res.json({ success: true, books: tenantBooks(tenant).map(bookPublicView) });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
+// Buat buku + indeks dari file (PDF/Word/teks) ATAU langsung teks tertulis.
+app.post("/api/books", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    await ensureBookSourcesLoaded();
+    const { title, subject, fileName, mimeType, fileBase64, textContent } = req.body || {};
+    const safeTitle = String(title || fileName || 'Buku').trim().slice(0, 150) || 'Buku';
+    const safeSubject = String(subject || '').trim().slice(0, 100);
+    if (!fileBase64 && !String(textContent || '').trim()) {
+      return res.status(400).json({ success: false, message: 'Sediakan file (fileBase64) atau teks (textContent).' });
+    }
+    const tenant = getRequestMadrasahId(req) || req.user?.madrasahId || 'default';
+    if (tenantBooks(tenant).length >= 30) {
+      return res.status(400).json({ success: false, message: 'Kuota maksimal 30 buku per madrasah.' });
+    }
+    const book: BookSource = {
+      id: 'BKC_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      madrasahId: tenant,
+      ownerName: String(req.user?.name || req.user?.username || 'Guru').slice(0, 80),
+      subject: safeSubject,
+      title: safeTitle,
+      status: 'processing',
+      progress: 0,
+      sourceType: fileBase64 ? (/\.pdf$/i.test(String(fileName)) || String(mimeType).includes('pdf') ? 'pdf' : (/\.docx?$/i.test(String(fileName)) || String(mimeType).includes('word') ? 'docx' : 'text')) : 'text',
+      chunkCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    bookSources.push(book);
+    await persistBookSources();
+    // Proses indeks di background
+    (async () => {
+      try {
+        const text = fileBase64
+          ? await extractBookFileText(fileName, mimeType, fileBase64)
+          : String(textContent || '');
+        const chunks = splitTextIntoChunks(text);
+        if (!chunks.length) throw new Error('Tidak ada teks yang bisa diindeks dari sumber ini.');
+        await persistBookChunks(book.id, chunks);
+        book.status = 'ready';
+        book.progress = 100;
+        book.chunkCount = chunks.length;
+      } catch (e: any) {
+        book.status = 'error';
+        book.error = String(e?.message || e).slice(0, 200);
+      }
+      book.updatedAt = new Date().toISOString();
+      await persistBookSources();
+    })();
+    res.json({ success: true, book: bookPublicView(book) });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
+// Tambah foto (vision OCR, antrean serial). body: { photos: [{ mimeType, dataBase64 }] }
+app.post("/api/books/:id/photos", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    await ensureBookSourcesLoaded();
+    const book = bookSources.find(b => b.id === String(req.params.id) && String(b.madrasahId) === String(getRequestMadrasahId(req) || req.user?.madrasahId || 'default'));
+    if (!book) return res.status(404).json({ success: false, message: 'Buku tidak ditemukan.' });
+    if (!process.env.GEMINI_API_KEY) return res.status(400).json({ success: false, message: 'Membaca foto butuh GEMINI_API_KEY di server. Gunakan PDF/Word/teks, atau isi GEMINI_API_KEY.' });
+    const photos = Array.isArray(req.body?.photos) ? req.body.photos.slice(0, 60) : [];
+    if (!photos.length) return res.status(400).json({ success: false, message: 'Tidak ada foto yang dikirim.' });
+    if (!bookChunksCache.has(book.id)) await loadBookChunks(book.id);
+    if (book.status === 'ready') book.status = 'processing';
+    book.progress = 0;
+    book.error = undefined;
+    book.updatedAt = new Date().toISOString();
+    await persistBookSources();
+    bookOcrQueue.push({ bookId: book.id, items: photos.map((p: any) => ({ mime: String(p.mimeType || 'image/jpeg'), b64: String(p.dataBase64 || '').replace(/^data:[^;]+;base64,/, '') })).filter(i => i.b64) });
+    runBookOcrQueue().catch(() => {});
+    res.json({ success: true, queued: photos.length, book: bookPublicView(book) });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
+app.get("/api/books/:id", requireAuth, async (req: any, res) => {
+  try {
+    await ensureBookSourcesLoaded();
+    const book = bookSources.find(b => b.id === String(req.params.id) && String(b.madrasahId) === String(getRequestMadrasahId(req) || req.user?.madrasahId || 'default'));
+    if (!book) return res.status(404).json({ success: false, message: 'Buku tidak ditemukan.' });
+    res.json({ success: true, book: bookPublicView(book) });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
+app.delete("/api/books/:id", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    await ensureBookSourcesLoaded();
+    const tenant = getRequestMadrasahId(req) || req.user?.madrasahId || 'default';
+    const before = bookSources.length;
+    bookSources = bookSources.filter(b => !(b.id === String(req.params.id) && (String(b.madrasahId) === String(tenant) || ['admin', 'bos', 'superadmin'].includes(String(req.user.role || '').toLowerCase()))));
+    if (bookSources.length === before) return res.status(404).json({ success: false, message: 'Buku tidak ditemukan.' });
+    bookChunksCache.delete(String(req.params.id));
+    await saveData(`bookChunks_${req.params.id}`, { chunks: [] });
+    await persistBookSources();
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
+// Ambil potongan relevan sebuah buku (untuk debug & dipakai endpoint generate)
+app.post("/api/books/:id/query", requireAuth, async (req: any, res) => {
+  try {
+    await ensureBookSourcesLoaded();
+    const book = bookSources.find(b => b.id === String(req.params.id) && String(b.madrasahId) === String(getRequestMadrasahId(req) || req.user?.madrasahId || 'default'));
+    if (!book) return res.status(404).json({ success: false, message: 'Buku tidak ditemukan.' });
+    if (book.status !== 'ready') return res.status(400).json({ success: false, message: `Buku masih ${book.status}.` });
+    const chunks = await loadBookChunks(book.id);
+    const picked = pickRelevantBookChunks(chunks, String(req.body?.query || ''));
+    res.json({ success: true, picked: picked.map(p => ({ label: p.label, length: p.text.length })) });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
+// ===== AKHIR BUKU SUMBER =====
+
 async function startServer() {
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");

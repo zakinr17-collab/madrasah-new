@@ -1485,8 +1485,11 @@ window.getGradeCategoriesForClassAndSubject = function(classId, subjectName) {
             .filter(Boolean)
     ));
 
-    // Combine custom columns and recorded grades for this specific class and subject
-    const categories = Array.from(new Set([...customCats, ...existingCats]));
+    // Combine custom columns and recorded grades for this specific class and subject.
+    // Urutan kolom mengikuti urutan customCats (sesuai urutan penambahan), lalu kategori
+    // dari nilai tersimpan yang belum terdaftar ditambahkan di belakang agar kolom baru
+    // selalu berada di posisi paling kanan.
+    const categories = Array.from(new Set([...customCats, ...existingCats.filter(c => !customCats.some(k => k.toLowerCase() === c.toLowerCase()))]));
     
     // If empty for this class and subject, initialize default 'Harian 1' for this specific key
     if (categories.length === 0) {

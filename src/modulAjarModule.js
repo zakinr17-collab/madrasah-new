@@ -3402,7 +3402,7 @@ window.copyPromptModulAjar = function() {
         });
     }
 };
-function triggerAIGenerateModulPopup(subjectId) {
+async function triggerAIGenerateModulPopup(subjectId) {
     const subject = appState.subjects ? appState.subjects.find(s => String(s.id) === String(subjectId)) : null;
     const subjectName = subject ? subject.name : 'Mata Pelajaran';
 
@@ -3413,6 +3413,7 @@ function triggerAIGenerateModulPopup(subjectId) {
     const modal = document.getElementById('modal-container');
     if (!modal) return;
 
+    if (!window.__bookSourcesCache || !window.__bookSourcesCache.length) { try { await loadBookSources(); } catch (e) {} }
     document.body.style.overflow = 'hidden';
     document.body.style.overflow = 'hidden';
     modal.innerHTML = `
@@ -3437,6 +3438,17 @@ function triggerAIGenerateModulPopup(subjectId) {
                     <div class="space-y-1.5">
                         <label class="block text-xs font-bold uppercase text-slate-500">Uraian / Detail Ringkasan Materi <span class="text-indigo-600 font-semibold lowercase">(opsional / pendukung)</span></label>
                         <textarea id="ai-modul-materi-detail" rows="2" placeholder="Isikan poin-poin materi, sub-bab, atau uraian penjelasan yang ingin diuraikan secara mendalam..." class="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-2xl text-xs sm:text-sm font-medium focus:bg-white"></textarea>
+                    </div>
+
+                    <div class="space-y-1.5">
+                        <label class="block text-xs font-bold uppercase text-slate-500 flex items-center justify-between">
+                            <span>Buku Sumber Materi <span class="text-indigo-600 font-semibold lowercase">(opsional — AI membuat modul dari buku ini)</span></span>
+                            <button type="button" onclick="openBooksManagerModal()" class="text-[10px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1"><i class="fa-solid fa-book"></i> Kelola Buku</button>
+                        </label>
+                        <select id="ai-modul-book" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold cursor-pointer focus:ring-2 focus:ring-indigo-500">
+                            <option value="">— Tanpa buku sumber —</option>
+                            ${(window.__bookSourcesCache || []).filter(b => b.status === 'ready').map(b => `<option value="${b.id}">${escapeHtml(b.title)} (${b.chunkCount} bagian)</option>`).join('')}
+                        </select>
                     </div>
                     
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3524,7 +3536,7 @@ async function generateEntireModulAjarWithAI(event, subjectId, subjectName) {
         const response = await fetch('/api/gemini/generate-modul-all', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ subjectName, topic, materiDetail, grade: gradeDisplay, classes: selectedClasses, model, semester })
+            body: JSON.stringify({ subjectName, topic, materiDetail, grade: gradeDisplay, classes: selectedClasses, model, semester, bookId: document.getElementById('ai-modul-book')?.value || null })
         });
         
         const res = await response.json();
@@ -8602,3 +8614,174 @@ window.downloadPPTAsDoc = function() {
     URL.revokeObjectURL(url);
     showToast('Outline Slide PPT berhasil di-download sebagai Word!', 'success');
 };
+
+
+// ----------------------------------------------------
+// BUKU SUMBER (upload PDF/Word/teks/foto -> indeks untuk AI)
+// ----------------------------------------------------
+window.__bookSourcesCache = [];
+
+window.loadBookSources = async function() {
+    try {
+        const res = await fetch('/api/books');
+        const data = await res.json();
+        if (data.success) { window.__bookSourcesCache = data.books || []; }
+    } catch (e) { console.warn('loadBookSources gagal', e); }
+    return window.__bookSourcesCache;
+};
+
+window.openBooksManagerModal = async function() {
+    const modal = document.getElementById('modal-container');
+    if (!modal) return;
+    document.body.style.overflow = 'hidden';
+    await loadBookSources();
+    modal.innerHTML = renderBooksManagerHtml();
+    window.__booksPollTimer = setInterval(async () => {
+        const processing = (window.__bookSourcesCache || []).some(b => b.status === 'processing');
+        if (!processing) { clearInterval(window.__booksPollTimer); window.__booksPollTimer = null; return; }
+        await loadBookSources();
+        const listEl = document.getElementById('books-list');
+        if (listEl) listEl.innerHTML = renderBooksListHtml();
+        const sel = document.getElementById('ai-modul-book');
+        if (sel) {
+            const cur = sel.value;
+            sel.innerHTML = `<option value="">— Tanpa buku sumber —</option>` + (window.__bookSourcesCache || []).filter(b => b.status === 'ready').map(b => `<option value="${b.id}">${escapeHtml(b.title)} (${b.chunkCount} bagian)</option>`).join('');
+            if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+        }
+    }, 4000);
+};
+
+function renderBooksListHtml() {
+    const books = window.__bookSourcesCache || [];
+    if (!books.length) return `<div class="text-center text-xs text-slate-400 py-6"><i class="fa-solid fa-book-open text-2xl block mb-2 text-slate-300"></i>Belum ada buku. Upload PDF, Word, ketik teks, atau foto halaman buku.</div>`;
+    return books.map(b => {
+        const badge = b.status === 'ready' ? `<span class="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-lg text-[10px] font-bold">SIAP • ${b.chunkCount} bagian</span>`
+            : b.status === 'processing' ? `<span class="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-lg text-[10px] font-bold"><i class="fa-solid fa-spinner animate-spin"></i> Memproses ${b.progress || 0}%</span>`
+            : `<span class="px-2 py-0.5 bg-rose-100 text-rose-700 rounded-lg text-[10px] font-bold" title="${escapeHtml(b.error || '')}">Gagal</span>`;
+        return `<div class="flex items-center justify-between gap-2 p-3 bg-slate-50 border border-slate-100 rounded-2xl">
+            <div class="min-w-0">
+                <div class="text-xs font-bold text-slate-800 truncate">${escapeHtml(b.title)}</div>
+                <div class="text-[10px] text-slate-500 flex items-center gap-1.5 mt-0.5">
+                    <i class="fa-solid ${b.sourceType === 'photos' ? 'fa-camera' : b.sourceType === 'pdf' ? 'fa-file-pdf text-rose-500' : b.sourceType === 'docx' ? 'fa-file-word text-blue-500' : 'fa-file-lines'}"></i>
+                    ${escapeHtml(b.subject || 'Umum')} • ${escapeHtml(b.ownerName || '')} ${badge}
+                </div>
+            </div>
+            <button type="button" onclick="deleteBookSource('${b.id}')" class="shrink-0 w-8 h-8 rounded-xl bg-rose-50 text-rose-600 hover:bg-rose-100 flex items-center justify-center"><i class="fa-solid fa-trash text-xs"></i></button>
+        </div>`;
+    }).join('');
+}
+
+function renderBooksManagerHtml() {
+    return `<div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-fade-in">
+        <div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+            <div class="flex justify-between items-center">
+                <div class="flex items-center space-x-2 text-indigo-600"><i class="fa-solid fa-book text-sm"></i><h3 class="font-bold text-slate-800">Buku Sumber Materi</h3></div>
+                <button type="button" onclick="closeBooksManagerModal()" class="text-slate-400 hover:text-slate-600 p-1"><i class="fa-solid fa-xmark text-lg"></i></button>
+            </div>
+            <div class="bg-indigo-50/60 border border-indigo-100 rounded-2xl p-3 space-y-2">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input type="text" id="book-title" placeholder="Judul buku/materi (mis. Buku IPAS Kelas 7)" class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold">
+                    <input type="text" id="book-subject" placeholder="Mapel (mis. IPAS)" class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold">
+                </div>
+                <input type="file" id="book-file" accept=".pdf,.docx,.txt,.md" class="w-full text-xs text-slate-600 file:mr-2 file:px-3 file:py-2 file:rounded-xl file:border-0 file:bg-indigo-600 file:text-white file:text-xs file:font-bold file:cursor-pointer">
+                <textarea id="book-text" rows="3" placeholder="...atau ketik/tempel teks materi langsung di sini" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs"></textarea>
+                <button type="button" onclick="uploadBookSource()" class="w-full px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-bold"><i class="fa-solid fa-upload mr-1"></i> Upload & Indeks</button>
+                <div class="border-t border-indigo-100 pt-2">
+                    <input type="file" id="book-photos" accept="image/*" multiple class="w-full text-xs text-slate-600 file:mr-2 file:px-3 file:py-2 file:rounded-xl file:border-0 file:bg-slate-700 file:text-white file:text-xs file:font-bold file:cursor-pointer">
+                    <button type="button" onclick="uploadBookPhotos()" class="mt-2 w-full px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-2xl text-xs font-bold"><i class="fa-solid fa-camera mr-1"></i> Foto Halaman (OCR, butuh Gemini key server)</button>
+                </div>
+            </div>
+            <div id="books-list" class="space-y-2">${renderBooksListHtml()}</div>
+        </div>
+    </div>`;
+}
+
+window.closeBooksManagerModal = function() {
+    if (window.__booksPollTimer) { clearInterval(window.__booksPollTimer); window.__booksPollTimer = null; }
+    closeModal();
+};
+
+window.uploadBookSource = async function() {
+    const title = document.getElementById('book-title')?.value.trim();
+    const subject = document.getElementById('book-subject')?.value.trim();
+    const text = document.getElementById('book-text')?.value.trim();
+    const fileInput = document.getElementById('book-file');
+    const file = fileInput?.files?.[0];
+    if (!file && !text) { showToast('Pilih file atau ketik teks terlebih dahulu.', 'warning'); return; }
+    let payload;
+    if (file) {
+        const b64 = await new Promise((ok, err) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = err; r.readAsDataURL(file); });
+        payload = { title: title || file.name, subject, fileName: file.name, mimeType: file.type, fileBase64: b64 };
+    } else {
+        payload = { title: title || 'Materi Tertulis', subject, textContent: text };
+    }
+    showToast('Mengunggah & mengindeks buku...', 'info');
+    try {
+        const res = await fetch('/api/books', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Gagal upload.');
+        document.getElementById('book-title').value = '';
+        document.getElementById('book-text').value = '';
+        fileInput.value = '';
+        await loadBookSources();
+        document.getElementById('books-list').innerHTML = renderBooksListHtml();
+        showToast('Buku sedang diproses. Daftar akan diperbarui otomatis.', 'success');
+        if (!window.__booksPollTimer) window.openBooksManagerModalRefresh();
+    } catch (e) { showToast('Gagal: ' + e.message, 'error'); }
+};
+
+window.openBooksManagerModalRefresh = async function() {
+    window.__booksPollTimer = setInterval(async () => {
+        await loadBookSources();
+        const listEl = document.getElementById('books-list');
+        if (!listEl) { clearInterval(window.__booksPollTimer); window.__booksPollTimer = null; return; }
+        listEl.innerHTML = renderBooksListHtml();
+        const processing = (window.__bookSourcesCache || []).some(b => b.status === 'processing');
+        if (!processing) { clearInterval(window.__booksPollTimer); window.__booksPollTimer = null; }
+    }, 4000);
+};
+
+window.uploadBookPhotos = async function() {
+    const input = document.getElementById('book-photos');
+    const files = Array.from(input?.files || []);
+    if (!files.length) { showToast('Pilih foto halaman buku dulu.', 'warning'); return; }
+    showToast('Mengunggah ' + files.length + ' foto (OCR berjalan di antrean)...', 'info');
+    try {
+        const photos = [];
+        for (const f of files) {
+            const b64 = await new Promise((ok, err) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = err; r.readAsDataURL(f); });
+            photos.push({ mimeType: f.type || 'image/jpeg', dataBase64: b64 });
+        }
+        const title = document.getElementById('book-title')?.value.trim();
+        const subject = document.getElementById('book-subject')?.value.trim();
+        // buat buku khusus foto jika belum ada buku diproses dari form ini
+        const res = await fetch('/api/books', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title: (title || 'Buku Foto') + ' (foto)', subject, fileName: 'photos', mimeType: 'image/jpeg', fileBase64: null, textContent: ' ' }) });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Gagal membuat buku foto.');
+        const bookId = data.book.id;
+        const res2 = await fetch(`/api/books/${bookId}/photos`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ photos }) });
+        const data2 = await res2.json();
+        if (!data2.success) throw new Error(data2.message || 'Gagal antre OCR.');
+        await loadBookSources();
+        document.getElementById('books-list').innerHTML = renderBooksListHtml();
+        showToast('Foto masuk antrean OCR. Progres tampil otomatis.', 'success');
+        if (!window.__booksPollTimer) window.openBooksManagerModalRefresh();
+    } catch (e) { showToast('Gagal: ' + e.message, 'error'); }
+};
+
+window.deleteBookSource = async function(id) {
+    if (!confirm('Hapus buku sumber ini?')) return;
+    try {
+        const res = await fetch(`/api/books/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || 'Gagal hapus.');
+        await loadBookSources();
+        const listEl = document.getElementById('books-list');
+        if (listEl) listEl.innerHTML = renderBooksListHtml();
+        showToast('Buku dihapus.', 'success');
+    } catch (e) { showToast('Gagal: ' + e.message, 'error'); }
+};
+
+// Preload daftar buku saat modul ajar dibuka (agar dropdown siap)
+window.refreshBookSourcesCache = loadBookSources;
+
