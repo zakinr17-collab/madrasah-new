@@ -334,7 +334,9 @@ window.checkAiProviderCredit = async function(btn) {
             const c = data.credit;
             const fmt = (v) => (v === null || v === undefined) ? '?' : (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString('id-ID') : (Math.round(v * 100) / 100).toLocaleString('id-ID'));
             let txt;
-            if (c.grantedUsd !== null && c.grantedUsd !== undefined) {
+            if (c.unlimited || (c.remainingUsd === null && c.grantedUsd !== null && c.grantedUsd !== undefined)) {
+                txt = `Kredit: kuota longgar (batas $${fmt(c.grantedUsd)})`;
+            } else if (c.grantedUsd !== null && c.grantedUsd !== undefined) {
                 txt = `Sisa kredit: $${fmt(c.remainingUsd)} dari $${fmt(c.grantedUsd)}`;
             } else {
                 txt = `Sisa kredit: $${fmt(c.remainingUsd)}`;
@@ -355,9 +357,12 @@ window.renderAiProviderCreditBadge = function() {
     if (!__aiCreditInfo) { infoEl.innerHTML = ''; return; }
     const c = __aiCreditInfo;
     const fmt = (v) => (v === null || v === undefined) ? '?' : (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString('id-ID') : (Math.round(v * 100) / 100).toLocaleString('id-ID'));
-    const txt = c.grantedUsd !== null && c.grantedUsd !== undefined
-        ? `Kredit: $${fmt(c.remainingUsd)} / $${fmt(c.grantedUsd)}`
-        : `Kredit: $${fmt(c.remainingUsd)}`;
+    const fmtS = (v) => (v === null || v === undefined) ? '?' : fmt(v);
+    const txt = c.unlimited
+        ? `Kredit: kuota longgar (batas $${fmt(c.grantedUsd)})`
+        : c.grantedUsd !== null && c.grantedUsd !== undefined
+        ? `Kredit: $${fmtS(c.remainingUsd)} / $${fmt(c.grantedUsd)}`
+        : `Kredit: $${fmtS(c.remainingUsd)}`;
     infoEl.innerHTML = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold"><i class="fa-solid fa-coins text-amber-500"></i>${txt}</span>`;
 };
 

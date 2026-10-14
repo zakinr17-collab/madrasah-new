@@ -24332,9 +24332,17 @@ app.get("/api/ai-provider/credit", requireAuth, requireRole(['admin', 'administr
       const fromUsd = usd(d.hard_limit_usd) !== null || usd(d.total_granted) !== null || usd(d.total_used) !== null;
       if (usd(d.hard_limit_usd) !== null || fromUsd) {
         const granted = usd(d.hard_limit_usd) ?? usd(d.total_granted);
-        const used = usd(d.total_used) ?? usd(d.system_hard_limit_usd) ?? 0;
+        // total_used kadang tidak ada pada endpoint subscription -> jangan pakai fallback system_hard_limit_usd (bisa menghasilkan sisa palsu 0)
+        const used = usd(d.total_used);
         if (granted !== null) {
-          credit = { grantedUsd: granted, usedUsd: used, remainingUsd: Math.max(0, granted - used), source: r.ep, raw: j };
+          credit = {
+            grantedUsd: granted,
+            usedUsd: used,
+            remainingUsd: (used === null) ? null : Math.max(0, granted - used),
+            unlimited: used === null && granted >= 100000000,
+            source: r.ep,
+            raw: j
+          };
           break;
         }
       }
