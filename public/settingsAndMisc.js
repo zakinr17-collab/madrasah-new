@@ -334,7 +334,9 @@ window.checkAiProviderCredit = async function(btn) {
             const c = data.credit;
             const fmt = (v) => (v === null || v === undefined) ? '?' : (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString('id-ID') : (Math.round(v * 100) / 100).toLocaleString('id-ID'));
             let txt;
-            if (c.unlimited || (c.remainingUsd === null && c.grantedUsd !== null && c.grantedUsd !== undefined)) {
+            if (c.panelLimit && c.usedUsd !== null && c.usedUsd !== undefined) {
+                txt = `Kredit terpakai: $${fmt(c.usedUsd)}`;
+            } else if (c.unlimited || (c.remainingUsd === null && c.grantedUsd !== null && c.grantedUsd !== undefined)) {
                 txt = `Kredit: kuota longgar (batas $${fmt(c.grantedUsd)})`;
             } else if (c.grantedUsd !== null && c.grantedUsd !== undefined) {
                 txt = `Sisa kredit: $${fmt(c.remainingUsd)} dari $${fmt(c.grantedUsd)}`;
@@ -358,7 +360,9 @@ window.renderAiProviderCreditBadge = function() {
     const c = __aiCreditInfo;
     const fmt = (v) => (v === null || v === undefined) ? '?' : (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString('id-ID') : (Math.round(v * 100) / 100).toLocaleString('id-ID'));
     const fmtS = (v) => (v === null || v === undefined) ? '?' : fmt(v);
-    const txt = c.unlimited
+    const txt = c.panelLimit && c.usedUsd !== null && c.usedUsd !== undefined
+        ? `Kredit terpakai: $${fmt(c.usedUsd)}`
+        : c.unlimited
         ? `Kredit: kuota longgar (batas $${fmt(c.grantedUsd)})`
         : c.grantedUsd !== null && c.grantedUsd !== undefined
         ? `Kredit: $${fmtS(c.remainingUsd)} / $${fmt(c.grantedUsd)}`
