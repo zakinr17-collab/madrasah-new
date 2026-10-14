@@ -24296,6 +24296,71 @@ app.post("/api/ai-provider/profiles", requireAuth, requireRole(['admin', 'admini
   }
 });
 
+// Cek sisa kredit/kuota provider custom aktif (Lightvela-style, OpenAI-compatible).
+// Mencoba beberapa endpoint umum (one-api/new-api style) & mengembalikan nilai ternormalisasi.
+app.get("/api/ai-provider/credit", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    const cfg = getAiProviderConfig();
+    const rt = (globalThis as any).__aiProviderRuntime || {};
+    const baseUrl = String(rt.customBaseUrl || cfg?.customBaseUrl || process.env.CUSTOM_AI_BASE_URL || 'https://token.lightvela.ai/v1').replace(/\/$/, '');
+    const apiKey = String(rt.customApiKey || process.env.CUSTOM_AI_API_KEY || '');
+    if (!apiKey) return res.json({ success: false, message: 'API key aktif tidak tersedia.' });
+    const candidates = ['/dashboard/billing/subscription', '/v1/dashboard/billing/subscription', '/v1/usage', '/v1/credits', '/v1/balance', '/v1/quota'];
+    const results: any[] = [];
+    for (const ep of candidates) {
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 8000);
+        const r = await fetch(`${baseUrl}${ep}`, { headers: { 'Authorization': `Bearer ${apiKey}` }, signal: ctrl.signal });
+        clearTimeout(t);
+        const txt = await r.text();
+        let json: any = null;
+        try { json = JSON.parse(txt); } catch (_) { json = null; }
+        results.push({ ep, status: r.status, json });
+        if (r.status === 200 && json && typeof json === 'object') break;
+      } catch (err: any) {
+        results.push({ ep, error: String(err?.message || err).slice(0, 120) });
+      }
+    }
+    // Normalisasi dari respons pertama yang berhasil
+    let credit: any = null;
+    for (const r of results) {
+      const j = r.json;
+      if (r.status !== 200 || !j || typeof j !== 'object') continue;
+      const d = j.data && typeof j.data === 'object' ? j.data : j;
+      const usd = (v: any) => Number.isFinite(Number(v)) ? Number(v) : null;
+      const fromUsd = usd(d.hard_limit_usd) !== null || usd(d.total_granted) !== null || usd(d.total_used) !== null;
+      if (usd(d.hard_limit_usd) !== null || fromUsd) {
+        const granted = usd(d.hard_limit_usd) ?? usd(d.total_granted);
+        const used = usd(d.total_used) ?? usd(d.system_hard_limit_usd) ?? 0;
+        if (granted !== null) {
+          credit = { grantedUsd: granted, usedUsd: used, remainingUsd: Math.max(0, granted - used), source: r.ep, raw: j };
+          break;
+        }
+      }
+      if (d.quota !== undefined || d.remaining !== undefined) {
+        // one-api: 500000 quota unit = $1
+        const quota = Number(d.quota);
+        const usedQ = Number(d.used_quota ?? 0);
+        if (Number.isFinite(quota)) {
+          credit = { grantedUsd: quota / 500000, usedUsd: usedQ / 500000, remainingUsd: Math.max(0, (quota - usedQ) / 500000), quotaRaw: quota, source: r.ep, raw: j };
+          break;
+        }
+      }
+      if (d.balance !== undefined || d.credits !== undefined) {
+        credit = { remainingUsd: Number(d.balance ?? d.credits) || 0, grantedUsd: null, usedUsd: null, source: r.ep, raw: j };
+        break;
+      }
+    }
+    if (!credit) {
+      return res.json({ success: false, message: 'Endpoint kredit tidak dikenali pada server AI ini.', probes: results.map(x => ({ ep: x.ep, status: x.status, error: x.error, keys: x.json && typeof x.json === 'object' ? Object.keys(x.json).slice(0, 12) : null })) });
+    }
+    res.json({ success: true, credit });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
 // Aktifkan profil: salin kredensial profil menjadi config aktif.
 app.post("/api/ai-provider/profiles/:id/activate", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
   try {

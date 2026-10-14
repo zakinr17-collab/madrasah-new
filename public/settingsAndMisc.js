@@ -278,6 +278,7 @@ async function loadAiProviderProfiles() {
         if (!data.success) return;
         __activeAiProfileId = data.activeProfileId || null;
         renderAiProviderProfiles(data.profiles || []);
+        if (!__aiCreditInfo) checkAiProviderCredit(null);
     } catch (e) { /* diam */ }
 }
 window.loadAiProviderProfiles = loadAiProviderProfiles;
@@ -317,6 +318,49 @@ function renderAiProviderProfiles(profiles) {
     }).join('');
 }
 window.renderAiProviderProfiles = renderAiProviderProfiles;
+// ===== Cek sisa kredit LV (provider aktif) =====
+let __aiCreditInfo = null;
+window.checkAiProviderCredit = async function(btn) {
+    const orig = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Cek...'; }
+    try {
+        const res = await fetch('/api/ai-provider/credit', { headers: { 'Authorization': 'Bearer ' + (appState.token || '') } });
+        const data = await res.json();
+        if (!data.success) {
+            showToast(data.message || 'Gagal membaca kredit.', 'warning');
+            __aiCreditInfo = null;
+        } else {
+            __aiCreditInfo = data.credit;
+            const c = data.credit;
+            const fmt = (v) => (v === null || v === undefined) ? '?' : (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString('id-ID') : (Math.round(v * 100) / 100).toLocaleString('id-ID'));
+            let txt;
+            if (c.grantedUsd !== null && c.grantedUsd !== undefined) {
+                txt = `Sisa kredit: $${fmt(c.remainingUsd)} dari $${fmt(c.grantedUsd)}`;
+            } else {
+                txt = `Sisa kredit: $${fmt(c.remainingUsd)}`;
+            }
+            showToast(txt, 'success');
+            const infoEl = document.getElementById('ai-provider-credit-info');
+            if (infoEl) infoEl.innerHTML = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold"><i class="fa-solid fa-coins text-amber-500"></i>${txt}</span>`;
+        }
+    } catch (e) {
+        showToast('Gagal cek kredit: ' + (e.message || e), 'error');
+    }
+    if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+};
+// Badge kredit kecil di area info aktif
+window.renderAiProviderCreditBadge = function() {
+    const infoEl = document.getElementById('ai-provider-credit-info');
+    if (!infoEl) return;
+    if (!__aiCreditInfo) { infoEl.innerHTML = ''; return; }
+    const c = __aiCreditInfo;
+    const fmt = (v) => (v === null || v === undefined) ? '?' : (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString('id-ID') : (Math.round(v * 100) / 100).toLocaleString('id-ID'));
+    const txt = c.grantedUsd !== null && c.grantedUsd !== undefined
+        ? `Kredit: $${fmt(c.remainingUsd)} / $${fmt(c.grantedUsd)}`
+        : `Kredit: $${fmt(c.remainingUsd)}`;
+    infoEl.innerHTML = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold"><i class="fa-solid fa-coins text-amber-500"></i>${txt}</span>`;
+};
+
 
 async function saveAiProviderProfile(button) {
     const status = document.getElementById('ai-provider-status');
@@ -534,6 +578,7 @@ function renderSettingModule(container) {
                         </button>
                     </div>
                     <div id="ai-provider-active-info" class="mt-3 text-[11px] text-slate-500"></div>
+                    <div id="ai-provider-credit-info" class="mt-1.5"></div>
                     <div id="ai-provider-form-wrap" class="hidden mt-4 space-y-3">
                         <div class="flex items-center justify-between">
                             <span id="ai-provider-form-title" class="text-xs font-bold text-slate-600 uppercase">Tambah AI Baru</span>
@@ -564,6 +609,7 @@ function renderSettingModule(container) {
                         <div class="flex items-center justify-between mb-2">
                             <label class="block text-xs uppercase font-bold text-slate-500">Daftar AI Tersimpan</label>
                             <div class="flex gap-1.5">
+                                <button type="button" onclick="checkAiProviderCredit(this)" class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:border-emerald-300 text-emerald-700 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-coins mr-1"></i>Cek Kredit</button>
                                 <button type="button" onclick="showAiProviderForm()" class="px-2.5 py-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-plus mr-1"></i>Tambah AI Baru</button>
                                 <button type="button" onclick="editActiveAiProvider()" class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:border-violet-300 text-slate-600 text-[11px] font-bold cursor-pointer">Edit AI Aktif</button>
                             </div>
@@ -5472,7 +5518,6 @@ async function runTeacherPhotoCleanup() {
 }
 
 // Window Globals
-setTimeout(() => { if (document.getElementById('ai-provider-card-custom')) loadAiProviderSettings(); }, 80);
 window.renderSettingModule = renderSettingModule;
 window.saveLoginCustomization = saveLoginCustomization;
 window.toggleCustomLoginBgColor = toggleCustomLoginBgColor;
