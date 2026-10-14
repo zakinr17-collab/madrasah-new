@@ -24340,6 +24340,7 @@ app.get("/api/ai-provider/credit", requireAuth, requireRole(['admin', 'administr
             usedUsd: used,
             remainingUsd: (used === null) ? null : Math.max(0, granted - used),
             unlimited: used === null && granted >= 100000000,
+            panelLimit: granted >= 100000000,
             source: r.ep,
             raw: j
           };
@@ -24358,6 +24359,33 @@ app.get("/api/ai-provider/credit", requireAuth, requireRole(['admin', 'administr
       if (d.balance !== undefined || d.credits !== undefined) {
         credit = { remainingUsd: Number(d.balance ?? d.credits) || 0, grantedUsd: null, usedUsd: null, source: r.ep, raw: j };
         break;
+      }
+    }
+    // Jika hanya dapat batas (subscription) tanpa pemakaian, coba endpoint usage one-api:
+    // GET /v1/dashboard/billing/usage?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD -> { total_usage } (satuan USD-cent)
+    if (credit && credit.grantedUsd !== null && credit.grantedUsd !== undefined && credit.usedUsd === null) {
+      for (const ep of ['/v1/dashboard/billing/usage', '/dashboard/billing/usage']) {
+        try {
+          const now = new Date();
+          const start = new Date(now.getTime() - 365 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+          const end = new Date(now.getTime() + 24 * 3600 * 1000).toISOString().slice(0, 10);
+          const url = `${baseUrl}${ep}?start_date=${start}&end_date=${end}`;
+          const ctrl = new AbortController();
+          const t = setTimeout(() => ctrl.abort(), 8000);
+          const r = await fetch(url, { headers: { 'Authorization': `Bearer ${apiKey}` }, signal: ctrl.signal });
+          clearTimeout(t);
+          const txt = await r.text();
+          let json: any = null;
+          try { json = JSON.parse(txt); } catch (_) { json = null; }
+          if (r.status === 200 && json && Number.isFinite(Number(json.total_usage))) {
+            const used = Number(json.total_usage) / 100; // cents -> USD
+            credit.usedUsd = used;
+            credit.remainingUsd = Math.max(0, credit.grantedUsd - used);
+            credit.unlimited = false;
+            credit.usageSource = ep;
+            break;
+          }
+        } catch (_) { /* lanjut kandidat berikutnya */ }
       }
     }
     if (!credit) {
