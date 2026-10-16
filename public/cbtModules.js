@@ -1620,14 +1620,14 @@ function renderGradesModule(container) {
                             Belum ada kolom nilai. Klik tombol <span class="font-semibold text-slate-600">"Tambah Kolom Nilai"</span> di atas atau import dari Evaluasi CBT untuk menampilkan kolom penilaian.
                         </div>
                     ` : `
-                        <div class="overflow-x-auto">
+                        <div class="overflow-auto max-h-[70vh] rounded-xl border border-slate-100">
                             <table class="w-full text-left border-collapse min-w-[600px]">
-                                <thead>
-                                    <tr class="bg-slate-50 text-xs text-slate-600 uppercase font-semibold border-b">
-                                        <th class="p-3 w-16 text-center">No</th>
-                                        <th class="p-3">NIS</th>
-                                        <th class="p-3 text-center w-16">Foto Profil</th>
-                                        <th class="p-3">Nama Murid</th>
+                                <thead class="sticky top-0 z-30">
+                                    <tr class="bg-slate-50 text-xs text-slate-600 uppercase font-semibold border-b shadow-[0_1px_0_#e2e8f0]">
+                                        <th class="p-3 w-16 text-center sticky left-0 z-20 bg-slate-50">No</th>
+                                        <th class="p-3 sticky left-[64px] z-20 bg-slate-50">NIS</th>
+                                        <th class="p-3 text-center w-16 sticky left-[164px] z-20 bg-slate-50">Foto Profil</th>
+                                        <th class="p-3 sticky left-[252px] z-20 bg-slate-50 shadow-sm">Nama Murid</th>
                                         ${categories.map(cat => {
                                             const catName = typeof cat === 'string' ? cat : (cat && (cat.name || cat.title || cat.category) ? (cat.name || cat.title || cat.category) : String(cat));
                                             const safeCatAttr = String(catName).replace(/'/g, "\\'").replace(/"/g, '&quot;');
@@ -1663,10 +1663,10 @@ function renderGradesModule(container) {
                                         
                                         return `
                                             <tr class="hover:bg-slate-50/50">
-                                                <td class="p-3 text-center font-mono text-xs text-slate-500">${idx + 1}</td>
-                                                <td class="p-3 font-mono text-xs font-bold text-emerald-700">${st.nis}</td>
-                                                <td class="p-3 text-center">${photoHtml}</td>
-                                                <td class="p-3 font-semibold text-slate-800">${st.name}</td>
+                                                <td class="p-3 text-center font-mono text-xs text-slate-500 sticky left-0 z-10 bg-white">${idx + 1}</td>
+                                                <td class="p-3 font-mono text-xs font-bold text-emerald-700 sticky left-[64px] z-10 bg-white">${st.nis}</td>
+                                                <td class="p-3 text-center sticky left-[164px] z-10 bg-white">${photoHtml}</td>
+                                                <td class="p-3 font-semibold text-slate-800 sticky left-[252px] z-10 bg-white shadow-sm">${st.name}</td>
                                                 ${categories.map(cat => {
                                                     const g = (appState.grades || []).find(item => {
                                                         if (!item) return false;
