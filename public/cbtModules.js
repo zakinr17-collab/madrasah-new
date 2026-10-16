@@ -1486,10 +1486,17 @@ window.getGradeCategoriesForClassAndSubject = function(classId, subjectName) {
     ));
 
     // Combine custom columns and recorded grades for this specific class and subject.
-    // Urutan kolom mengikuti urutan customCats (sesuai urutan penambahan), lalu kategori
-    // dari nilai tersimpan yang belum terdaftar ditambahkan di belakang agar kolom baru
-    // selalu berada di posisi paling kanan.
-    const categories = Array.from(new Set([...customCats, ...existingCats.filter(c => !customCats.some(k => k.toLowerCase() === c.toLowerCase()))]));
+    // Urutan tampil = isi customGradeColumns[activeKey] apa adanya (urutan saat kolom dibuat/dipakai).
+    // Kategori dari nilai tersimpan yang belum terdaftar (mis. dari import/evaluasi CBT) di-append
+    // di akhir dan langsung didaftarkan ke customGradeColumns supaya urutannya terkunci konsisten;
+    // kolom yang baru ditambahkan selalu berada di posisi paling kanan.
+    const missing = existingCats.filter(c => !customCats.some(k => k.toLowerCase() === c.toLowerCase()));
+    if (missing.length) {
+        customCats.push(...missing);
+        appState.customGradeColumns[activeKey] = customCats;
+        safeSetLocalStorage('madrasah_customGradeColumns', appState.customGradeColumns);
+    }
+    const categories = [...customCats];
     
     // If empty for this class and subject, initialize default 'Harian 1' for this specific key
     if (categories.length === 0) {
@@ -1634,6 +1641,12 @@ function renderGradesModule(container) {
                                                             </button>
                                                             <button type="button" onclick="confirmDeleteGradeCategory('${safeCatAttr}')" class="p-1 hover:bg-rose-100 text-slate-400 hover:text-rose-600 rounded-lg transition cursor-pointer" title="Hapus Kolom Nilai Ini">
                                                                 <i class="fa-solid fa-trash-can text-[10px]"></i>
+                                                            </button>
+                                                            <button type="button" onclick="moveGradeCategory('${safeCatAttr}', 'left')" class="p-1 hover:bg-slate-200 text-slate-400 hover:text-slate-700 rounded-lg transition cursor-pointer" title="Geser ke kiri">
+                                                                <i class="fa-solid fa-arrow-left text-[10px]"></i>
+                                                            </button>
+                                                            <button type="button" onclick="moveGradeCategory('${safeCatAttr}', 'right')" class="p-1 hover:bg-slate-200 text-slate-400 hover:text-slate-700 rounded-lg transition cursor-pointer" title="Geser ke kanan">
+                                                                <i class="fa-solid fa-arrow-right text-[10px]"></i>
                                                             </button>
                                                         </div>
                                                     </div>
@@ -5292,6 +5305,32 @@ window.saveCurrentDOMGradesToState = saveCurrentDOMGradesToState;
 window.saveAllMatrixGrades = saveAllMatrixGrades;
 window.openAddGradeColumnModal = openAddGradeColumnModal;
 window.confirmAddGradeColumn = confirmAddGradeColumn;
+// Geser urutan kolom nilai (kiri/kanan) dan simpan urutan barunya
+window.moveGradeCategory = function(catName, dir) {
+    const selectedClassId = appState.activeGradeClassId;
+    const selectedSubject = appState.activeGradeSubject || 'ALL';
+    const activeKey = String(selectedClassId) + '_' + String(selectedSubject);
+    if (!appState.customGradeColumns) appState.customGradeColumns = {};
+    let list = (appState.customGradeColumns[activeKey] || []).map(c => String(c));
+    const lower = String(catName).toLowerCase();
+    let idx = list.findIndex(c => c.toLowerCase() === lower);
+    if (idx < 0) { list.push(String(catName)); idx = list.length - 1; }
+    const swap = idx + (dir === 'left' ? -1 : 1);
+    if (swap < 0 || swap >= list.length) return;
+    [list[idx], list[swap]] = [list[swap], list[idx]];
+    appState.customGradeColumns[activeKey] = list;
+    safeSetLocalStorage('madrasah_customGradeColumns', appState.customGradeColumns);
+    saveState('customGradeColumns');
+    // sinkronkan juga ke gradeCategories global (urut sama) utk server
+    appState.gradeCategories = [...list];
+    safeSetLocalStorage('madrasah_gradeCategories', appState.gradeCategories);
+    saveState('gradeCategories');
+    fetch('/api/grade-categories', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gradeCategories: list }) }).catch(() => {});
+    saveCurrentDOMGradesToState();
+    showToast('Urutan kolom disimpan.', 'success');
+    renderGradesModule(document.getElementById('view-container'));
+};
+
 window.printGradesMatrix = printGradesMatrix;
 window.exportGradesMatrixExcel = exportGradesMatrixExcel;
 window.renderJournalModule = renderJournalModule;
