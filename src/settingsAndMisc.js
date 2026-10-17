@@ -982,10 +982,13 @@ function renderSettingModule(container) {
                                 ['set-student-attendance-enabled', 'attendance', 'Absensi Siswa', 'Absen selfie/GPS dan absensi kelas ketua kelas.'],
                                 ['set-learning-enabled', 'learning', 'Belajar / Materi', 'Materi pembelajaran yang dipublikasikan guru.'],
                                 ['set-student-cbt-enabled', 'cbt', 'CBT dan LKPD', 'Jadwal ujian, asesmen CBT, dan LKPD interaktif.'],
-                                ['set-student-games-enabled', 'games', 'Game Edukasi', 'Game pembelajaran untuk siswa.']
+                                ['set-student-games-enabled', 'games', 'Game Edukasi', 'Game pembelajaran untuk siswa.'],
+                                ['set-exam-focus-mode', '__examfocus', 'Mode Fokus Ujian (Tampilan Ringkas)', 'Siswa login langsung masuk ke daftar jadwal ujian tanpa menu lain. Profil hanya nama & kelas.']
                             ].map(([id, key, title, desc]) => {
                                 const featureMap = appState.settings.studentFeatures || {};
-                                const checked = featureMap[key] === undefined ? true : featureMap[key] !== false;
+                                const checked = key === '__examfocus'
+                                    ? appState.settings.studentExamFocusMode === true
+                                    : (featureMap[key] === undefined ? true : featureMap[key] !== false);
                                 return `
                                     <div class="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-2xl gap-3">
                                         <div>
@@ -1896,6 +1899,8 @@ function saveSettings(e) {
     };
     appState.settings.learningModuleEnabled = appState.settings.studentFeatures.learning !== false;
     appState.settings.gameModuleEnabled = appState.settings.studentFeatures.games !== false;
+    const examFocusEl = document.getElementById('set-exam-focus-mode');
+    if (examFocusEl) appState.settings.studentExamFocusMode = examFocusEl.checked === true;
     if (appState.tempLogo) {
         appState.settings.schoolLogo = appState.tempLogo;
     }
