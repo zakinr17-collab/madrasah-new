@@ -2452,7 +2452,7 @@ function startSession(isRefresh = false) {
         if (window.checkAndResumeActiveLkpdSession && window.checkAndResumeActiveLkpdSession()) {
             return;
         }
-        navigateTo(lastRoute || 'profil_siswa');
+        navigateTo(appState.settings?.studentExamFocusMode === true ? 'asesmen_siswa' : (lastRoute || 'profil_siswa'));
         return;
     }
 
@@ -2533,8 +2533,26 @@ function renderStudentHeaderProfile() {
     const student = getCurrentStudentForHeader();
     if (!nameEl || !student) return false;
     const name = escapeHtml(student.name || appState.currentUser?.name || 'Murid');
+    const examFocus = appState.settings?.studentExamFocusMode === true;
+    const classObj = (appState.classes || []).find(c => String(c.id) === String(student.classId || student.class_id || ''));
+    const classLabel = escapeHtml(classObj?.name || student.className || student.kelas || '');
     const photo = student.photo || appState.currentUser?.photo || '';
     const photoSrc = photo && window.getPhotoHtmlSrc ? window.getPhotoHtmlSrc(photo) : '';
+    if (examFocus) {
+        nameEl.innerHTML = `
+        <span class="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
+            <span class="w-9 h-9 rounded-full overflow-hidden bg-blue-100 text-blue-700 flex items-center justify-center border border-blue-200 shadow-xs">
+                ${photoSrc ? `<img src="${photoSrc}" class="w-full h-full object-cover" alt="Foto ${name}" referrerPolicy="no-referrer">` : `<i class="fa-solid fa-user-graduate text-sm"></i>`}
+            </span>
+            <span class="text-left leading-tight">
+                <span class="block text-sm font-black text-slate-900">${name}</span>
+                <span class="block text-[10px] font-bold uppercase tracking-wider text-slate-400">${classLabel || 'Murid'}</span>
+            </span>
+        </span>
+    `;
+        nameEl.removeAttribute('title');
+        return true;
+    }
     nameEl.innerHTML = `
         <span class="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm hover:border-blue-300 hover:bg-blue-50/70 transition">
             <span class="w-9 h-9 rounded-full overflow-hidden bg-blue-100 text-blue-700 flex items-center justify-center border border-blue-200 shadow-xs">
@@ -2564,7 +2582,10 @@ function getDefaultRoute() {
     if (role === 'bos' || role === 'boss' || role === 'superadmin') return 'boss_dashboard';
     if (role === 'admin' || role === 'teacher' || role === 'guru') return 'dashboard';
     if (role === 'class_leader' || role === 'ketua_kelas') return 'profil_ketua';
-    if (role === 'student' || role === 'murid') return 'profil_siswa';
+    if (role === 'student' || role === 'murid') {
+        if (appState.settings?.studentExamFocusMode === true) return 'asesmen_siswa';
+        return 'profil_siswa';
+    }
     return 'dashboard';
 }
 
@@ -2670,6 +2691,11 @@ function buildSidebar() {
 
         `;
     } else if (role === 'student' || role === 'murid') {
+        if (appState.settings?.studentExamFocusMode === true) {
+            // Mode Fokus Ujian: tanpa menu sidebar apa pun
+            if (menuContainer) menuContainer.innerHTML = '';
+            return;
+        }
         const studentFeatures = appState.settings?.studentFeatures || {};
         const isAttendanceEnabled = studentFeatures.attendance === undefined ? true : studentFeatures.attendance !== false;
         const isLearningEnabled = appState.settings?.learningModuleEnabled === false ? false : (studentFeatures.learning === undefined ? true : studentFeatures.learning !== false);
@@ -2787,6 +2813,15 @@ function navigateBack(fallbackRoute = null) {
 }
 
 function navigateTo(route, options = {}) {
+    try {
+        const _role = String(appState.role || '').toLowerCase();
+        if (appState.settings?.studentExamFocusMode === true && (_role === 'student' || _role === 'murid')) {
+            const allowed = ['asesmen_siswa', 'lkpd_worksheet'];
+            if (!allowed.includes(String(route)) && typeof route === 'string' && !route.startsWith('exam')) {
+                route = 'asesmen_siswa';
+            }
+        }
+    } catch (_) {}
     if (typeof window.stopLearningTrackerForNavigation === 'function') {
         try { window.stopLearningTrackerForNavigation(); } catch (e) { console.warn('Learning checkpoint before navigation failed:', e); }
     }
