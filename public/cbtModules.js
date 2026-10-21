@@ -1625,15 +1625,15 @@ function renderGradesModule(container) {
                                 <thead class="sticky top-0 z-30">
                                     <tr class="bg-slate-50 text-xs text-slate-600 uppercase font-semibold border-b shadow-[0_1px_0_#e2e8f0]">
                                         <th class="p-3 w-16 text-center sticky left-0 z-20 bg-slate-50">No</th>
-                                        <th class="p-3 sticky left-[64px] z-20 bg-slate-50">NIS</th>
+                                        <th class="p-3 w-[100px] sticky left-[64px] z-20 bg-slate-50">NIS</th>
                                         <th class="p-3 text-center w-16 sticky left-[164px] z-20 bg-slate-50">Foto Profil</th>
-                                        <th class="p-3 sticky left-[252px] z-20 bg-slate-50 shadow-sm">Nama Murid</th>
+                                        <th class="p-3 min-w-[120px] sticky left-[228px] z-20 bg-slate-50 shadow-sm">Nama Murid</th>
                                         ${categories.map(cat => {
                                             const catName = typeof cat === 'string' ? cat : (cat && (cat.name || cat.title || cat.category) ? (cat.name || cat.title || cat.category) : String(cat));
                                             const safeCatAttr = String(catName).replace(/'/g, "\\'").replace(/"/g, '&quot;');
                                             return `
-                                                <th class="p-3 text-center group select-none">
-                                                    <div class="inline-flex items-center justify-center gap-1.5 font-bold text-slate-700 bg-slate-100/70 hover:bg-slate-200/70 px-2.5 py-1.5 rounded-xl transition">
+                                                <th class="p-3 text-center group select-none min-w-[170px] whitespace-nowrap">
+                                                    <div class="inline-flex items-center justify-center gap-1.5 font-bold text-slate-700 bg-slate-100/70 hover:bg-slate-200/70 px-2.5 py-1.5 rounded-xl transition max-w-full">
                                                         <span class="cursor-pointer hover:text-emerald-700 transition" onclick="renameGradeCategory('${safeCatAttr}')" title="Klik untuk mengubah nama judul">${catName}</span>
                                                         <div class="flex items-center gap-0.5">
                                                             <button type="button" onclick="renameGradeCategory('${safeCatAttr}')" class="p-1 hover:bg-emerald-100 text-slate-400 hover:text-emerald-700 rounded-lg transition cursor-pointer" title="Ubah Nama Judul Nilai">
@@ -1664,9 +1664,9 @@ function renderGradesModule(container) {
                                         return `
                                             <tr class="hover:bg-slate-50/50">
                                                 <td class="p-3 text-center font-mono text-xs text-slate-500 sticky left-0 z-10 bg-white">${idx + 1}</td>
-                                                <td class="p-3 font-mono text-xs font-bold text-emerald-700 sticky left-[64px] z-10 bg-white">${st.nis}</td>
+                                                <td class="p-3 font-mono text-xs font-bold text-emerald-700 sticky left-[64px] z-10 bg-white whitespace-nowrap">${st.nis}</td>
                                                 <td class="p-3 text-center sticky left-[164px] z-10 bg-white">${photoHtml}</td>
-                                                <td class="p-3 font-semibold text-slate-800 sticky left-[252px] z-10 bg-white shadow-sm">${st.name}</td>
+                                                <td class="p-3 font-semibold text-slate-800 sticky left-[228px] z-10 bg-white shadow-sm whitespace-nowrap">${st.name}</td>
                                                 ${categories.map(cat => {
                                                     const g = (appState.grades || []).find(item => {
                                                         if (!item) return false;
