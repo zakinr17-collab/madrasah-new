@@ -4003,6 +4003,7 @@ function downloadConvertedWordDoc() {
                     <td style="width: 60pt; padding: 4pt 6pt; border-right: 1pt solid #cbd5e1; font-weight: bold; text-align: center; vertical-align: top; background-color: #f8fafc; color: #334155; mso-para-margin: 0cm;">${q.num}.</td>
                     <td style="padding: 4pt 6pt; font-weight: 600; color: #0f172a; line-height: 1.4; mso-para-margin: 0cm;">${qbEscapeHtml(q.questionText)}</td>
                 </tr>
+                ${String(q.ts || '').toUpperCase().includes('ESY') ? '' : `
                 <tr style="background-color: #ffffff; border-bottom: 1pt solid #e2e8f0;">
                     <td style="width: 60pt; padding: 4pt 6pt; border-right: 1pt solid #cbd5e1; font-weight: bold; text-align: center; background-color: #f8fafc; color: #334155; mso-para-margin: 0cm;">A</td>
                     <td style="padding: 4pt 6pt; color: #334155; mso-para-margin: 0cm;">${qbEscapeHtml(q.options.A || '')}</td>
@@ -4024,7 +4025,7 @@ function downloadConvertedWordDoc() {
                     <td style="width: 60pt; padding: 4pt 6pt; border-right: 1pt solid #cbd5e1; font-weight: bold; text-align: center; background-color: #f8fafc; color: #334155; mso-para-margin: 0cm;">E</td>
                     <td style="padding: 4pt 6pt; color: #334155; mso-para-margin: 0cm;">${qbEscapeHtml(q.options.E || '')}</td>
                 </tr>
-                ` : ''}
+                ` : ''}`}
             </tbody>
         </table>
         <p style="margin: 0 !important; padding: 0 !important; mso-para-margin: 0cm !important; mso-para-margin-top: 0cm !important; mso-para-margin-bottom: 0cm !important; height: 12pt; line-height: 12pt;">&nbsp;</p>
