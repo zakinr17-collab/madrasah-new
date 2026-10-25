@@ -3351,6 +3351,34 @@ async function updateStoreKeyWithLock(key: string, updateFn: (val: any) => any) 
 type RequestRealtimeContext = { tenantId: string; role: string };
 const requestRealtimeContext = new AsyncLocalStorage<RequestRealtimeContext>();
 
+// CBT_ASYNC_ERROR_BOUNDARY_V1: Express 4 does not automatically forward rejected
+// promises from async route handlers. Always finish transient failures with an
+// explicit response so clients can retain local answers and retry safely.
+function cbtAsyncEndpoint(
+  handler: (req: express.Request, res: express.Response) => Promise<unknown>
+): express.RequestHandler {
+  return (req, res, next) => {
+    void Promise.resolve().then(() => handler(req, res)).catch((error: unknown) => {
+      console.error(`[CBT API] ${req.method} ${req.path} failed:`, error);
+      if (res.headersSent) {
+        next(error);
+        return;
+      }
+      const reason = String((error as any)?.message || error || '');
+      const temporaryDbFailure = /ONLINE_DATABASE_UNAVAILABLE|DB Timeout|connection terminated|ECONNRESET|ETIMEDOUT|too many clients|remaining connection slots|53300|57P01/i.test(reason)
+        || (isOnlineMode && (!pool || isDbQuotaExceeded));
+      if (temporaryDbFailure) res.setHeader('Retry-After', '2');
+      res.status(temporaryDbFailure ? 503 : 500).json({
+        success: false,
+        code: temporaryDbFailure ? 'CBT_TEMPORARILY_UNAVAILABLE' : 'CBT_REQUEST_FAILED',
+        message: temporaryDbFailure
+          ? 'Layanan ujian sementara sibuk. Jawaban di perangkat tetap dipertahankan; coba kirim kembali.'
+          : 'Permintaan ujian gagal diproses. Silakan coba lagi atau hubungi administrator.'
+      });
+    });
+  };
+}
+
 const app = express();
 export const appExport = app;
 export default app;
@@ -8799,7 +8827,7 @@ function isBossRuntimeEnabled(): boolean {
 }
 
 // 2. Auth Login
-app.post("/api/login", async (req, res) => {
+app.post("/api/login", cbtAsyncEndpoint(async (req, res) => {
   const { username, password } = req.body;
   const requestedTenantRaw = String(
     req.body?.madrasahId ||
@@ -9019,7 +9047,7 @@ app.post("/api/login", async (req, res) => {
   }
 
   return res.status(401).json({ success: false, message: "Username atau password salah." });
-});
+}));
 
 // Authentication Token & Verification API
 app.get("/api/auth/me", (req, res) => {
@@ -15149,7 +15177,7 @@ function getLearningCompletionGateForSchedule(req: any, scheduleId: string, stud
 }
 
 // Phase 2 Endpoint: Server-Authoritative Exam Attempt Start (POST /api/exam/attempt/start)
-app.post("/api/exam/attempt/start", async (req, res) => {
+app.post("/api/exam/attempt/start", cbtAsyncEndpoint(async (req, res) => {
   const authUser = getAuthUser(req);
   if (!authUser) return res.status(401).json({ success: false, message: "Akses ditolak: Silakan login terlebih dahulu." });
   const sId = resolveStudentId(req, authUser);
@@ -15289,7 +15317,7 @@ app.post("/api/exam/attempt/start", async (req, res) => {
     answeredCount: session.answeredCount || 0,
     totalQuestions: session.totalQuestions || 0
   }});
-});
+}));
 
 // Phase 5 & 6 Endpoint: Server-Authoritative Question Generation & Sanitization (POST /api/exam/attempt/start-questions)
 function shuffleArray<T>(arr: T[]): T[] {
@@ -16047,7 +16075,7 @@ app.get("/api/exam/my-result-download", requireAuth, requireRole(['student', 'si
   }
 });
 
-app.post("/api/exam/attempt/start-questions", async (req, res) => {
+app.post("/api/exam/attempt/start-questions", cbtAsyncEndpoint(async (req, res) => {
   const authUser = getAuthUser(req);
   if (!authUser) {
     return res.status(401).json({ success: false, message: "Akses ditolak: Silakan login terlebih dahulu." });
@@ -16203,10 +16231,10 @@ app.post("/api/exam/attempt/start-questions", async (req, res) => {
     questions: sanitizedQuestions,
     isResumed: false
   });
-});
+}));
 
 // Phase 2 Endpoint: Instant Micro-Answer Sync (POST /api/exam/attempt/answer)
-app.post("/api/exam/attempt/answer", async (req, res) => {
+app.post("/api/exam/attempt/answer", cbtAsyncEndpoint(async (req, res) => {
   const authUser = getAuthUser(req);
   if (!authUser) return res.status(401).json({ success: false, message: "Akses ditolak: Silakan login terlebih dahulu." });
   const sId = resolveStudentId(req, authUser);
@@ -16254,7 +16282,7 @@ app.post("/api/exam/attempt/answer", async (req, res) => {
   ]);
   broadcastExamEvent({ type: "exam_progress", examId: eId, studentId: sId, answered: session.answeredCount, total: session.totalQuestions, currentIndex: session.currentIndex, lastSeenAt: now });
   res.json({ success: true, questionId, answeredCount: session.answeredCount, remainingTime: session.timeLeft });
-});
+}));
 
 // Dedicated student presence + snapshot endpoint (Saves bandwidth & isolates from admin actions)
 app.post("/api/exam/student-state", requireAuth, async (req, res) => {
@@ -16553,7 +16581,7 @@ app.get("/api/exams/:examId/violations", requireAuth, requireRole(['teacher', 'g
 });
 
 // Phase 4 Endpoint: Final Submission & Server-Side Auto-Scoring (POST /api/exam/attempt/finish)
-app.post("/api/exam/attempt/finish", async (req, res) => {
+app.post("/api/exam/attempt/finish", cbtAsyncEndpoint(async (req, res) => {
   const authUser = getAuthUser(req);
   if (!authUser) return res.status(401).json({ success: false, message: "Akses ditolak: Silakan login terlebih dahulu." });
   const sId = resolveStudentId(req, authUser);
@@ -16696,7 +16724,7 @@ app.post("/api/exam/attempt/finish", async (req, res) => {
     answeredCount,
     totalQuestions: masterQuestions.length
   });
-});
+}));
 
 // Phase 1 Endpoint: Summarized Teacher Monitoring (GET /api/exams/:examId/monitor)
 app.get("/api/exams/:examId/monitor", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req: any, res) => {
