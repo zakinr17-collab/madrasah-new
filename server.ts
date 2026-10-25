@@ -2640,6 +2640,7 @@ const lastDbWriteTimes = new Map<string, number>();
 const dbWriteQueue = new KeyedSerialQueue();
 const storeMutationQueue = new KeyedSerialQueue();
 const tokenLedgerQueue = new KeyedSerialQueue();
+const examAttemptMutationQueue = new KeyedSerialQueue();
 
 // ONLINE_PERSISTED_MEMORY_SNAPSHOT_V1:
 // Last full logical state known to have committed successfully. This is kept
@@ -3350,6 +3351,34 @@ async function updateStoreKeyWithLock(key: string, updateFn: (val: any) => any) 
 
 type RequestRealtimeContext = { tenantId: string; role: string };
 const requestRealtimeContext = new AsyncLocalStorage<RequestRealtimeContext>();
+
+// CBT_ASYNC_ERROR_BOUNDARY_V1: Express 4 does not automatically forward rejected
+// promises from async route handlers. Always finish transient failures with an
+// explicit response so clients can retain local answers and retry safely.
+function cbtAsyncEndpoint(
+  handler: (req: express.Request, res: express.Response) => Promise<unknown>
+): express.RequestHandler {
+  return (req, res, next) => {
+    void Promise.resolve().then(() => handler(req, res)).catch((error: unknown) => {
+      console.error(`[CBT API] ${req.method} ${req.path} failed:`, error);
+      if (res.headersSent) {
+        next(error);
+        return;
+      }
+      const reason = String((error as any)?.message || error || '');
+      const temporaryDbFailure = /ONLINE_DATABASE_UNAVAILABLE|DB Timeout|connection terminated|ECONNRESET|ETIMEDOUT|too many clients|remaining connection slots|53300|57P01/i.test(reason)
+        || (isOnlineMode && (!pool || isDbQuotaExceeded));
+      if (temporaryDbFailure) res.setHeader('Retry-After', '2');
+      res.status(temporaryDbFailure ? 503 : 500).json({
+        success: false,
+        code: temporaryDbFailure ? 'CBT_TEMPORARILY_UNAVAILABLE' : 'CBT_REQUEST_FAILED',
+        message: temporaryDbFailure
+          ? 'Layanan ujian sementara sibuk. Jawaban di perangkat tetap dipertahankan; coba kirim kembali.'
+          : 'Permintaan ujian gagal diproses. Silakan coba lagi atau hubungi administrator.'
+      });
+    });
+  };
+}
 
 const app = express();
 export const appExport = app;
@@ -8799,7 +8828,7 @@ function isBossRuntimeEnabled(): boolean {
 }
 
 // 2. Auth Login
-app.post("/api/login", async (req, res) => {
+app.post("/api/login", cbtAsyncEndpoint(async (req, res) => {
   const { username, password } = req.body;
   const requestedTenantRaw = String(
     req.body?.madrasahId ||
@@ -9019,7 +9048,7 @@ app.post("/api/login", async (req, res) => {
   }
 
   return res.status(401).json({ success: false, message: "Username atau password salah." });
-});
+}));
 
 // Authentication Token & Verification API
 app.get("/api/auth/me", (req, res) => {
@@ -15149,7 +15178,7 @@ function getLearningCompletionGateForSchedule(req: any, scheduleId: string, stud
 }
 
 // Phase 2 Endpoint: Server-Authoritative Exam Attempt Start (POST /api/exam/attempt/start)
-app.post("/api/exam/attempt/start", async (req, res) => {
+app.post("/api/exam/attempt/start", cbtAsyncEndpoint(async (req, res) => {
   const authUser = getAuthUser(req);
   if (!authUser) return res.status(401).json({ success: false, message: "Akses ditolak: Silakan login terlebih dahulu." });
   const sId = resolveStudentId(req, authUser);
@@ -15289,7 +15318,7 @@ app.post("/api/exam/attempt/start", async (req, res) => {
     answeredCount: session.answeredCount || 0,
     totalQuestions: session.totalQuestions || 0
   }});
-});
+}));
 
 // Phase 5 & 6 Endpoint: Server-Authoritative Question Generation & Sanitization (POST /api/exam/attempt/start-questions)
 function shuffleArray<T>(arr: T[]): T[] {
@@ -16047,7 +16076,7 @@ app.get("/api/exam/my-result-download", requireAuth, requireRole(['student', 'si
   }
 });
 
-app.post("/api/exam/attempt/start-questions", async (req, res) => {
+app.post("/api/exam/attempt/start-questions", cbtAsyncEndpoint(async (req, res) => {
   const authUser = getAuthUser(req);
   if (!authUser) {
     return res.status(401).json({ success: false, message: "Akses ditolak: Silakan login terlebih dahulu." });
@@ -16203,10 +16232,10 @@ app.post("/api/exam/attempt/start-questions", async (req, res) => {
     questions: sanitizedQuestions,
     isResumed: false
   });
-});
+}));
 
 // Phase 2 Endpoint: Instant Micro-Answer Sync (POST /api/exam/attempt/answer)
-app.post("/api/exam/attempt/answer", async (req, res) => {
+app.post("/api/exam/attempt/answer", cbtAsyncEndpoint(async (req, res) => {
   const authUser = getAuthUser(req);
   if (!authUser) return res.status(401).json({ success: false, message: "Akses ditolak: Silakan login terlebih dahulu." });
   const sId = resolveStudentId(req, authUser);
@@ -16223,6 +16252,7 @@ app.post("/api/exam/attempt/answer", async (req, res) => {
     return res.status(413).json({ success: false, message: "Jawaban terlalu besar. Maksimal 64 KB per soal." });
   }
   const key = resolveExamStateKey(req, sId, eId);
+  return examAttemptMutationQueue.run(key, async () => {
   const context = getExamAttemptContext(req, authUser, sId, eId);
   if (rejectExamAttemptContext(res, context)) return;
   if (completedExams[key] || forceFinishedExams[key]) return res.status(409).json({ success: false, message: "Ujian sudah selesai." });
@@ -16238,23 +16268,27 @@ app.post("/api/exam/attempt/answer", async (req, res) => {
     return res.status(400).json({ success: false, message: "Soal tidak termasuk dalam paket ujian siswa ini." });
   }
 
-  if (!studentExamAnswers[key]) studentExamAnswers[key] = {};
-  studentExamAnswers[key][questionId] = answer;
-  if (!session.answers) session.answers = {};
-  session.answers[questionId] = answer;
-  session.answeredCount = Object.keys(session.answers).length;
-  if (currentIndex !== undefined) session.currentIndex = currentIndex;
-  session.lastSeenAt = now;
-  if (session.endsAt) session.timeLeft = Math.max(0, Math.floor((session.endsAt - now) / 1000));
-  activeExamSessions[key] = session;
-
+  // Persist first: failed SQL writes must never appear as saved in process memory.
+  const nextAnswers = { ...(studentExamAnswers[key] || {}), [qId]: answer };
+  const nextSessionAnswers = { ...(session.answers || {}), [qId]: answer };
+  const nextSession = {
+    ...session,
+    answers: nextSessionAnswers,
+    answeredCount: Object.keys(nextSessionAnswers).length,
+    currentIndex: currentIndex !== undefined ? currentIndex : session.currentIndex,
+    lastSeenAt: now,
+    timeLeft: session.endsAt ? Math.max(0, Math.floor((session.endsAt - now) / 1000)) : session.timeLeft
+  };
   await saveDeltaBatchDb([
-    { storeName: 'studentExamAnswers', itemKey: key, value: studentExamAnswers[key] },
-    { storeName: 'activeExamSessions', itemKey: key, value: session }
+    { storeName: 'studentExamAnswers', itemKey: key, value: nextAnswers },
+    { storeName: 'activeExamSessions', itemKey: key, value: nextSession }
   ]);
-  broadcastExamEvent({ type: "exam_progress", examId: eId, studentId: sId, answered: session.answeredCount, total: session.totalQuestions, currentIndex: session.currentIndex, lastSeenAt: now });
-  res.json({ success: true, questionId, answeredCount: session.answeredCount, remainingTime: session.timeLeft });
-});
+  studentExamAnswers[key] = nextAnswers;
+  activeExamSessions[key] = nextSession;
+  broadcastExamEvent({ type: "exam_progress", examId: eId, studentId: sId, answered: nextSession.answeredCount, total: nextSession.totalQuestions, currentIndex: nextSession.currentIndex, lastSeenAt: now });
+  res.json({ success: true, questionId, answeredCount: nextSession.answeredCount, remainingTime: nextSession.timeLeft });
+  });
+}));
 
 // Dedicated student presence + snapshot endpoint (Saves bandwidth & isolates from admin actions)
 app.post("/api/exam/student-state", requireAuth, async (req, res) => {
@@ -16553,7 +16587,7 @@ app.get("/api/exams/:examId/violations", requireAuth, requireRole(['teacher', 'g
 });
 
 // Phase 4 Endpoint: Final Submission & Server-Side Auto-Scoring (POST /api/exam/attempt/finish)
-app.post("/api/exam/attempt/finish", async (req, res) => {
+app.post("/api/exam/attempt/finish", cbtAsyncEndpoint(async (req, res) => {
   const authUser = getAuthUser(req);
   if (!authUser) return res.status(401).json({ success: false, message: "Akses ditolak: Silakan login terlebih dahulu." });
   const sId = resolveStudentId(req, authUser);
@@ -16572,6 +16606,7 @@ app.post("/api/exam/attempt/finish", async (req, res) => {
 
   const eId = String(examId);
   const key = resolveExamStateKey(req, sId, eId);
+  return examAttemptMutationQueue.run(key, async () => {
   const context = getExamAttemptContext(req, authUser, sId, eId);
   if (rejectExamAttemptContext(res, context)) return;
   if (completedExams[key] || forceFinishedExams[key]) {
@@ -16625,8 +16660,7 @@ app.post("/api/exam/attempt/finish", async (req, res) => {
 
   // Server-authoritative precedence: persisted answers -> accepted live-session answers ->
   // current client payload only while the attempt is still within its deadline.
-  studentExamAnswers[key] = { ...persistedAnswers, ...savedSessionAnswers, ...incomingAnswers };
-  const finalAns = studentExamAnswers[key];
+  const finalAns = { ...persistedAnswers, ...savedSessionAnswers, ...incomingAnswers };
 
   let correctPGCount = 0;
   const pgQuestions = masterQuestions.filter((q: any) => q.type !== 'esay' && q.type !== 'essay');
@@ -16650,29 +16684,28 @@ app.post("/api/exam/attempt/finish", async (req, res) => {
     submissionType: isStaffForceFinish ? 'force_finish' : 'normal'
   };
 
-  // Persist authoritative result first; only then mark the attempt completed and clear the live session.
-  studentExamGrades[key] = finalGrade;
-  await Promise.all([
-    saveDeltaDb('studentExamAnswers', key, studentExamAnswers[key]),
-    saveDeltaDb('studentExamGrades', key, finalGrade)
-  ]);
+  // CBT_ATOMIC_FINALIZATION_V1: one statement commits all finalization state.
+  // A database failure cannot leave a half-finished exam marked completed.
   const completionValue: any = isStaffForceFinish ? 'force_finish' : true;
-  completedExams[key] = completionValue;
-  const completionWrites: Promise<any>[] = [saveDeltaDb('completedExams', key, completionValue)];
-  if (isStaffForceFinish) {
-    forceFinishedExams[key] = true;
-    completionWrites.push(saveDeltaDb('forceFinishedExams', key, true));
-  }
-  await Promise.all(completionWrites);
+  const finalWrites: DeltaBatchWrite[] = [
+    { storeName: 'studentExamAnswers', itemKey: key, value: finalAns },
+    { storeName: 'studentExamGrades', itemKey: key, value: finalGrade },
+    { storeName: 'completedExams', itemKey: key, value: completionValue },
+    { storeName: 'activeExamSessions', itemKey: key, value: null },
+    { storeName: 'studentOutOfTab', itemKey: key, value: false },
+    { storeName: 'studentLivecamFrames', itemKey: key, value: null }
+  ];
+  if (isStaffForceFinish) finalWrites.push({ storeName: 'forceFinishedExams', itemKey: key, value: true });
+  await saveDeltaBatchDb(finalWrites);
 
+  // Publish in-memory state only once the atomic DB statement succeeds.
+  studentExamAnswers[key] = finalAns;
+  studentExamGrades[key] = finalGrade;
+  completedExams[key] = completionValue;
+  if (isStaffForceFinish) forceFinishedExams[key] = true;
   delete activeExamSessions[key];
   studentOutOfTab[key] = false;
   clearRuntimeLivecamFrame(key);
-  await Promise.all([
-    saveDeltaDb('activeExamSessions', key, null),
-    saveDeltaDb('studentOutOfTab', key, false),
-    saveDeltaDb('studentLivecamFrames', key, null)
-  ]);
 
   const answeredCount = Object.values(finalAns).filter((value: any) => value !== undefined && value !== null && String(value).trim() !== '').length;
   broadcastExamEvent({
@@ -16696,7 +16729,8 @@ app.post("/api/exam/attempt/finish", async (req, res) => {
     answeredCount,
     totalQuestions: masterQuestions.length
   });
-});
+  });
+}));
 
 // Phase 1 Endpoint: Summarized Teacher Monitoring (GET /api/exams/:examId/monitor)
 app.get("/api/exams/:examId/monitor", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req: any, res) => {

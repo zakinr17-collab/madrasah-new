@@ -49,7 +49,7 @@
     "selfsigned": "^5.5.0",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3",
+    "vite": "^6.4.5",
     "ws": "^8.21.3"
   },
   "devDependencies": {
@@ -64,7 +64,7 @@
     "node": ">=22.13.0"
   },
   "overrides": {
-    "dompurify": "3.4.16",
+    "dompurify": "3.4.17",
     "esbuild": "$esbuild",
     "qs": "6.16.0",
     "@xmldom/xmldom": "^0.9.9",
@@ -72,6 +72,7 @@
     "proxy-addr": "2.0.8",
     "brace-expansion": "5.0.12",
     "source-map-js": "1.2.2",
-    "@grpc/grpc-js": "1.14.5"
+    "@grpc/grpc-js": "1.14.5",
+    "body-parser": "1.20.9"
   }
 }

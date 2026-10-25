@@ -349,6 +349,91 @@ await test('Auth: inactive madrasah status is enforced online but does not lock 
   assert.doesNotMatch(loginRoute, /if \(defaultM && defaultM\.isActive === false\)/);
 });
 
+// Exercise the actual Express 4 async error boundary, not just source markers.
+await test('CBT: asynchronous API failure responds with retryable 503 or safe 500', async () => {
+  const context: any = vm.createContext({
+    console: quiet,
+    isOnlineMode: true,
+    isDbQuotaExceeded: false,
+    pool: {},
+  });
+  vm.runInContext(serverFunction('cbtAsyncEndpoint'), context);
+  const makeResponse = () => ({
+    statusCode: 200,
+    headersSent: false,
+    headers: {} as Record<string, string>,
+    body: null as any,
+    setHeader(name: string, value: string) {
+      this.headers[name] = value;
+    },
+    status(code: number) {
+      this.statusCode = code;
+      return this;
+    },
+    json(data: any) {
+      this.body = data;
+      this.headersSent = true;
+      return this;
+    },
+  });
+  const req = { method: 'POST', path: '/api/exam/attempt/answer' };
+
+  const temporary = makeResponse();
+  context.cbtAsyncEndpoint(async () => {
+    throw new Error('ONLINE_DATABASE_UNAVAILABLE: SQL temporarily offline');
+  })(req, temporary, () => { throw new Error('unexpected next'); });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(temporary.statusCode, 503);
+  assert.equal(temporary.headers['Retry-After'], '2');
+  assert.equal(temporary.body.code, 'CBT_TEMPORARILY_UNAVAILABLE');
+  assert.equal(temporary.body.success, false);
+  assert.doesNotMatch(temporary.body.message, /SQL|password|stack/i);
+
+  const permanent = makeResponse();
+  context.cbtAsyncEndpoint(async () => {
+    throw new Error('unexpected handler failure');
+  })(req, permanent, () => { throw new Error('unexpected next'); });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(permanent.statusCode, 500);
+  assert.equal(permanent.body.code, 'CBT_REQUEST_FAILED');
+  assert.equal(permanent.headers['Retry-After'], undefined);
+
+  const alreadySent = makeResponse();
+  alreadySent.headersSent = true;
+  let forwarded = 0;
+  context.cbtAsyncEndpoint(async () => {
+    throw new Error('stream closed');
+  })(req, alreadySent, () => { forwarded++; });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  assert.equal(forwarded, 1, 'response already started must forward to Express error handling');
+  assert.equal(alreadySent.body, null);
+
+  for (const endpoint of [
+    '/api/login',
+    '/api/exam/attempt/start',
+    '/api/exam/attempt/start-questions',
+    '/api/exam/attempt/answer',
+    '/api/exam/attempt/finish',
+  ]) {
+    assert.ok(serverSource.includes('app.post("' + endpoint + '", cbtAsyncEndpoint(async'),
+      'missing async failure boundary at ' + endpoint);
+  }
+
+  const loadTest = fs.readFileSync('tests/k6-cbt-finalization.js', 'utf8');
+  const answerStart = serverSource.indexOf('app.post("/api/exam/attempt/answer"');
+  const answerEnd = serverSource.indexOf('// Dedicated student presence', answerStart);
+  const answerRoute = serverSource.slice(answerStart, answerEnd);
+  const savePos = answerRoute.indexOf('await saveDeltaBatchDb([');
+  const memoryPos = answerRoute.indexOf('studentExamAnswers[key] = nextAnswers');
+  assert.ok(savePos >= 0 && memoryPos > savePos,
+    'student answers must not enter process memory before DB confirms durability');
+  assert.ok(answerRoute.includes('return examAttemptMutationQueue.run(key, async'));
+  assert.match(loadTest, /CBT_LOGIN_TRANSIENT_RETRY_V1/);
+  assert.match(loadTest, /CBT_QUESTIONS_TRANSIENT_RETRY_V1/);
+  assert.match(loadTest, /if \(loginRes\.status === 200 \|\| !isRetryableStatus\(loginRes\.status\)/);
+  assert.match(loadTest, /if \(questionsRes\.status === 200 \|\| !isRetryableStatus\(questionsRes\.status\)/);
+});
+
 await test('CBT: schedule gate is authoritative in WIB', () => {
   const context: any = vm.createContext({});
   vm.runInContext(serverFunction('getExamScheduleAccess'), context);
@@ -697,7 +782,13 @@ await test('Livecam: runtime frames are ephemeral, TTL-pruned, and cleared on fi
   const finishEnd = serverSource.indexOf('// Phase 1 Endpoint: Summarized Teacher Monitoring', finishStart);
   const finishRoute = serverSource.slice(finishStart, finishEnd);
   assert.match(finishRoute, /clearRuntimeLivecamFrame\(key\)/);
-  assert.match(finishRoute, /saveDeltaDb\('studentLivecamFrames', key, null\)/);
+  assert.match(finishRoute, /storeName: 'studentLivecamFrames', itemKey: key, value: null/);
+  assert.match(finishRoute, /CBT_ATOMIC_FINALIZATION_V1/);
+  const dbCommit = finishRoute.indexOf('await saveDeltaBatchDb(finalWrites)');
+  const memoryCommit = finishRoute.indexOf('completedExams[key] = completionValue');
+  assert.ok(dbCommit >= 0 && memoryCommit > dbCommit,
+    'exam must be marked completed only after one atomic DB batch succeeds');
+  assert.ok(finishRoute.includes('return examAttemptMutationQueue.run(key, async'));
 
   const context: any = vm.createContext({
     studentLivecamFrames: {},
