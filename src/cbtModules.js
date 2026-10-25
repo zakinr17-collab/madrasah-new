@@ -3273,6 +3273,7 @@ function openConvertQuestionModal(activeCode = '') {
                             <select id="cvt-mode" class="w-full px-3 py-2 bg-white border border-indigo-300 rounded-xl font-bold text-xs focus:ring-2 focus:ring-indigo-500 text-indigo-900">
                                 <option value="auto">Deteksi Otomatis (Smart Auto-Detect: 1., A., B...)</option>
                                 <option value="enter">Per-Enter / Baris (Setiap Enter = Kolom Selanjutnya)</option>
+                                <option value="enter-essay">Per-Enter Esay (1 Baris Kunci, 1 Baris Soal — Kunci di Atas)</option>
                             </select>
                         </div>
                     </div>
@@ -3551,7 +3552,44 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
     const lines = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
     const parsedQuestions = [];
 
-    if (parseMode === 'enter') {
+    if (parseMode === 'enter-essay') {
+        // Mode Esay per-Enter (kunci di atas): setiap butir = 2 baris -
+        // baris 1 = kunci jawaban (boleh diberi nomor), baris 2 = teks soal.
+        let currentNum = 1;
+        let expectKey = true;
+        let pendKey = '', pendQ = '';
+
+        const pushEssay = () => {
+            if (!pendQ.trim() && !pendKey.trim()) return;
+            let fq = pendQ.trim(), fk = pendKey.trim();
+            if (autoMath) { fq = autoConvertMathToLatex(fq); fk = autoConvertMathToLatex(fk); }
+            parsedQuestions.push({
+                num: currentNum++,
+                ts: defaultTS === 'PG' ? 'ESY' : defaultTS,
+                kd: defaultKD,
+                kj: fk || '-',
+                abs: '',
+                questionText: fq,
+                options: { A: '', B: '', C: '', D: '', E: '' }
+            });
+            pendKey = ''; pendQ = ''; expectKey = true;
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+            const trimmed = lines[i].trim();
+            if (!trimmed) continue;
+            const numbered = trimmed.match(/^(?:Soal\s*)?(\d+)[\.\)\:\-]\s*(.*)$/i);
+            let content = trimmed;
+            if (numbered) {
+                pushEssay();
+                content = numbered[2].trim();
+            }
+            if (!content) continue;
+            if (expectKey) { pendKey = content.replace(/^(?:kunci(?:\s+jawaban)?|jawaban)\s*[:=]\s*/i, '').trim(); expectKey = false; }
+            else { pendQ = content; pushEssay(); }
+        }
+        pushEssay();
+    } else if (parseMode === 'enter') {
         let currentNum = 1;
         let step = 0; // 0: Question, 1: A, 2: B, 3: C, 4: D, 5: E/KJ
         let qText = '', optA = '', optB = '', optC = '', optD = '', optE = '', kj = defaultKJ;
