@@ -3775,6 +3775,15 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
             if (!currentQuestion || !currentQuestion.text.trim()) return;
 
             let qText = currentQuestion.text.trim();
+            // Deteksi '#jawaban' / '#kunci' inline dalam teks soal (mode Esay):
+            // teks sebelum penanda = soal, teks sesudahnya = kunci jawaban.
+            const inlineAns = qText.match(/#\s*(?:jawaban|kunci(?:\s+jawaban)?)\s*[:=]?\s*([\s\S]+)$/i);
+            if (inlineAns) {
+                qText = qText.replace(/#\s*(?:jawaban|kunci(?:\s+jawaban)?)\s*[:=]?\s*([\s\S]+)$/i, '').trim();
+                currentKey = inlineAns[1].trim();
+                currentOptions = {};
+                defaultTSInline = 'ESY';
+            }
             let optA = currentOptions['A'] || '';
             let optB = currentOptions['B'] || '';
             let optC = currentOptions['C'] || '';
@@ -3793,15 +3802,17 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
             const opts = { A: optA, B: optB, C: optC, D: optD };
             if (optionCount >= 5) opts.E = optE;
 
+            const isEssayInline = defaultTSInline === 'ESY';
             parsedQuestions.push({
                 num: currentNum,
-                ts: defaultTS,
+                ts: isEssayInline ? 'ESY' : defaultTS,
                 kd: defaultKD,
-                kj: (currentKey || defaultKJ).toUpperCase().trim(),
+                kj: isEssayInline ? String(currentKey || '') : (currentKey || defaultKJ).toUpperCase().trim(),
                 abs: '',
                 questionText: qText,
-                options: opts
+                options: isEssayInline ? { A: '', B: '', C: '', D: '', E: '' } : opts
             });
+            defaultTSInline = null;
 
             currentNum++;
             currentQuestion = null;
@@ -3809,6 +3820,7 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
             currentKey = null;
         }
 
+        let defaultTSInline = null;
         const qNumRegex = /^(?:Soal|No\.?)?\s*(\d+)[\.\)\:\-\s]\s*(.*)/i;
         const optRegex = /^\s*[\(\[]?([A-Ea-e])[\.\)\:\-\s\]]\s*(.*)/;
         const keyRegex = /^\s*(?:Kunci|KJ|Jawaban|Kunci\s+Jawaban|Answer|Ans)\s*[:=]?\s*([A-Ea-e])/i;
