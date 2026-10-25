@@ -903,6 +903,9 @@ window.renderLearningTeacher = async function(container) {
                     <button type="button" onclick="openLearningMaterial(${learningInlineArg(material.id)}, true)" class="px-3 py-2 rounded-xl bg-slate-100 text-xs font-bold">Lihat</button>
                     <button type="button" onclick="showLearningEditorById(${learningInlineArg(material.id)})" class="px-3 py-2 rounded-xl bg-blue-50 text-blue-700 text-xs font-bold">Edit</button>
                     <button type="button" onclick="openLearningMonitor(${learningInlineArg(material.id)})" class="px-3 py-2 rounded-xl bg-violet-50 text-violet-700 text-xs font-bold"><i class="fa-solid fa-chart-line mr-1"></i>Monitoring</button>
+                    ${material.status === 'published'
+                        ? `<button type="button" onclick="setLearningMaterialStatus(${learningInlineArg(material.id)}, 'draft')" class="px-3 py-2 rounded-xl bg-amber-50 text-amber-700 text-xs font-bold"><i class="fa-solid fa-eye-slash mr-1"></i>Jadikan Draft</button>`
+                        : `<button type="button" onclick="setLearningMaterialStatus(${learningInlineArg(material.id)}, 'published')" class="px-3 py-2 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-bold"><i class="fa-solid fa-paper-plane mr-1"></i>Terbitkan</button>`}
                     ${material.lkpdId ? `<button type="button" onclick="openLearningLinkedActivityEditor('lkpd', ${learningInlineArg(material.lkpdId)})" class="px-3 py-2 rounded-xl ${lkpdDraft ? 'bg-amber-50 text-amber-700' : 'bg-cyan-50 text-cyan-700'} text-xs font-bold"><i class="fa-solid fa-clipboard-list mr-1"></i>${lkpdDraft ? 'Lengkapi Draft LKPD' : 'Kelola LKPD'}</button>` : ''}
                     ${material.examId ? `<button type="button" onclick="openLearningLinkedActivityEditor('exam', ${learningInlineArg(material.examId)})" class="px-3 py-2 rounded-xl ${examDraft ? 'bg-amber-50 text-amber-700' : 'bg-indigo-50 text-indigo-700'} text-xs font-bold"><i class="fa-solid fa-file-circle-check mr-1"></i>${examDraft ? 'Lengkapi & Aktifkan Asesmen' : 'Kelola Asesmen'}</button>` : ''}
                     <button type="button" onclick="deleteLearningMaterial(${learningInlineArg(material.id)})" class="px-3 py-2 rounded-xl bg-rose-50 text-rose-700 text-xs font-bold"><i class="fa-solid fa-trash-can mr-1"></i>Hapus</button>
@@ -1206,6 +1209,29 @@ window.saveLearningMaterial = async function(status) {
             button.disabled = false;
             button.classList.remove('opacity-60', 'cursor-wait');
         });
+    }
+};
+
+window.setLearningMaterialStatus = async function(materialId, status) {
+    const action = status === 'published' ? 'menerbitkan' : 'mengubah ke draft';
+    try {
+        const response = await fetch(`/api/learning/materials/${encodeURIComponent(String(materialId))}/publish`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status })
+        });
+        const resData = await response.json().catch(() => ({}));
+        if (!response.ok || resData.success === false) {
+            throw new Error(resData.message || `Gagal ${action} materi.`);
+        }
+        learningToast(status === 'published' ? 'Materi diterbitkan.' : 'Materi diubah ke draft.', 'success');
+        if (typeof window.loadLearningMaterials === 'function') {
+            await window.loadLearningMaterials();
+        } else if (document.getElementById('view-container')) {
+            window.renderLearningModule(document.getElementById('view-container'));
+        }
+    } catch (err) {
+        learningToast(err.message || `Gagal ${action} materi.`, 'error');
     }
 };
 window.openLearningLinkedActivityEditor = async function(kind, id) {
