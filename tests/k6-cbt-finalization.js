@@ -9,6 +9,10 @@ const EXAM_ID = String(__ENV.EXAM_ID || '').trim();
 const VUS = Math.max(1, Number.parseInt(__ENV.VUS || '300', 10));
 const ACCOUNT_OFFSET = Math.max(0, Number.parseInt(__ENV.ACCOUNT_OFFSET || '0', 10));
 const RAMP_SECONDS = Math.max(0, Number.parseFloat(__ENV.RAMP_SECONDS || '120'));
+const LOGIN_RETRIES = Math.max(0, Number.parseInt(__ENV.LOGIN_RETRIES || '3', 10));
+const LOGIN_RETRY_BASE_SECONDS = Math.max(0.05, Number.parseFloat(__ENV.LOGIN_RETRY_BASE_SECONDS || '0.5'));
+const START_QUESTIONS_RETRIES = Math.max(0, Number.parseInt(__ENV.START_QUESTIONS_RETRIES || '3', 10));
+const START_QUESTIONS_RETRY_BASE_SECONDS = Math.max(0.05, Number.parseFloat(__ENV.START_QUESTIONS_RETRY_BASE_SECONDS || '0.5'));
 const ANSWER_RETRIES = Math.max(0, Number.parseInt(__ENV.ANSWER_RETRIES || '3', 10));
 const ANSWER_RETRY_BASE_SECONDS = Math.max(0.05, Number.parseFloat(__ENV.ANSWER_RETRY_BASE_SECONDS || '0.5'));
 const FINISH_RETRIES = Math.max(0, Number.parseInt(__ENV.FINISH_RETRIES || '3', 10));
@@ -34,6 +38,10 @@ if (accounts.length < ACCOUNT_OFFSET + VUS) {
 }
 
 const loginFail = new Rate('login_fail');
+const loginRetryCount = new Counter('login_retry_count');
+const loginRetrySuccessCount = new Counter('login_retry_success_count');
+const startQuestionsRetryCount = new Counter('start_questions_retry_count');
+const startQuestionsRetrySuccessCount = new Counter('start_questions_retry_success_count');
 const preexistingCompletedFail = new Rate('preexisting_completed_fail');
 const attemptStartFail = new Rate('attempt_start_fail');
 const startQuestionsFail = new Rate('start_questions_fail');
@@ -263,8 +271,20 @@ export default function () {
     loginHeaders['X-Madrasah-Id'] = TENANT;
   }
 
-  const loginRes = postJson('/api/login', loginBody, loginHeaders, 'POST /api/login [finalization]');
-  loginDuration.add(loginRes.timings.duration);
+  // CBT_LOGIN_TRANSIENT_RETRY_V1: Do not turn a temporary transport failure
+  // into a failed student. Never retry invalid credentials or authorization errors.
+  const loginStartedAt = Date.now();
+  let loginRes = null;
+  let loginRetried = false;
+  for (let attempt = 0; attempt <= LOGIN_RETRIES; attempt++) {
+    loginRes = postJson('/api/login', loginBody, loginHeaders, 'POST /api/login [finalization]');
+    if (loginRes.status === 200 || !isRetryableStatus(loginRes.status) || attempt >= LOGIN_RETRIES) break;
+    loginRetried = true;
+    loginRetryCount.add(1);
+    sleep(retryDelaySeconds(LOGIN_RETRY_BASE_SECONDS, attempt));
+  }
+  loginDuration.add(Date.now() - loginStartedAt);
+  if (loginRetried && loginRes.status === 200) loginRetrySuccessCount.add(1);
   const loginData = tryJson(loginRes);
   const token = String(loginData?.user?.token || loginData?.token || '');
 
@@ -321,10 +341,21 @@ export default function () {
     return;
   }
 
-  const questionsRes = postJson('/api/exam/attempt/start-questions', {
-    studentId,
-    examId: EXAM_ID,
-  }, headers, 'POST /api/exam/attempt/start-questions [finalization]');
+  // CBT_QUESTIONS_TRANSIENT_RETRY_V1: The server returns the same assigned
+  // packet on replay; never regenerate or overwrite saved student answers.
+  let questionsRes = null;
+  let questionsRetried = false;
+  for (let attempt = 0; attempt <= START_QUESTIONS_RETRIES; attempt++) {
+    questionsRes = postJson('/api/exam/attempt/start-questions', {
+      studentId,
+      examId: EXAM_ID,
+    }, headers, 'POST /api/exam/attempt/start-questions [finalization]');
+    if (questionsRes.status === 200 || !isRetryableStatus(questionsRes.status) || attempt >= START_QUESTIONS_RETRIES) break;
+    questionsRetried = true;
+    startQuestionsRetryCount.add(1);
+    sleep(retryDelaySeconds(START_QUESTIONS_RETRY_BASE_SECONDS, attempt));
+  }
+  if (questionsRetried && questionsRes.status === 200) startQuestionsRetrySuccessCount.add(1);
   const questionsData = tryJson(questionsRes);
   const questions = Array.isArray(questionsData?.questions) ? questionsData.questions : [];
 
