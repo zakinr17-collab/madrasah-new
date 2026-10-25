@@ -427,7 +427,7 @@ await test('CBT: asynchronous API failure responds with retryable 503 or safe 50
   const memoryPos = answerRoute.indexOf('studentExamAnswers[key] = nextAnswers');
   assert.ok(savePos >= 0 && memoryPos > savePos,
     'student answers must not enter process memory before DB confirms durability');
-  assert.match(answerRoute, /return examAttemptMutationQueue\\.run\\(key, async/);
+  assert.ok(answerRoute.includes('return examAttemptMutationQueue.run(key, async'));
   assert.match(loadTest, /CBT_LOGIN_TRANSIENT_RETRY_V1/);
   assert.match(loadTest, /CBT_QUESTIONS_TRANSIENT_RETRY_V1/);
   assert.match(loadTest, /if \(loginRes\.status === 200 \|\| !isRetryableStatus\(loginRes\.status\)/);
@@ -788,7 +788,7 @@ await test('Livecam: runtime frames are ephemeral, TTL-pruned, and cleared on fi
   const memoryCommit = finishRoute.indexOf('completedExams[key] = completionValue');
   assert.ok(dbCommit >= 0 && memoryCommit > dbCommit,
     'exam must be marked completed only after one atomic DB batch succeeds');
-  assert.match(finishRoute, /return examAttemptMutationQueue\\.run\\(key, async/);
+  assert.ok(finishRoute.includes('return examAttemptMutationQueue.run(key, async'));
 
   const context: any = vm.createContext({
     studentLivecamFrames: {},
