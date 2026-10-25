@@ -3275,7 +3275,7 @@ function openConvertQuestionModal(activeCode = '') {
                     <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
                         <div>
                             <label class="block font-bold text-slate-700 mb-1">Tipe Soal [TS]</label>
-                            <select id="cvt-ts" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-xs focus:ring-2 focus:ring-indigo-500">
+                            <select id="cvt-ts" onchange="onCvtTsChange(this.value)" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-xs focus:ring-2 focus:ring-indigo-500">
                                 <option value="PG">PG (Pilihan Ganda)</option>
                                 <option value="PGX">PGX (Pilihan Ganda Kompleks)</option>
                                 <option value="ESY">ESY (Esay / Uraian)</option>
@@ -3307,7 +3307,7 @@ function openConvertQuestionModal(activeCode = '') {
                         </div>
                         <div>
                             <label class="block font-bold text-slate-700 mb-1">Mode Deteksi Soal</label>
-                            <select id="cvt-mode" class="w-full px-3 py-2 bg-white border border-indigo-300 rounded-xl font-bold text-xs focus:ring-2 focus:ring-indigo-500 text-indigo-900">
+                            <select id="cvt-mode" onchange="window.__cvtModeUserLocked = true" class="w-full px-3 py-2 bg-white border border-indigo-300 rounded-xl font-bold text-xs focus:ring-2 focus:ring-indigo-500 text-indigo-900">
                                 <option value="auto">Deteksi Otomatis (Smart Auto-Detect: 1., A., B...)</option>
                                 <option value="enter">Per-Enter / Baris (Setiap Enter = Kolom Selanjutnya)</option>
                                 <option value="enter-essay">Per-Enter Esay (1 Baris Kunci, 1 Baris Soal — Kunci di Atas)</option>
@@ -3476,6 +3476,17 @@ function renderCbtTableCell(text) {
         </div>
     `;
 }
+
+function onCvtTsChange(tsVal) {
+    // Rekomendasi mode deteksi sesuai tipe soal (dropdown selalu tetap tampil utk semua tipe)
+    const modeSel = document.getElementById('cvt-mode');
+    if (!modeSel) return;
+    if (String(tsVal).toUpperCase() === 'ESY') {
+        // Esay: mode per-enter (kunci di atas) paling sering dipakai; auto tetap tersedia
+        if (!window.__cvtModeUserLocked) modeSel.value = 'enter-essay';
+    }
+}
+window.onCvtTsChange = onCvtTsChange;
 
 function runQuestionConversion(activeCode = '') {
     const rawText = (document.getElementById('cvt-raw-text')?.value || '').trim();
