@@ -1225,10 +1225,14 @@ window.setLearningMaterialStatus = async function(materialId, status) {
             throw new Error(resData.message || `Gagal ${action} materi.`);
         }
         learningToast(status === 'published' ? 'Materi diterbitkan.' : 'Materi diubah ke draft.', 'success');
-        if (typeof window.loadLearningMaterials === 'function') {
-            await window.loadLearningMaterials();
-        } else if (document.getElementById('view-container')) {
-            window.renderLearningModule(document.getElementById('view-container'));
+        try {
+            await loadLearningMaterials();
+            const container = document.getElementById('view-container');
+            if (container && typeof window.renderLearningTeacher === 'function') {
+                window.renderLearningTeacher(container);
+            }
+        } catch (refreshErr) {
+            console.warn('Refresh daftar materi gagal:', refreshErr);
         }
     } catch (err) {
         learningToast(err.message || `Gagal ${action} materi.`, 'error');
