@@ -2640,6 +2640,7 @@ const lastDbWriteTimes = new Map<string, number>();
 const dbWriteQueue = new KeyedSerialQueue();
 const storeMutationQueue = new KeyedSerialQueue();
 const tokenLedgerQueue = new KeyedSerialQueue();
+const examAttemptMutationQueue = new KeyedSerialQueue();
 
 // ONLINE_PERSISTED_MEMORY_SNAPSHOT_V1:
 // Last full logical state known to have committed successfully. This is kept
@@ -16251,6 +16252,7 @@ app.post("/api/exam/attempt/answer", cbtAsyncEndpoint(async (req, res) => {
     return res.status(413).json({ success: false, message: "Jawaban terlalu besar. Maksimal 64 KB per soal." });
   }
   const key = resolveExamStateKey(req, sId, eId);
+  return examAttemptMutationQueue.run(key, async () => {
   const context = getExamAttemptContext(req, authUser, sId, eId);
   if (rejectExamAttemptContext(res, context)) return;
   if (completedExams[key] || forceFinishedExams[key]) return res.status(409).json({ success: false, message: "Ujian sudah selesai." });
@@ -16266,22 +16268,26 @@ app.post("/api/exam/attempt/answer", cbtAsyncEndpoint(async (req, res) => {
     return res.status(400).json({ success: false, message: "Soal tidak termasuk dalam paket ujian siswa ini." });
   }
 
-  if (!studentExamAnswers[key]) studentExamAnswers[key] = {};
-  studentExamAnswers[key][questionId] = answer;
-  if (!session.answers) session.answers = {};
-  session.answers[questionId] = answer;
-  session.answeredCount = Object.keys(session.answers).length;
-  if (currentIndex !== undefined) session.currentIndex = currentIndex;
-  session.lastSeenAt = now;
-  if (session.endsAt) session.timeLeft = Math.max(0, Math.floor((session.endsAt - now) / 1000));
-  activeExamSessions[key] = session;
-
+  // Persist first: failed SQL writes must never appear as saved in process memory.
+  const nextAnswers = { ...(studentExamAnswers[key] || {}), [qId]: answer };
+  const nextSessionAnswers = { ...(session.answers || {}), [qId]: answer };
+  const nextSession = {
+    ...session,
+    answers: nextSessionAnswers,
+    answeredCount: Object.keys(nextSessionAnswers).length,
+    currentIndex: currentIndex !== undefined ? currentIndex : session.currentIndex,
+    lastSeenAt: now,
+    timeLeft: session.endsAt ? Math.max(0, Math.floor((session.endsAt - now) / 1000)) : session.timeLeft
+  };
   await saveDeltaBatchDb([
-    { storeName: 'studentExamAnswers', itemKey: key, value: studentExamAnswers[key] },
-    { storeName: 'activeExamSessions', itemKey: key, value: session }
+    { storeName: 'studentExamAnswers', itemKey: key, value: nextAnswers },
+    { storeName: 'activeExamSessions', itemKey: key, value: nextSession }
   ]);
-  broadcastExamEvent({ type: "exam_progress", examId: eId, studentId: sId, answered: session.answeredCount, total: session.totalQuestions, currentIndex: session.currentIndex, lastSeenAt: now });
-  res.json({ success: true, questionId, answeredCount: session.answeredCount, remainingTime: session.timeLeft });
+  studentExamAnswers[key] = nextAnswers;
+  activeExamSessions[key] = nextSession;
+  broadcastExamEvent({ type: "exam_progress", examId: eId, studentId: sId, answered: nextSession.answeredCount, total: nextSession.totalQuestions, currentIndex: nextSession.currentIndex, lastSeenAt: now });
+  res.json({ success: true, questionId, answeredCount: nextSession.answeredCount, remainingTime: nextSession.timeLeft });
+  });
 }));
 
 // Dedicated student presence + snapshot endpoint (Saves bandwidth & isolates from admin actions)
@@ -16600,6 +16606,7 @@ app.post("/api/exam/attempt/finish", cbtAsyncEndpoint(async (req, res) => {
 
   const eId = String(examId);
   const key = resolveExamStateKey(req, sId, eId);
+  return examAttemptMutationQueue.run(key, async () => {
   const context = getExamAttemptContext(req, authUser, sId, eId);
   if (rejectExamAttemptContext(res, context)) return;
   if (completedExams[key] || forceFinishedExams[key]) {
@@ -16653,8 +16660,7 @@ app.post("/api/exam/attempt/finish", cbtAsyncEndpoint(async (req, res) => {
 
   // Server-authoritative precedence: persisted answers -> accepted live-session answers ->
   // current client payload only while the attempt is still within its deadline.
-  studentExamAnswers[key] = { ...persistedAnswers, ...savedSessionAnswers, ...incomingAnswers };
-  const finalAns = studentExamAnswers[key];
+  const finalAns = { ...persistedAnswers, ...savedSessionAnswers, ...incomingAnswers };
 
   let correctPGCount = 0;
   const pgQuestions = masterQuestions.filter((q: any) => q.type !== 'esay' && q.type !== 'essay');
@@ -16678,29 +16684,28 @@ app.post("/api/exam/attempt/finish", cbtAsyncEndpoint(async (req, res) => {
     submissionType: isStaffForceFinish ? 'force_finish' : 'normal'
   };
 
-  // Persist authoritative result first; only then mark the attempt completed and clear the live session.
-  studentExamGrades[key] = finalGrade;
-  await Promise.all([
-    saveDeltaDb('studentExamAnswers', key, studentExamAnswers[key]),
-    saveDeltaDb('studentExamGrades', key, finalGrade)
-  ]);
+  // CBT_ATOMIC_FINALIZATION_V1: one statement commits all finalization state.
+  // A database failure cannot leave a half-finished exam marked completed.
   const completionValue: any = isStaffForceFinish ? 'force_finish' : true;
-  completedExams[key] = completionValue;
-  const completionWrites: Promise<any>[] = [saveDeltaDb('completedExams', key, completionValue)];
-  if (isStaffForceFinish) {
-    forceFinishedExams[key] = true;
-    completionWrites.push(saveDeltaDb('forceFinishedExams', key, true));
-  }
-  await Promise.all(completionWrites);
+  const finalWrites: DeltaBatchWrite[] = [
+    { storeName: 'studentExamAnswers', itemKey: key, value: finalAns },
+    { storeName: 'studentExamGrades', itemKey: key, value: finalGrade },
+    { storeName: 'completedExams', itemKey: key, value: completionValue },
+    { storeName: 'activeExamSessions', itemKey: key, value: null },
+    { storeName: 'studentOutOfTab', itemKey: key, value: false },
+    { storeName: 'studentLivecamFrames', itemKey: key, value: null }
+  ];
+  if (isStaffForceFinish) finalWrites.push({ storeName: 'forceFinishedExams', itemKey: key, value: true });
+  await saveDeltaBatchDb(finalWrites);
 
+  // Publish in-memory state only once the atomic DB statement succeeds.
+  studentExamAnswers[key] = finalAns;
+  studentExamGrades[key] = finalGrade;
+  completedExams[key] = completionValue;
+  if (isStaffForceFinish) forceFinishedExams[key] = true;
   delete activeExamSessions[key];
   studentOutOfTab[key] = false;
   clearRuntimeLivecamFrame(key);
-  await Promise.all([
-    saveDeltaDb('activeExamSessions', key, null),
-    saveDeltaDb('studentOutOfTab', key, false),
-    saveDeltaDb('studentLivecamFrames', key, null)
-  ]);
 
   const answeredCount = Object.values(finalAns).filter((value: any) => value !== undefined && value !== null && String(value).trim() !== '').length;
   broadcastExamEvent({
@@ -16723,6 +16728,7 @@ app.post("/api/exam/attempt/finish", cbtAsyncEndpoint(async (req, res) => {
     forceFinished: isStaffForceFinish,
     answeredCount,
     totalQuestions: masterQuestions.length
+  });
   });
 }));
 
