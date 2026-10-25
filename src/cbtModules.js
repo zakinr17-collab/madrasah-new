@@ -3545,6 +3545,7 @@ function runQuestionConversion(activeCode = '') {
                             <td class="p-2 border-r border-slate-300 font-bold text-center align-top bg-slate-50 text-slate-700">${q.num}.</td>
                             <td class="p-2 font-semibold text-slate-900 leading-relaxed">${renderCbtTableCell(q.questionText)}</td>
                         </tr>
+                        ${(String(q.ts || '').toUpperCase().includes('ESY')) ? '' : `
                         <tr class="bg-white border-b border-slate-200">
                             <td class="p-2 border-r border-slate-300 font-bold text-center bg-slate-50 text-slate-700">A</td>
                             <td class="p-2 text-slate-800">${renderCbtTableCell(q.options.A || '')}</td>
@@ -3560,7 +3561,7 @@ function runQuestionConversion(activeCode = '') {
                         <tr class="bg-white border-b ${optionCount >= 5 ? 'border-slate-200' : 'border-slate-300'}">
                             <td class="p-2 border-r border-slate-300 font-bold text-center bg-slate-50 text-slate-700">D</td>
                             <td class="p-2 text-slate-800">${renderCbtTableCell(q.options.D || '')}</td>
-                        </tr>
+                        </tr>`}
                         ${optionCount >= 5 && !String(q.ts || '').toUpperCase().includes('ESY') ? `
                         <tr class="bg-white border-b border-slate-300">
                             <td class="p-2 border-r border-slate-300 font-bold text-center bg-slate-50 text-slate-700">E</td>
