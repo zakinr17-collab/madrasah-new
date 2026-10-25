@@ -3561,7 +3561,7 @@ function runQuestionConversion(activeCode = '') {
                             <td class="p-2 border-r border-slate-300 font-bold text-center bg-slate-50 text-slate-700">D</td>
                             <td class="p-2 text-slate-800">${renderCbtTableCell(q.options.D || '')}</td>
                         </tr>
-                        ${optionCount >= 5 ? `
+                        ${optionCount >= 5 && !String(q.ts || '').toUpperCase().includes('ESY') ? `
                         <tr class="bg-white border-b border-slate-300">
                             <td class="p-2 border-r border-slate-300 font-bold text-center bg-slate-50 text-slate-700">E</td>
                             <td class="p-2 text-slate-800">${renderCbtTableCell(q.options.E || '')}</td>
@@ -3891,12 +3891,15 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
         outputLines.push(`KJ\t${q.kj}`);
         outputLines.push(`ABS\t`);
         outputLines.push(`${q.num}.\t${q.questionText}`);
-        outputLines.push(`A\t${q.options.A || ''}`);
-        outputLines.push(`B\t${q.options.B || ''}`);
-        outputLines.push(`C\t${q.options.C || ''}`);
-        outputLines.push(`D\t${q.options.D || ''}`);
-        if (optionCount >= 5) {
-            outputLines.push(`E\t${q.options.E || ''}`);
+        const isEsayRow = String(q.ts || '').toUpperCase().includes('ESY') || String(q.ts || '').toUpperCase() === 'URT' || String(q.ts || '').toUpperCase() === 'STJ';
+        if (!isEsayRow) {
+            outputLines.push(`A\t${q.options.A || ''}`);
+            outputLines.push(`B\t${q.options.B || ''}`);
+            outputLines.push(`C\t${q.options.C || ''}`);
+            outputLines.push(`D\t${q.options.D || ''}`);
+            if (optionCount >= 5) {
+                outputLines.push(`E\t${q.options.E || ''}`);
+            }
         }
 
         if (i < parsedQuestions.length - 1) {
