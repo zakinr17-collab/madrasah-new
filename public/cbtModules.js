@@ -288,11 +288,17 @@ function renderQuestionBankModule(container) {
                             <div class="bg-white p-6 rounded-3xl border shadow-sm space-y-4 flex flex-col justify-between hover:border-emerald-500 transition">
                                 <div>
                                     <div class="flex justify-between items-start">
-                                        <span class="px-3 py-1 bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl font-mono">${qbEscapeHtml(bg.code)}</span>
-                                        <button type="button" onclick="deleteQuestionBankGroup(${qbInlineArg(bg.id)})" class="text-rose-400 hover:text-rose-600 p-1 cursor-pointer"><i class="fa-solid fa-trash"></i></button>
+                                        <h3 class="font-black text-slate-900 text-xl sm:text-2xl tracking-tight font-mono break-all leading-tight">${qbEscapeHtml(bg.code)}</h3>
+                                        <div class="flex items-center space-x-1 shrink-0">
+                                            <button type="button" onclick="openQuestionBankGroupModal(${qbInlineArg(bg.id)})" class="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl transition cursor-pointer" title="Edit Bank Soal (kode/mapel/kelas)"><i class="fa-solid fa-pen-to-square text-xs"></i></button>
+                                            <button type="button" onclick="deleteQuestionBankGroup(${qbInlineArg(bg.id)})" class="text-rose-400 hover:text-rose-600 p-1 cursor-pointer"><i class="fa-solid fa-trash"></i></button>
+                                        </div>
                                     </div>
-                                    <h3 class="font-bold text-slate-800 text-base mt-3">${qbEscapeHtml(subObj ? subObj.name : (bg.code || 'Mata Pelajaran'))} - ${qbEscapeHtml(clsObj ? clsObj.name : 'Kelas')}</h3>
-                                    <p class="text-xs text-slate-500 mt-1"><i class="fa-solid fa-book-open mr-1.5 text-emerald-600"></i>Total Butir Soal: <b>${count} Soal</b></p>
+                                    <p class="text-[11px] text-slate-500 mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                                        <span><i class="fa-solid fa-book-open mr-1 text-emerald-600"></i>${qbEscapeHtml(subObj ? subObj.name : 'Mata Pelajaran')}</span>
+                                        <span><i class="fa-solid fa-school mr-1 text-emerald-600"></i>${qbEscapeHtml(clsObj ? clsObj.name : 'Kelas')}</span>
+                                        <span><i class="fa-solid fa-layer-group mr-1 text-emerald-600"></i>${count} Butir</span>
+                                    </p>
                                 </div>
                                 <div class="grid grid-cols-2 gap-2 mt-2">
                                     <button type="button" onclick="selectQuestionBankGroup(${qbInlineArg(bg.code)})" class="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-2xl text-xs shadow transition cursor-pointer">Kelola Soal</button>
@@ -413,28 +419,30 @@ function selectQuestionBankGroup(code) {
     renderQuestionBankModule(document.getElementById('view-container'));
 }
 
-function openQuestionBankGroupModal() {
+function openQuestionBankGroupModal(editId = null) {
     const allowedSubjects = getTeacherAllowedSubjects();
+    const editing = editId ? (appState.questionBankGroups || []).find(bg => String(bg.id) === String(editId)) : null;
     const modal = document.getElementById('modal-container');
     modal.innerHTML = `
         <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
             <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 space-y-4">
-                <div class="flex justify-between items-center"><h3 class="font-bold text-slate-800">Tambah Bank Soal Baru</h3><button type="button" onclick="closeModal()"><i class="fa-solid fa-xmark text-lg"></i></button></div>
+                <div class="flex justify-between items-center"><h3 class="font-bold text-slate-800">${editing ? 'Edit Bank Soal' : 'Tambah Bank Soal Baru'}</h3><button type="button" onclick="closeModal()"><i class="fa-solid fa-xmark text-lg"></i></button></div>
                 <form onsubmit="saveQuestionBankGroup(event)" class="space-y-3 text-xs sm:text-sm">
                     <div>
                         <label class="block text-xs uppercase text-slate-500 mb-1">Kode Soal</label>
-                        <input type="text" id="gb-code" value="KODE-SOAL-${appState.questionBankGroups.length + 1}" required class="w-full px-4 py-2.5 bg-slate-50 border rounded-2xl font-mono">
+                        <input type="text" id="gb-code" value="${qbEscapeAttr(editing ? editing.code : ('KODE-SOAL-' + (appState.questionBankGroups.length + 1)))}" required class="w-full px-4 py-2.5 bg-slate-50 border rounded-2xl font-mono">
+                    ${editing ? `<input type="hidden" id="gb-edit-id" value="${qbEscapeAttr(editing.id)}">` : ''}
                     </div>
                     <div>
                         <label class="block text-xs uppercase text-slate-500 mb-1">Mata Pelajaran</label>
                         <select id="gb-mapel" class="w-full px-4 py-2.5 bg-slate-50 border rounded-2xl" required>
-                            ${allowedSubjects.map(s => `<option value="${qbEscapeAttr(s.id)}">${qbEscapeHtml(s.name)}</option>`).join('')}
+                            ${allowedSubjects.map(s => `<option value="${qbEscapeAttr(s.id)}" ${editing && String(editing.subjectId) === String(s.id) ? 'selected' : ''}>${qbEscapeHtml(s.name)}</option>`).join('')}
                         </select>
                     </div>
                     <div>
                         <label class="block text-xs uppercase text-slate-500 mb-1">Kelas</label>
                         <select id="gb-kelas" class="w-full px-4 py-2.5 bg-slate-50 border rounded-2xl" required>
-                            ${(appState.classes || []).map(c => `<option value="${qbEscapeAttr(c.id)}">${qbEscapeHtml(c.name)}</option>`).join('')}
+                            ${(appState.classes || []).map(c => `<option value="${qbEscapeAttr(c.id)}" ${editing && String(editing.classId) === String(c.id) ? 'selected' : ''}>${qbEscapeHtml(c.name)}</option>`).join('')}
                         </select>
                     </div>
                     <div class="flex justify-end space-x-2 pt-2">
@@ -452,8 +460,37 @@ async function saveQuestionBankGroup(e) {
     const code = document.getElementById('gb-code').value.trim();
     const subjectId = document.getElementById('gb-mapel').value;
     const classId = document.getElementById('gb-kelas').value;
+    const editId = document.getElementById('gb-edit-id')?.value || null;
 
     if (!code) { showToast('Kode wajib diisi.', 'error'); return; }
+
+    if (editId) {
+        const grp = (appState.questionBankGroups || []).find(bg => String(bg.id) === String(editId));
+        if (!grp) { showToast('Bank soal tidak ditemukan.', 'error'); return; }
+        const oldCode = grp.code;
+        grp.code = code;
+        grp.subjectId = subjectId;
+        grp.classId = classId;
+        // Jika kode berubah, ikutkan semua soal lama ke kode baru agar butir tidak terpisah
+        if (oldCode !== code) {
+            (appState.questionBank || []).forEach(q => {
+                if (String(q.code).trim().toLowerCase() === String(oldCode).trim().toLowerCase()) q.code = code;
+            });
+            saveState('questionBank');
+        }
+        try {
+            await fetch(`/api/question-bank-groups/${encodeURIComponent(editId)}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code, subjectId, classId })
+            });
+        } catch (err) {}
+        saveState('questionBankGroups');
+        closeModal();
+        showToast('Bank soal berhasil diperbarui!', 'success');
+        renderQuestionBankModule(document.getElementById('view-container'));
+        return;
+    }
 
     const newGroup = { id: 'BG' + Date.now(), code, subjectId, classId, createdAt: new Date().toISOString() };
     appState.questionBankGroups.push(newGroup);

@@ -14017,6 +14017,23 @@ app.post("/api/question-bank-groups", requireAuth, requireRole(['teacher', 'guru
   res.json({ success: true, group: newGrp });
 });
 
+app.put("/api/question-bank-groups/:id", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req: any, res) => {
+  const { id } = req.params;
+  const resolved = resolveTenantItemIndexById(questionBankGroups, id, req, false);
+  if (resolved.ambiguous) return res.status(409).json({ success: false, message: "ID bank soal ambigu lintas tenant." });
+  if (resolved.index < 0) return res.status(404).json({ success: false, message: "Bank soal tidak ditemukan pada madrasah ini." });
+  if (isTeacherRequest(req) && !questionBankGroupAllowedForTeacher(req, resolved.item)) {
+    return res.status(403).json({ success: false, message: "Guru hanya dapat mengubah bank soal mata pelajaran yang diampu." });
+  }
+  const { code, subjectId, classId } = req.body || {};
+  if (!code) return res.status(400).json({ success: false, message: "Kode bank soal wajib diisi." });
+  const oldCode = resolved.item.code;
+  resolved.item.code = code;
+  if (subjectId !== undefined) resolved.item.subjectId = subjectId;
+  if (classId !== undefined) resolved.item.classId = classId;
+  await saveData('questionBankGroups', questionBankGroups);
+  res.json({ success: true, group: resolved.item, oldCode });
+});
 app.delete("/api/question-bank-groups/:id", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
   const { id } = req.params;
   const resolved = resolveTenantItemIndexById(questionBankGroups, id, req, false);
