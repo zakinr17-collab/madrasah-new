@@ -412,12 +412,14 @@ function userAiKeyStoreKey(userId: string): string {
   return 'ai_user_key:' + crypto.createHash('sha256').update(String(userId)).digest('hex').slice(0, 24);
 }
 
+function getAllUserAiCredentials(): Record<string, any> {
+  const raw = (appSettings as any)?.aiUserKeys;
+  return raw && typeof raw === 'object' ? raw : {};
+}
+
 async function getStoredUserAiCredential(userId: string): Promise<{ apiKey: string; baseUrl: string; model: string } | null> {
-  if (!pool) { try { await dbInitPromise; } catch (_) {} }
-  if (!pool) return null;
   try {
-    const res = await pool.query("SELECT value FROM app_store WHERE key = $1 LIMIT 1", [userAiKeyStoreKey(userId)]);
-    const value = res.rows?.[0]?.value;
+    const value = getAllUserAiCredentials()[String(userId)];
     if (!value || typeof value !== 'object' || !value.apiKeyEnc) return null;
     const apiKey = decryptSecret(String(value.apiKeyEnc), AI_PROVIDER_CREDENTIAL_KEY);
     if (!apiKey) return null;
@@ -429,19 +431,19 @@ async function getStoredUserAiCredential(userId: string): Promise<{ apiKey: stri
 }
 
 async function saveUserAiCredential(userId: string, cred: { apiKey?: string; baseUrl?: string; model?: string } | null): Promise<void> {
-  if (!pool) throw new Error('Database belum siap.');
-  const key = userAiKeyStoreKey(userId);
+  const all = getAllUserAiCredentials();
   if (!cred || !String(cred.apiKey || '').trim()) {
-    await pool.query("DELETE FROM app_store WHERE key = $1", [key]);
-    return;
+    delete all[String(userId)];
+  } else {
+    const current = await getStoredUserAiCredential(userId);
+    all[String(userId)] = {
+      apiKeyEnc: encryptSecret(String(cred.apiKey || '').trim(), AI_PROVIDER_CREDENTIAL_KEY),
+      baseUrl: String(cred.baseUrl || current?.baseUrl || '').trim(),
+      model: String(cred.model || current?.model || '').trim()
+    };
   }
-  const current = await getStoredUserAiCredential(userId);
-  const value = {
-    apiKeyEnc: encryptSecret(String(cred.apiKey || '').trim(), AI_PROVIDER_CREDENTIAL_KEY),
-    baseUrl: String(cred.baseUrl || current?.baseUrl || '').trim(),
-    model: String(cred.model || current?.model || '').trim()
-  };
-  await pool.query(`INSERT INTO app_store (key, value) VALUES ($1, $2::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [key, JSON.stringify(value)]);
+  (appSettings as any).aiUserKeys = all;
+  await saveData('settings', appSettings);
 }
 
 function deleteUserAiCredential(userId: string): Promise<void> { return saveUserAiCredential(userId, null); }
@@ -3851,7 +3853,16 @@ app.delete('/api/my/drive', requireAuth, async (req: any, res) => {
   } catch (error: any) {
     return res.status(500).json({ success: false, message: safeServerError(error, 'Gagal memutus koneksi.') });
   }
-});app.post('/api/my/ai-key/test', requireAuth, async (req: any, res) => {
+});app.delete('/api/my/ai-key', requireAuth, async (req: any, res) => {
+  try {
+    await saveUserAiCredential(String(req.authUser?.id || ''), null);
+    res.json({ success: true, message: 'API key pribadi dihapus.' });
+  } catch (error: any) {
+    res.json({ success: false, message: 'Gagal menghapus key: ' + String(error?.message || error).slice(0, 200) });
+  }
+});
+
+app.post('/api/my/ai-key/test', requireAuth, async (req: any, res) => {
   try {
     const authUser = req.user;
     const userId = String(authUser.id || '');
@@ -5752,6 +5763,8 @@ function filterStudentLinkedListForRequest(source: any, req: any): any[] {
 function sanitizeSettingsForClient(settings: any) {
   if (!settings || typeof settings !== 'object') return settings || null;
   const safe: any = { ...settings };
+  delete safe.aiUserKeys;
+  delete safe.googleDriveUserConnections;
   const explicitSensitive = new Set([
     'adminPass', 'password', 'jwtSecret', 'apiKey', 'geminiApiKey',
     'cloudinaryApiSecret', 'livekitApiSecret', 'databaseUrl', 'DATABASE_URL',
@@ -20321,12 +20334,14 @@ function googleDriveUserStoreKey(userId: string): string {
   return 'google_drive_oauth_user:' + crypto.createHash('sha256').update(String(userId)).digest('hex').slice(0, 24);
 }
 
+function getAllGoogleDriveUserConnections(): Record<string, any> {
+  const raw = (appSettings as any)?.googleDriveUserConnections;
+  return raw && typeof raw === 'object' ? raw : {};
+}
+
 async function getStoredGoogleDriveUserConnection(userId: string): Promise<any | null> {
-  if (!pool) { try { await dbInitPromise; } catch (_) {} }
-  if (!pool) return null;
   try {
-    const res = await pool.query("SELECT value FROM app_store WHERE key = $1 LIMIT 1", [googleDriveUserStoreKey(userId)]);
-    const value = res.rows?.[0]?.value;
+    const value = getAllGoogleDriveUserConnections()[String(userId)];
     return value && typeof value === 'object' ? value : null;
   } catch (error: any) {
     console.warn('[Google Drive per-guru] Gagal membaca koneksi:', error?.message || error);
@@ -20335,17 +20350,18 @@ async function getStoredGoogleDriveUserConnection(userId: string): Promise<any |
 }
 
 async function saveGoogleDriveUserConnection(userId: string, patch: any): Promise<void> {
-  if (!pool) throw new Error('Database belum siap.');
-  const key = googleDriveUserStoreKey(userId);
-  const current = (await getStoredGoogleDriveUserConnection(userId)) || {};
-  const value = { ...current, ...patch, userId: String(userId) };
-  await pool.query(`INSERT INTO app_store (key, value) VALUES ($1, $2::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [key, JSON.stringify(value)]);
+  const all = getAllGoogleDriveUserConnections();
+  const current = all[String(userId)] || {};
+  all[String(userId)] = { ...current, ...patch, userId: String(userId) };
+  (appSettings as any).googleDriveUserConnections = all;
+  await saveData('settings', appSettings);
 }
 
 async function deleteGoogleDriveUserConnection(userId: string): Promise<void> {
-  if (!pool) { try { await dbInitPromise; } catch (_) {} }
-  if (!pool) return;
-  await pool.query("DELETE FROM app_store WHERE key = $1", [googleDriveUserStoreKey(userId)]);
+  const all = getAllGoogleDriveUserConnections();
+  delete all[String(userId)];
+  (appSettings as any).googleDriveUserConnections = all;
+  await saveData('settings', appSettings);
 }
 
 async function getGoogleDriveUserRefreshToken(userId: string): Promise<string | null> {
