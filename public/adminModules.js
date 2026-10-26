@@ -975,6 +975,14 @@ function renderTeacherProfile(container) {
             ` : ''}
         </div>
     `;
+    // Panel AI & Drive pribadi guru (jika dibuka oleh guru sendiri)
+    if (String(appState.role || "").toLowerCase() === "teacher" || String(appState.role || "").toLowerCase() === "guru") {
+        const aiDriveHost = document.createElement("div");
+        aiDriveHost.id = "my-ai-drive-wrap";
+        aiDriveHost.className = "space-y-6";
+        container.querySelector(".space-y-6") ? container.querySelector(".space-y-6").appendChild(aiDriveHost) : container.appendChild(aiDriveHost);
+        if (typeof window.renderMyAiDrivePanel === "function") window.renderMyAiDrivePanel();
+    }
 }
 
 function openTeacherPhotoSourceModal(teacherId) {
