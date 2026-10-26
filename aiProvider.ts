@@ -15,15 +15,21 @@ export interface AIContentPart { text?: string; inlineData?: { mimeType: string;
 export type AIContents = string | AIContentPart[] | any[];
 
 function customBase(): string {
-  return (globalThis as any).__aiProviderRuntime?.customBaseUrl
+  return aiUserOverride()?.baseUrl
+    || (globalThis as any).__aiProviderRuntime?.customBaseUrl
     || (process.env.CUSTOM_AI_BASE_URL || "https://token.lightvela.ai/v1").replace(/\/$/, "");
 }
+function aiUserOverride(): { apiKey?: string; baseUrl?: string; model?: string } | undefined {
+  try { return (globalThis as any).__aiUserStore?.getStore(); } catch { return undefined; }
+}
 function customKey(): string {
-  return (globalThis as any).__aiProviderRuntime?.customApiKey
+  return aiUserOverride()?.apiKey
+    || (globalThis as any).__aiProviderRuntime?.customApiKey
     || process.env.CUSTOM_AI_API_KEY || "";
 }
 function customModel(): string {
-  return (globalThis as any).__aiProviderRuntime?.customModel
+  return aiUserOverride()?.model
+    || (globalThis as any).__aiProviderRuntime?.customModel
     || process.env.CUSTOM_AI_MODEL || "auto";
 }
 function providerOrder(): string[] {

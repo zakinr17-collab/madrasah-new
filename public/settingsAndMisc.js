@@ -554,7 +554,7 @@ function renderSettingModule(container) {
 
 
                 <!-- Google Drive OAuth: canonical connection surface for online PDF storage -->
-                <div class="border-t border-slate-100 pt-6">
+                <div class="border-t border-slate-100 pt-6 admin-ai-config-card">
                     <div id="google-drive-settings-card" class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border border-blue-100 bg-blue-50/60">
                         <div class="flex items-start gap-3 min-w-0">
                             <div class="w-10 h-10 rounded-xl bg-white border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
@@ -578,6 +578,10 @@ function renderSettingModule(container) {
                         </button>
                     </div>
                 </div>
+                                <!-- Perizinan Guru (AI & Drive) - admin only, render via JS -->
+                <div id="staff-access-policy-wrap"></div>
+                <!-- AI Saya & Drive Saya (guru) - render via JS -->
+                <div id="my-ai-drive-wrap"></div>
                 <!-- AI Provider (BYOK): otak untuk koreksi, buat soal, modul ajar, dll -->
                 <div class="border-t border-slate-100 pt-6">
                     <div class="flex items-start gap-3 mb-4">
@@ -1484,6 +1488,8 @@ function renderSettingModule(container) {
     updateSettingsLogoPreview();
     searchUserAccounts('');
     refreshGoogleDriveSettingsStatus();    setTimeout(() => {
+renderStaffAccessPolicy();
+renderMyAiDrivePanel();
         if (window.updateThemeSelectionUI) {
             window.updateThemeSelectionUI();
         }
@@ -5541,6 +5547,197 @@ async function runTeacherPhotoCleanup() {
 }
 
 // Window Globals
+// ===== Perizinan Guru (AI & Drive) — admin =====
+async function renderStaffAccessPolicy() {
+    const wrap = document.getElementById("staff-access-policy-wrap");
+    if (!wrap) return;
+    const role = String(appState.role || "").toLowerCase();
+    if (!["admin", "administrator", "bos", "superadmin"].includes(role)) { wrap.innerHTML = ""; return; }
+    wrap.innerHTML = '<div class="p-5 rounded-2xl border border-slate-100 bg-white"><span class="text-xs text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Memuat perizinan guru...</span></div>';
+    try {
+        const res = await fetch("/api/staff-access-policy", { headers: { "Authorization": "Bearer " + (appState.token || localStorage.getItem("token") || "") } });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || "Gagal memuat perizinan.");
+        const policy = data.policy || { ai: "admin", drive: "admin", aiTeachers: [], driveTeachers: [] };
+        const teachers = data.teachers || [];
+        const modeLabel = { admin: "Pakai milik madrasah", allowed: "Boleh pasang sendiri", own: "Wajib pasang sendiri" };
+        const modeInfo = { admin: "Semua guru memakai API key / Drive yang dipasang admin madrasah.", allowed: "Guru yang terdaftar boleh memasang API key / Drive miliknya sendiri; yang tidak terdaftar tetap memakai milik madrasah.", own: "Guru yang terdaftar WAJIB memasang API key / Drive miliknya sendiri (fitur AI/upload menolak jika belum pasang)." };
+        const teacherChips = (list) => teachers.map(t => {
+            const on = (list || []).includes(String(t.id));
+            return `<label class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-bold cursor-pointer ${on ? "border-emerald-300 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-white text-slate-500"}"><input type="checkbox" class="policy-teacher-cb hidden" data-kind="x" data-id="${escHtml(String(t.id))}" ${on ? "checked" : ""} onchange="this.closest('label').classList.toggle('border-emerald-300',this.checked);this.closest('label').classList.toggle('bg-emerald-50',this.checked);this.closest('label').classList.toggle('text-emerald-700',this.checked)"><span>${escHtml(t.name || t.username)}</span></label>`;
+        }).join("") || '<span class="text-[11px] text-slate-400">Belum ada guru.</span>';
+        wrap.innerHTML = `
+            <div class="border-t border-slate-100 pt-6">
+                <div class="flex items-start gap-3 mb-4">
+                    <div class="w-10 h-10 rounded-xl bg-white border border-amber-100 flex items-center justify-center text-amber-600 shrink-0"><i class="fa-solid fa-user-shield text-lg"></i></div>
+                    <div class="min-w-0"><h2 class="text-base font-bold text-slate-800">Perizinan Guru — AI &amp; Google Drive</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Atur siapa yang memakai milik madrasah dan siapa yang memasang sendiri.</p></div>
+                </div>
+                <div class="space-y-4">
+                    <div class="p-4 rounded-2xl border border-violet-100 bg-violet-50/40">
+                        <div class="flex flex-wrap items-center justify-between gap-2"><span class="text-xs font-black text-slate-700"><i class="fa-solid fa-brain text-violet-600 mr-1"></i>API Key AI</span>
+                        <select id="policy-ai-mode" class="px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white">${["admin","allowed","own"].map(m => `<option value="${m}" ${policy.ai === m ? "selected" : ""}>${modeLabel[m]}</option>`).join("")}</select></div>
+                        <p class="text-[11px] text-slate-500 mt-1.5" id="policy-ai-info">${modeInfo[policy.ai || "admin"]}</p>
+                        <div class="mt-3"><div class="text-[10px] font-black uppercase text-slate-400 mb-1.5">Guru yang diizinkan/wajib:</div><div class="flex flex-wrap gap-1.5" id="policy-ai-teachers">${teacherChips(policy.aiTeachers)}</div></div>
+                    </div>
+                    <div class="p-4 rounded-2xl border border-blue-100 bg-blue-50/40">
+                        <div class="flex flex-wrap items-center justify-between gap-2"><span class="text-xs font-black text-slate-700"><i class="fa-brands fa-google-drive text-blue-600 mr-1"></i>Google Drive</span>
+                        <select id="policy-drive-mode" class="px-3 py-2 rounded-xl border border-slate-200 text-xs font-bold bg-white">${["admin","allowed","own"].map(m => `<option value="${m}" ${policy.drive === m ? "selected" : ""}>${modeLabel[m]}</option>`).join("")}</select></div>
+                        <p class="text-[11px] text-slate-500 mt-1.5" id="policy-drive-info">${modeInfo[policy.drive || "admin"]}</p>
+                        <div class="mt-3"><div class="text-[10px] font-black uppercase text-slate-400 mb-1.5">Guru yang diizinkan/wajib:</div><div class="flex flex-wrap gap-1.5" id="policy-drive-teachers">${teacherChips(policy.driveTeachers)}</div></div>
+                    </div>
+                    <button type="button" id="policy-save-btn" onclick="saveStaffAccessPolicy(this)" class="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-black shadow-sm"><i class="fa-solid fa-floppy-disk mr-1"></i>Simpan Perizinan</button>
+                </div>
+            </div>`;
+        document.getElementById("policy-ai-mode").addEventListener("change", e => { document.getElementById("policy-ai-info").textContent = modeInfo[e.target.value]; });
+        document.getElementById("policy-drive-mode").addEventListener("change", e => { document.getElementById("policy-drive-info").textContent = modeInfo[e.target.value]; });
+        wrap.querySelectorAll('#policy-ai-teachers .policy-teacher-cb').forEach(cb => cb.dataset.kind = "ai");
+        wrap.querySelectorAll('#policy-drive-teachers .policy-teacher-cb').forEach(cb => cb.dataset.kind = "drive");
+    } catch (err) {
+        wrap.innerHTML = `<div class="p-4 rounded-2xl border border-rose-100 bg-rose-50 text-xs text-rose-700">${escHtml(err.message || "Gagal memuat perizinan.")}</div>`;
+    }
+}
+window.renderStaffAccessPolicy = renderStaffAccessPolicy;
+
+async function saveStaffAccessPolicy(btn) {
+    const collect = (kind) => [...document.querySelectorAll(`.policy-teacher-cb[data-kind="${kind}"]`)].filter(cb => cb.checked).map(cb => cb.dataset.id);
+    const payload = {
+        ai: document.getElementById("policy-ai-mode").value,
+        drive: document.getElementById("policy-drive-mode").value,
+        aiTeachers: collect("ai"),
+        driveTeachers: collect("drive")
+    };
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Menyimpan...'; }
+    try {
+        const res = await fetch("/api/staff-access-policy", { method: "PUT", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + (appState.token || localStorage.getItem("token") || "") }, body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || "Gagal menyimpan.");
+        if (appState.settings) appState.settings.aiAccessPolicy = data.policy;
+        showToast("Perizinan guru tersimpan.", "success");
+    } catch (err) {
+        showToast(err.message || "Gagal menyimpan perizinan.", "error");
+    } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk mr-1"></i>Simpan Perizinan'; }
+    }
+}
+window.saveStaffAccessPolicy = saveStaffAccessPolicy;
+
+// ===== AI Saya & Drive Saya — guru =====
+async function renderMyAiDrivePanel() {
+    const wrap = document.getElementById("my-ai-drive-wrap");
+    if (!wrap) return;
+    const role = String(appState.role || "").toLowerCase();
+    if (role !== "teacher" && role !== "guru") { wrap.innerHTML = ""; return; }
+    const aiAdminCard = document.querySelector(".admin-ai-config-card");
+    if (aiAdminCard) aiAdminCard.classList.add("hidden");
+    wrap.innerHTML = '<div class="p-5 rounded-2xl border border-slate-100 bg-white"><span class="text-xs text-slate-400"><i class="fa-solid fa-spinner fa-spin mr-1"></i>Memuat status AI &amp; Drive...</span></div>';
+    try {
+        const [aiRes, driveRes] = await Promise.all([
+            fetch("/api/my/ai-key", { headers: { "Authorization": "Bearer " + (appState.token || localStorage.getItem("token") || "") } }),
+            fetch("/api/my/drive", { headers: { "Authorization": "Bearer " + (appState.token || localStorage.getItem("token") || "") } })
+        ]);
+        const ai = await aiRes.json();
+        const drive = await driveRes.json();
+        if (!ai.success || !drive.success) throw new Error(ai.message || drive.message || "Gagal memuat status.");
+        const modeText = { admin: "Memakai milik madrasah", allowed: "Boleh pasang sendiri", own: "Wajib pasang sendiri" };
+        wrap.innerHTML = `
+            <div class="border-t border-slate-100 pt-6 space-y-4">
+                <div class="flex items-start gap-3 mb-1">
+                    <div class="w-10 h-10 rounded-xl bg-white border border-emerald-100 flex items-center justify-center text-emerald-600 shrink-0"><i class="fa-solid fa-user-gear text-lg"></i></div>
+                    <div class="min-w-0"><h2 class="text-base font-bold text-slate-800">AI &amp; Google Drive Saya</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Status akses akun guru Anda. API key tersimpan terenkripsi di server.</p></div>
+                </div>
+                <div class="p-4 rounded-2xl border ${ai.canUseOwnKey ? "border-violet-100 bg-violet-50/40" : "border-slate-100 bg-slate-50"}">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span class="text-xs font-black text-slate-700"><i class="fa-solid fa-brain text-violet-600 mr-1"></i>API Key AI</span>
+                        <span class="text-[10px] font-bold px-2 py-1 rounded-lg ${ai.canUseOwnKey ? "bg-violet-100 text-violet-700" : "bg-slate-200 text-slate-600"}">${modeText[ai.mode] || ai.mode}</span>
+                    </div>
+                    ${ai.canUseOwnKey ? `
+                    <div class="mt-3 space-y-2">
+                        ${ai.hasKey ? `<div class="text-[11px] text-slate-600"><i class="fa-solid fa-circle-check text-emerald-600 mr-1"></i>Key pribadi terpasang (<code class="font-mono">${escHtml(ai.maskedKey || "****")}</code>${ai.baseUrl ? " • " + escHtml(ai.baseUrl) : ""})</div>` : `<div class="text-[11px] text-amber-700"><i class="fa-solid fa-triangle-exclamation mr-1"></i>Belum ada key pribadi${ai.mode === "own" ? " — WAJIB dipasang sebelum fitur AI bisa dipakai" : ""}.</div>`}
+                        <div class="grid sm:grid-cols-3 gap-2">
+                            <input id="my-ai-key" type="password" placeholder="API Key milik saya" class="sm:col-span-3 px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold">
+                            <input id="my-ai-baseurl" type="text" value="${escHtml(ai.baseUrl || "")}" placeholder="Base URL (opsional)" class="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold">
+                            <input id="my-ai-model" type="text" value="${escHtml(ai.model || "")}" placeholder="Model (opsional)" class="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-semibold">
+                            <div class="flex gap-2">
+                                <button type="button" onclick="saveMyAiKey(this)" class="flex-1 px-3 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-xs font-black">Simpan</button>
+                                <button type="button" onclick="testMyAiKey(this)" class="flex-1 px-3 py-2.5 bg-white border border-violet-200 text-violet-700 rounded-xl text-xs font-black">Tes</button>
+                            </div>
+                        </div>
+                        ${ai.hasKey ? `<button type="button" onclick="removeMyAiKey(this)" class="mt-1 text-[11px] font-bold text-rose-600 hover:underline"><i class="fa-solid fa-trash mr-1"></i>Hapus key pribadi (kembali pakai milik madrasah)</button>` : ""}
+                    </div>` : `<p class="text-[11px] text-slate-500 mt-2">Administrator belum mengaktifkan API key pribadi untuk akun ini — semua fitur AI memakai milik madrasah.</p>`}
+                </div>
+                <div class="p-4 rounded-2xl border ${drive.canConnect ? "border-blue-100 bg-blue-50/40" : "border-slate-100 bg-slate-50"}">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <span class="text-xs font-black text-slate-700"><i class="fa-brands fa-google-drive text-blue-600 mr-1"></i>Google Drive Saya</span>
+                        <span class="text-[10px] font-bold px-2 py-1 rounded-lg ${drive.canConnect ? (drive.connected ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700") : "bg-slate-200 text-slate-600"}">${drive.canConnect ? (drive.connected ? "Terhubung" : "Belum terhubung") : (modeText[drive.mode] || drive.mode)}</span>
+                    </div>
+                    ${drive.canConnect ? `
+                    <div class="mt-3 flex flex-wrap items-center gap-2">
+                        ${drive.connected ? `<span class="text-[11px] text-slate-600"><i class="fa-solid fa-folder mr-1 text-blue-500"></i>Folder: ${escHtml(drive.folderName || "Materi Saya")}</span>` : ""}
+                        <button type="button" onclick="connectGoogleDriveOAuth(this)" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black"><i class="fa-brands fa-google-drive mr-1"></i>${drive.connected ? "Hubungkan Ulang" : "Hubungkan Google Drive"}</button>
+                        ${drive.connected ? `<button type="button" onclick="disconnectMyDrive(this)" class="px-4 py-2 bg-white border border-rose-200 text-rose-600 rounded-xl text-xs font-black">Putuskan</button>` : ""}
+                    </div>
+                    <p class="text-[11px] text-slate-500 mt-2">${drive.connected ? "PDF/gambar/video materi Anda akan diunggah ke Drive pribadi Anda." : "Setelah terhubung, materi yang Anda unggah tersimpan di Drive milik Anda sendiri."}</p>`
+                    : `<p class="text-[11px] text-slate-500 mt-2">Materi Anda diunggah ke Google Drive madrasah (dikelola admin).</p>`}
+                </div>
+            </div>`;
+    } catch (err) {
+        wrap.innerHTML = `<div class="p-4 rounded-2xl border border-rose-100 bg-rose-50 text-xs text-rose-700">${escHtml(err.message || "Gagal memuat status AI & Drive.")}</div>`;
+    }
+}
+window.renderMyAiDrivePanel = renderMyAiDrivePanel;
+
+async function saveMyAiKey(btn) {
+    const keyEl = document.getElementById("my-ai-key");
+    const apiKey = (keyEl ? keyEl.value : "").trim();
+    const payload = { apiKey, baseUrl: (document.getElementById("my-ai-baseurl") || {}).value || "", model: (document.getElementById("my-ai-model") || {}).value || "" };
+    if (btn) { btn.disabled = true; }
+    try {
+        const res = await fetch("/api/my/ai-key", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + (appState.token || localStorage.getItem("token") || "") }, body: JSON.stringify(payload) });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || "Gagal menyimpan.");
+        showToast(data.removed ? "Key pribadi dihapus." : "API key pribadi tersimpan.", "success");
+        await renderMyAiDrivePanel();
+    } catch (err) {
+        showToast(err.message || "Gagal menyimpan API key.", "error");
+    } finally { if (btn) btn.disabled = false; }
+}
+window.saveMyAiKey = saveMyAiKey;
+
+async function testMyAiKey(btn) {
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; }
+    try {
+        const res = await fetch("/api/my/ai-key/test", { method: "POST", headers: { "Authorization": "Bearer " + (appState.token || localStorage.getItem("token") || "") } });
+        const data = await res.json();
+        showToast(data.message || (data.success ? "Berhasil." : "Gagal."), data.success ? "success" : "error");
+    } catch (err) {
+        showToast(err.message || "Tes gagal.", "error");
+    } finally { if (btn) { btn.disabled = false; btn.innerHTML = "Tes"; } }
+}
+window.testMyAiKey = testMyAiKey;
+
+async function removeMyAiKey(btn) {
+    if (!confirm("Hapus API key pribadi dan kembali memakai key madrasah?")) return;
+    await saveMyAiKey(btn);
+}
+window.removeMyAiKey = removeMyAiKey;
+
+async function disconnectMyDrive(btn) {
+    if (!confirm("Putuskan koneksi Google Drive pribadi Anda?")) return;
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch("/api/my/drive", { method: "DELETE", headers: { "Authorization": "Bearer " + (appState.token || localStorage.getItem("token") || "") } });
+        const data = await res.json();
+        if (!data.success) throw new Error(data.message || "Gagal memutus.");
+        showToast("Koneksi Drive pribadi diputus.", "success");
+        await renderMyAiDrivePanel();
+    } catch (err) {
+        showToast(err.message || "Gagal memutus koneksi.", "error");
+        if (btn) btn.disabled = false;
+    }
+}
+window.disconnectMyDrive = disconnectMyDrive;
 window.renderSettingModule = renderSettingModule;
 window.saveLoginCustomization = saveLoginCustomization;
 window.toggleCustomLoginBgColor = toggleCustomLoginBgColor;

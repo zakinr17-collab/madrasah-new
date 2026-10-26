@@ -385,6 +385,72 @@ function sanitizeStudentForClient(student: any, includeAdminPassword = false): a
 }
 
 const AI_PROVIDER_CREDENTIAL_KEY = deriveAiProviderCredentialKey(LOCAL_STORE_SECRET);
+// ===== AI per-guru (perizinan admin + API key per guru) =====
+const aiUserStore = new AsyncLocalStorage<{ apiKey?: string; baseUrl?: string; model?: string; userId?: string }>();
+
+type AiAccessMode = 'admin' | 'allowed' | 'own';
+function getAiAccessPolicy(): { ai: AiAccessMode; drive: AiAccessMode; aiTeachers: string[]; driveTeachers: string[] } {
+  const raw = (appSettings as any)?.aiAccessPolicy;
+  const norm = (v: any) => (v === 'allowed' || v === 'own' ? v : 'admin') as AiAccessMode;
+  return {
+    ai: norm(raw?.ai),
+    drive: norm(raw?.drive),
+    aiTeachers: Array.isArray(raw?.aiTeachers) ? raw.aiTeachers.map(String) : [],
+    driveTeachers: Array.isArray(raw?.driveTeachers) ? raw.driveTeachers.map(String) : []
+  };
+}
+
+function aiAccessForUser(userId: string, kind: 'ai' | 'drive'): AiAccessMode {
+  const policy = getAiAccessPolicy();
+  const mode = kind === 'ai' ? policy.ai : policy.drive;
+  const list = kind === 'ai' ? policy.aiTeachers : policy.driveTeachers;
+  if (mode !== 'admin' && list.includes(String(userId))) return mode;
+  return 'admin';
+}
+
+function userAiKeyStoreKey(userId: string): string {
+  return 'ai_user_key:' + crypto.createHash('sha256').update(String(userId)).digest('hex').slice(0, 24);
+}
+
+async function getStoredUserAiCredential(userId: string): Promise<{ apiKey: string; baseUrl: string; model: string } | null> {
+  if (!pool) { try { await dbInitPromise; } catch (_) {} }
+  if (!pool) return null;
+  try {
+    const res = await pool.query("SELECT value FROM app_store WHERE key = $1 LIMIT 1", [userAiKeyStoreKey(userId)]);
+    const value = res.rows?.[0]?.value;
+    if (!value || typeof value !== 'object' || !value.apiKeyEnc) return null;
+    const apiKey = decryptSecret(String(value.apiKeyEnc), AI_PROVIDER_CREDENTIAL_KEY);
+    if (!apiKey) return null;
+    return { apiKey, baseUrl: String(value.baseUrl || '').trim(), model: String(value.model || '').trim() };
+  } catch (error: any) {
+    console.warn('[AI per-guru] Gagal membaca key guru:', error?.message || error);
+    return null;
+  }
+}
+
+async function saveUserAiCredential(userId: string, cred: { apiKey?: string; baseUrl?: string; model?: string } | null): Promise<void> {
+  if (!pool) throw new Error('Database belum siap.');
+  const key = userAiKeyStoreKey(userId);
+  if (!cred || !String(cred.apiKey || '').trim()) {
+    await pool.query("DELETE FROM app_store WHERE key = $1", [key]);
+    return;
+  }
+  const current = await getStoredUserAiCredential(userId);
+  const value = {
+    apiKeyEnc: encryptSecret(String(cred.apiKey || '').trim(), AI_PROVIDER_CREDENTIAL_KEY),
+    baseUrl: String(cred.baseUrl || current?.baseUrl || '').trim(),
+    model: String(cred.model || current?.model || '').trim()
+  };
+  await pool.query(`INSERT INTO app_store (key, value) VALUES ($1, $2::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [key, JSON.stringify(value)]);
+}
+
+function deleteUserAiCredential(userId: string): Promise<void> { return saveUserAiCredential(userId, null); }
+
+function aiRequestOverridesForUser(userId: string, mode: AiAccessMode) {
+  // mode 'admin' -> pakai key madrasah (default). 'allowed'/'own' -> pakai key guru jika ada.
+  if (mode === 'admin') return null;
+  return getStoredUserAiCredential(userId);
+}
 
 function getAiProviderConfig(): AiProviderConfig | null {
   const raw = (appSettings as any)?.aiProviderConfig;
@@ -3381,6 +3447,182 @@ function cbtAsyncEndpoint(
 }
 
 const app = express();
+
+// Middleware AI per-guru: jalankan handler dalam ALS context berisi kredensial guru (jika diizinkan).
+async function resolveAiUserContext(req: any): Promise<{ userId: string; role: string; mode: AiAccessMode; overrides: { apiKey: string; baseUrl: string; model: string } | null }> | null {
+  const authUser = req.user || getAuthUser(req);
+  if (!authUser) return null;
+  const userId = String(authUser.id || '');
+  const role = String(authUser.role || '').toLowerCase();
+  if (role !== 'teacher' && role !== 'guru') return null; // admin/bos selalu pakai key madrasah
+  const mode = aiAccessForUser(userId, 'ai');
+  const overrides = await aiRequestOverridesForUser(userId, mode);
+  return { userId, role, mode, overrides };
+}
+
+app.use(['/api/gemini', '/api/modul'], async (req: any, res: any, next: any) => {
+  try {
+    const ctx = await resolveAiUserContext(req);
+    if (!ctx) return next();
+    if (ctx.mode === 'own' && !ctx.overrides) {
+      return res.status(403).json({ success: false, code: 'AI_KEY_REQUIRED', message: 'Fitur AI untuk Anda mewajibkan API key sendiri. Pasang di Pengaturan > AI Saya.' });
+    }
+    if (ctx.overrides) {
+      aiUserStore.run({ apiKey: ctx.overrides.apiKey, baseUrl: ctx.overrides.baseUrl, model: ctx.overrides.model, userId: ctx.userId }, () => next());
+    } else {
+      aiUserStore.run({ userId: ctx.userId }, () => next());
+    }
+  } catch (error: any) {
+    console.warn('[AI per-guru] Middleware error:', error?.message || error);
+    next();
+  }
+});
+
+// ===== Endpoint AI milik guru (pasang/hapus API key sendiri) =====
+app.get('/api/my/ai-key', requireAuth, async (req: any, res) => {
+  try {
+    const authUser = req.user;
+    const userId = String(authUser.id || '');
+    const role = String(authUser.role || '').toLowerCase();
+    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
+    const mode = isAdmin ? 'admin' : aiAccessForUser(userId, 'ai');
+    const cred = await getStoredUserAiCredential(userId);
+    return res.json({
+      success: true,
+      mode,
+      canUseOwnKey: mode !== 'admin',
+      hasKey: Boolean(cred),
+      baseUrl: cred?.baseUrl || '',
+      model: cred?.model || '',
+      maskedKey: cred ? (cred.apiKey.slice(0, 4) + '****' + cred.apiKey.slice(-4)) : ''
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: safeServerError(error, 'Status AI pribadi tidak tersedia.') });
+  }
+});
+
+app.post('/api/my/ai-key', requireAuth, async (req: any, res) => {
+  try {
+    const authUser = req.user;
+    const userId = String(authUser.id || '');
+    const role = String(authUser.role || '').toLowerCase();
+    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
+    const mode = isAdmin ? 'allowed' : aiAccessForUser(userId, 'ai');
+    if (mode === 'admin') {
+      return res.status(403).json({ success: false, message: 'Administrator belum memberi izin API key pribadi untuk akun Anda.' });
+    }
+    const apiKey = String(req.body?.apiKey || '').trim();
+    const baseUrl = String(req.body?.baseUrl || '').trim().replace(/\/$/, '');
+    const model = String(req.body?.model || '').trim();
+    if (!apiKey) {
+      await deleteUserAiCredential(userId);
+      return res.json({ success: true, removed: true, message: 'API key pribadi dihapus. Kembali memakai key madrasah.' });
+    }
+    if (apiKey.length < 8 || /[\s]/.test(apiKey)) {
+      return res.status(400).json({ success: false, message: 'API key tidak valid.' });
+    }
+    await saveUserAiCredential(userId, { apiKey, baseUrl, model });
+    return res.json({ success: true, message: 'API key pribadi tersimpan terenkripsi.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: safeServerError(error, 'Gagal menyimpan API key.') });
+  }
+});
+
+// Tes koneksi AI pribadi guru
+
+// ===== Perizinan guru: AI & Google Drive (admin) =====
+app.get('/api/staff-access-policy', requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    const policy = getAiAccessPolicy();
+    const list = filterByMadrasah(teachers, req).map((t: any) => ({ id: String(t.id), name: String(t.name || ''), username: String(t.username || '') }));
+    return res.json({ success: true, policy, teachers: list });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: safeServerError(error, 'Gagal membaca perizinan.') });
+  }
+});
+
+app.put('/api/staff-access-policy', requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    const normMode = (v: any) => (v === 'allowed' || v === 'own' ? v : 'admin');
+    const body = req.body || {};
+    const policy = {
+      ai: normMode(body.ai),
+      drive: normMode(body.drive),
+      aiTeachers: Array.isArray(body.aiTeachers) ? body.aiTeachers.map(String).slice(0, 500) : [],
+      driveTeachers: Array.isArray(body.driveTeachers) ? body.driveTeachers.map(String).slice(0, 500) : []
+    };
+    appSettings = { ...(appSettings as any), aiAccessPolicy: policy } as any;
+    await saveData('settings', appSettings);
+    return res.json({ success: true, policy, message: 'Perizinan guru tersimpan.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: safeServerError(error, 'Gagal menyimpan perizinan.') });
+  }
+});
+
+// Status & kelola Drive pribadi guru
+app.get('/api/my/drive', requireAuth, async (req: any, res) => {
+  try {
+    const userId = String(req.user?.id || '');
+    const role = String(req.user?.role || '').toLowerCase();
+    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
+    const mode = isAdmin ? 'admin' : aiAccessForUser(userId, 'drive');
+    const conn = await getStoredGoogleDriveUserConnection(userId);
+    return res.json({
+      success: true,
+      mode,
+      canConnect: mode !== 'admin',
+      connected: Boolean(conn && conn.refreshToken),
+      folderName: String(conn?.folderName || 'Materi Saya'),
+      connectedAt: String(conn?.connectedAt || '')
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: safeServerError(error, 'Status Drive pribadi tidak tersedia.') });
+  }
+});
+
+app.delete('/api/my/drive', requireAuth, async (req: any, res) => {
+  try {
+    const userId = String(req.user?.id || '');
+    const role = String(req.user?.role || '').toLowerCase();
+    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
+    const mode = isAdmin ? 'allowed' : aiAccessForUser(userId, 'drive');
+    if (mode === 'admin') return res.status(403).json({ success: false, message: 'Tidak diizinkan.' });
+    await deleteGoogleDriveUserConnection(userId);
+    return res.json({ success: true, message: 'Koneksi Google Drive pribadi diputus.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: safeServerError(error, 'Gagal memutus koneksi.') });
+  }
+});app.post('/api/my/ai-key/test', requireAuth, async (req: any, res) => {
+  try {
+    const authUser = req.user;
+    const userId = String(authUser.id || '');
+    const role = String(authUser.role || '').toLowerCase();
+    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
+    const mode = isAdmin ? 'allowed' : aiAccessForUser(userId, 'ai');
+    if (mode === 'admin') return res.status(403).json({ success: false, message: 'Tidak diizinkan memakai API key pribadi.' });
+    const cred = await getStoredUserAiCredential(userId);
+    if (!cred) return res.status(400).json({ success: false, message: 'Anda belum memasang API key pribadi.' });
+    const baseUrl = (cred.baseUrl || 'https://token.lightvela.ai/v1').replace(/\/$/, '');
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 30000);
+    const testRes = await fetch(baseUrl + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + cred.apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: cred.model || 'auto', messages: [{ role: 'user', content: 'Balas dengan kata: OK' }], max_tokens: 512 }),
+      signal: ctrl.signal
+    });
+    clearTimeout(t);
+    const payload: any = await testRes.json().catch(() => ({}));
+    if (!testRes.ok) {
+      return res.json({ success: false, message: 'Tes gagal (HTTP ' + testRes.status + '): ' + String(payload?.error?.message || payload?.error || 'provider menolak').slice(0, 200) });
+    }
+    const text = String(payload?.choices?.[0]?.message?.content || '').trim();
+    if (!text) return res.json({ success: false, message: 'Provider merespons tanpa konten.' });
+    return res.json({ success: true, message: 'Koneksi AI pribadi berfungsi.', sample: text.slice(0, 60) });
+  } catch (error: any) {
+    return res.json({ success: false, message: 'Tes gagal: ' + String(error?.message || error).slice(0, 200) });
+  }
+});
 export const appExport = app;
 export default app;
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -20073,6 +20315,65 @@ async function getStoredGoogleDriveOAuthRefreshToken(madrasahId: any = 'default'
   }
 }
 
+// ===== Google Drive per-guru =====
+function googleDriveUserStoreKey(userId: string): string {
+  return 'google_drive_oauth_user:' + crypto.createHash('sha256').update(String(userId)).digest('hex').slice(0, 24);
+}
+
+async function getStoredGoogleDriveUserConnection(userId: string): Promise<any | null> {
+  if (!pool) { try { await dbInitPromise; } catch (_) {} }
+  if (!pool) return null;
+  try {
+    const res = await pool.query("SELECT value FROM app_store WHERE key = $1 LIMIT 1", [googleDriveUserStoreKey(userId)]);
+    const value = res.rows?.[0]?.value;
+    return value && typeof value === 'object' ? value : null;
+  } catch (error: any) {
+    console.warn('[Google Drive per-guru] Gagal membaca koneksi:', error?.message || error);
+    return null;
+  }
+}
+
+async function saveGoogleDriveUserConnection(userId: string, patch: any): Promise<void> {
+  if (!pool) throw new Error('Database belum siap.');
+  const key = googleDriveUserStoreKey(userId);
+  const current = (await getStoredGoogleDriveUserConnection(userId)) || {};
+  const value = { ...current, ...patch, userId: String(userId) };
+  await pool.query(`INSERT INTO app_store (key, value) VALUES ($1, $2::jsonb) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, [key, JSON.stringify(value)]);
+}
+
+async function deleteGoogleDriveUserConnection(userId: string): Promise<void> {
+  if (!pool) { try { await dbInitPromise; } catch (_) {} }
+  if (!pool) return;
+  await pool.query("DELETE FROM app_store WHERE key = $1", [googleDriveUserStoreKey(userId)]);
+}
+
+async function getGoogleDriveUserRefreshToken(userId: string): Promise<string | null> {
+  try {
+    const conn = await getStoredGoogleDriveUserConnection(userId);
+    const encrypted = typeof conn === 'string' ? conn : conn?.refreshToken;
+    if (!encrypted) return null;
+    return decryptGoogleDriveOAuthToken(String(encrypted));
+  } catch (error: any) {
+    console.warn('[Google Drive per-guru] Gagal membaca token:', error?.message || error);
+    return null;
+  }
+}
+
+// Keputusan Drive untuk request: 'user' (koneksi guru) atau 'tenant' (koneksi madrasah).
+async function resolveGoogleDriveScopeForRequest(req: any): Promise<{ scope: 'user' | 'tenant'; userId: string; mode: AiAccessMode }> {
+  const authUser = req.user || getAuthUser(req);
+  const userId = String(authUser?.id || '');
+  const role = String(authUser?.role || '').toLowerCase();
+  if ((role === 'teacher' || role === 'guru') && userId) {
+    const mode = aiAccessForUser(userId, 'drive');
+    if (mode !== 'admin') {
+      const userToken = await getGoogleDriveUserRefreshToken(userId);
+      if (userToken) return { scope: 'user', userId, mode };
+      if (mode === 'own') return { scope: 'user', userId, mode };
+    }
+  }
+  return { scope: 'tenant', userId, mode: 'admin' };
+}
 async function exchangeGoogleDriveOAuthRefreshToken(refreshToken: string): Promise<string> {
   const clientId = String(process.env.GOOGLE_DRIVE_OAUTH_CLIENT_ID || '').trim();
   const clientSecret = String(process.env.GOOGLE_DRIVE_OAUTH_CLIENT_SECRET || '').trim();
@@ -20191,12 +20492,9 @@ async function getGoogleDriveFolderId(accessToken: string, madrasahId: any = 'de
   return String(created.id);
 }
 
-async function uploadLearningPdfToGoogleDrive(buffer: Buffer, displayName: string, req: any): Promise<{ fileId: string; name: string }> {
-  const tenantId = canonicalGoogleDriveTenantId(getRequestMadrasahId(req) || 'default');
-  const accessToken = await getGoogleDriveAccessToken(tenantId);
-  const folderId = await getGoogleDriveFolderId(accessToken, tenantId);
-  const tenantHash = crypto.createHash('sha256')
-    .update(tenantId)
+async function uploadLearningPdfWithToken(accessToken: string, folderId: string, buffer: Buffer, displayName: string, ownerTag: string): Promise<{ fileId: string; name: string }> {
+  const ownerHash = crypto.createHash('sha256')
+    .update(String(ownerTag || 'default'))
     .digest('hex')
     .slice(0, 12);
   const suffix = crypto.randomBytes(6).toString('hex');
@@ -20208,7 +20506,7 @@ async function uploadLearningPdfToGoogleDrive(buffer: Buffer, displayName: strin
     parents: [folderId],
     appProperties: {
       managedBy: 'madrasah-bisa-learning-pdf',
-      tenantHash
+      tenantHash: ownerHash
     }
   };
   const boundary = 'madrasah_bisa_' + crypto.randomBytes(12).toString('hex');
@@ -20225,18 +20523,52 @@ async function uploadLearningPdfToGoogleDrive(buffer: Buffer, displayName: strin
       method: 'POST',
       headers: {
         Authorization: 'Bearer ' + accessToken,
-        'Content-Type': 'multipart/related; boundary=' + boundary,
-        'Content-Length': String(body.length)
+        'Content-Type': 'multipart/related; boundary=' + boundary
       },
       body
     }
   );
   const payload: any = await response.json().catch(() => ({}));
-  const fileId = String(payload?.id || '').trim();
-  if (!response.ok || !/^[A-Za-z0-9_-]{10,200}$/.test(fileId)) {
-    throw new Error('Google Drive gagal menyimpan PDF (' + response.status + '): ' + String(payload?.error?.message || 'unknown_error'));
+  if (!response.ok || !payload?.id) {
+    throw googleDriveConnectionError('Upload ke Google Drive gagal (HTTP ' + response.status + ').');
   }
-  return { fileId, name: String(payload?.name || driveName) };
+  return { fileId: String(payload.id), name: String(payload.name || driveName) };
+}
+
+async function createGoogleDriveFolder(accessToken: string, folderName: string): Promise<{ id: string; name: string }> {
+  const response = await fetch('https://www.googleapis.com/drive/v3/files?fields=id,name&supportsAllDrives=true', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: String(folderName || 'Materi Saya'), mimeType: 'application/vnd.google-apps.folder' })
+  });
+  const payload: any = await response.json().catch(() => ({}));
+  if (!response.ok || !payload?.id) {
+    throw googleDriveConnectionError('Gagal membuat folder Google Drive (HTTP ' + response.status + ').');
+  }
+  return { id: String(payload.id), name: String(payload.name || folderName) };
+}
+
+async function uploadLearningPdfToGoogleDrive(buffer: Buffer, displayName: string, req: any): Promise<{ fileId: string; name: string }> {
+  const scopeInfo = await resolveGoogleDriveScopeForRequest(req);
+  if (scopeInfo.scope === 'user') {
+    const userToken = await getGoogleDriveUserRefreshToken(scopeInfo.userId);
+    if (!userToken) {
+      throw googleDriveConnectionError('Google Drive pribadi belum terhubung. Hubungkan di Pengaturan > Google Drive Saya.');
+    }
+    const accessToken = await exchangeGoogleDriveOAuthRefreshToken(userToken);
+    const userConn = await getStoredGoogleDriveUserConnection(scopeInfo.userId);
+    let folderId = String(userConn?.folderId || '').trim();
+    if (!folderId) {
+      const created = await createGoogleDriveFolder(accessToken, 'Materi Saya');
+      folderId = String(created.id || '');
+      if (folderId) await saveGoogleDriveUserConnection(scopeInfo.userId, { folderId, folderName: 'Materi Saya' });
+    }
+    return uploadLearningPdfWithToken(accessToken, folderId, buffer, displayName, scopeInfo.userId);
+  }
+  const tenantId = canonicalGoogleDriveTenantId(getRequestMadrasahId(req) || 'default');
+  const accessToken = await getGoogleDriveAccessToken(tenantId);
+  const folderId = await getGoogleDriveFolderId(accessToken, tenantId);
+  return uploadLearningPdfWithToken(accessToken, folderId, buffer, displayName, tenantId);
 }
 
 async function deleteManagedLearningPdfFromGoogleDrive(fileIdValue: any, req: any): Promise<'deleted' | 'missing' | 'forbidden' | 'failed'> {
@@ -26177,28 +26509,47 @@ async function exchangeGoogleDriveOAuthCode(req: any, code: string) {
 app.get('/api/google-drive/status', requireAuth, async (req: any, res: any) => {
   try {
     const role = String(req.user?.role || '').toLowerCase();
+    const userId = String(req.user?.id || '');
+    const isTeacher = role === 'teacher' || role === 'guru';
     const tenantId = canonicalGoogleDriveTenantId(getRequestMadrasahId(req) || 'default');
     const connection = await getStoredGoogleDriveOAuthConnection(tenantId);
     const hasStoredRefreshToken = Boolean(connection && connection.refreshToken);
     const hasConfiguredServiceAccount = Boolean(getConfiguredGoogleServiceAccount());
     const runtimeServiceAccountEnabled = String(process.env.GOOGLE_DRIVE_USE_RUNTIME_SERVICE_ACCOUNT || '').trim().toLowerCase() === 'true';
     const oauthConfigured = googleDriveOAuthServerConfigured(req);
-    const canConnectGoogleDrive = ['admin', 'administrator', 'bos', 'superadmin'].includes(role) && oauthConfigured;
+    const driveMode = isTeacher && userId ? aiAccessForUser(userId, 'drive') : 'admin';
+    const userConn = isTeacher && userId && driveMode !== 'admin' ? await getStoredGoogleDriveUserConnection(userId) : null;
+    const userConnected = Boolean(userConn && userConn.refreshToken);
+    const tenantConnected = hasStoredRefreshToken || hasConfiguredServiceAccount || runtimeServiceAccountEnabled;
+    const canConnectGoogleDrive = oauthConfigured && (['admin', 'administrator', 'bos', 'superadmin'].includes(role) || (isTeacher && driveMode !== 'admin'));
     return res.json({
       success: true,
-      connected: hasStoredRefreshToken || hasConfiguredServiceAccount || runtimeServiceAccountEnabled,
+      connected: userConnected || tenantConnected,
+      scope: userConnected ? 'user' : 'tenant',
+      mode: driveMode,
+      ownKeyRequired: isTeacher && driveMode === 'own' && !userConnected,
       storage: 'google-drive',
       oauthConfigured,
       canConnectGoogleDrive,
-      folderName: String(connection?.folderName || 'Madrasah Bisa')
+      folderName: String((userConnected ? userConn : connection)?.folderName || 'Madrasah Bisa')
     });
   } catch (error: any) {
     return res.status(500).json({ success: false, message: safeServerError(error, 'Status Google Drive tidak tersedia.') });
   }
 });
 
-app.get('/api/google-drive/oauth/start', requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), (req: any, res: any) => {
+app.get('/api/google-drive/oauth/start', requireAuth, async (req: any, res: any) => {
   try {
+    const role = String(req.user?.role || '').toLowerCase();
+    const userId = String(req.user?.id || '');
+    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
+    const isTeacher = role === 'teacher' || role === 'guru';
+    if (isTeacher && (!userId || aiAccessForUser(userId, 'drive') === 'admin')) {
+      return res.status(403).json({ success: false, message: 'Administrator belum memberi izin Google Drive pribadi untuk akun Anda.' });
+    }
+    if (!isAdmin && !isTeacher) {
+      return res.status(403).json({ success: false, message: 'Role tidak diizinkan menghubungkan Google Drive.' });
+    }
     const madrasahId = canonicalGoogleDriveTenantId(req.query?.madrasahId || req.headers?.['x-madrasah-id'] || req.user?.madrasahId || 'default');
     const state = createGoogleDriveOAuthState(req.user, madrasahId);
     const authorizationUrl = buildGoogleDriveOAuthAuthorizationUrl(req, state);
@@ -26244,13 +26595,26 @@ app.get('/api/google-drive/oauth/callback', async (req: any, res: any) => {
     }
 
     const encryptedRefreshToken = encryptGoogleDriveOAuthToken(refreshToken);
-    await saveGoogleDriveOAuthConnection(pending.madrasahId, {
-      refreshToken: encryptedRefreshToken,
-      connectedAt: new Date().toISOString(),
-      madrasahId: pending.madrasahId,
-      folderId: '',
-      folderName: 'Madrasah Bisa'
-    });
+    const pendingRole = String(pending.role || '').toLowerCase();
+    if (pendingRole === 'teacher' || pendingRole === 'guru') {
+      const pendingUserId = String(pending.userId || '');
+      if (!pendingUserId) throw new Error('Sesi OAuth tidak membawa identitas guru.');
+      await saveGoogleDriveUserConnection(pendingUserId, {
+        refreshToken: encryptedRefreshToken,
+        connectedAt: new Date().toISOString(),
+        madrasahId: pending.madrasahId,
+        folderId: '',
+        folderName: 'Materi Saya'
+      });
+    } else {
+      await saveGoogleDriveOAuthConnection(pending.madrasahId, {
+        refreshToken: encryptedRefreshToken,
+        connectedAt: new Date().toISOString(),
+        madrasahId: pending.madrasahId,
+        folderId: '',
+        folderName: 'Madrasah Bisa'
+      });
+    }
 
     return res.status(200).send(`<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Google Drive Terhubung</title><meta http-equiv="refresh" content="3;url=/"></head><body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;background:#f8fafc;padding:30px;color:#0f172a"><div style="max-width:760px;margin:auto;background:white;border:1px solid #e2e8f0;border-radius:18px;padding:28px;box-shadow:0 10px 30px rgba(15,23,42,.08)"><h2 style="margin-top:0">Google Drive berhasil terhubung</h2><p>Koneksi Google Drive sudah <b>tersimpan permanen di database server</b>. Refresh token tidak ditampilkan di browser.</p><p>Silakan kembali ke Madrasah Bisa dan buka menu <b>Pengaturan</b>. Status Google Drive akan tampil sebagai <b>Terhubung</b>.</p><p style="color:#64748b;font-size:13px">Halaman akan kembali otomatis dalam beberapa detik.</p></div></body></html>`);
   } catch (error: any) {
