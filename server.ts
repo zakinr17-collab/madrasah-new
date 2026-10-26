@@ -3447,182 +3447,6 @@ function cbtAsyncEndpoint(
 }
 
 const app = express();
-
-// Middleware AI per-guru: jalankan handler dalam ALS context berisi kredensial guru (jika diizinkan).
-async function resolveAiUserContext(req: any): Promise<{ userId: string; role: string; mode: AiAccessMode; overrides: { apiKey: string; baseUrl: string; model: string } | null }> | null {
-  const authUser = req.user || getAuthUser(req);
-  if (!authUser) return null;
-  const userId = String(authUser.id || '');
-  const role = String(authUser.role || '').toLowerCase();
-  if (role !== 'teacher' && role !== 'guru') return null; // admin/bos selalu pakai key madrasah
-  const mode = aiAccessForUser(userId, 'ai');
-  const overrides = await aiRequestOverridesForUser(userId, mode);
-  return { userId, role, mode, overrides };
-}
-
-app.use(['/api/gemini', '/api/modul'], async (req: any, res: any, next: any) => {
-  try {
-    const ctx = await resolveAiUserContext(req);
-    if (!ctx) return next();
-    if (ctx.mode === 'own' && !ctx.overrides) {
-      return res.status(403).json({ success: false, code: 'AI_KEY_REQUIRED', message: 'Fitur AI untuk Anda mewajibkan API key sendiri. Pasang di Pengaturan > AI Saya.' });
-    }
-    if (ctx.overrides) {
-      aiUserStore.run({ apiKey: ctx.overrides.apiKey, baseUrl: ctx.overrides.baseUrl, model: ctx.overrides.model, userId: ctx.userId }, () => next());
-    } else {
-      aiUserStore.run({ userId: ctx.userId }, () => next());
-    }
-  } catch (error: any) {
-    console.warn('[AI per-guru] Middleware error:', error?.message || error);
-    next();
-  }
-});
-
-// ===== Endpoint AI milik guru (pasang/hapus API key sendiri) =====
-app.get('/api/my/ai-key', requireAuth, async (req: any, res) => {
-  try {
-    const authUser = req.user;
-    const userId = String(authUser.id || '');
-    const role = String(authUser.role || '').toLowerCase();
-    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
-    const mode = isAdmin ? 'admin' : aiAccessForUser(userId, 'ai');
-    const cred = await getStoredUserAiCredential(userId);
-    return res.json({
-      success: true,
-      mode,
-      canUseOwnKey: mode !== 'admin',
-      hasKey: Boolean(cred),
-      baseUrl: cred?.baseUrl || '',
-      model: cred?.model || '',
-      maskedKey: cred ? (cred.apiKey.slice(0, 4) + '****' + cred.apiKey.slice(-4)) : ''
-    });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: safeServerError(error, 'Status AI pribadi tidak tersedia.') });
-  }
-});
-
-app.post('/api/my/ai-key', requireAuth, async (req: any, res) => {
-  try {
-    const authUser = req.user;
-    const userId = String(authUser.id || '');
-    const role = String(authUser.role || '').toLowerCase();
-    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
-    const mode = isAdmin ? 'allowed' : aiAccessForUser(userId, 'ai');
-    if (mode === 'admin') {
-      return res.status(403).json({ success: false, message: 'Administrator belum memberi izin API key pribadi untuk akun Anda.' });
-    }
-    const apiKey = String(req.body?.apiKey || '').trim();
-    const baseUrl = String(req.body?.baseUrl || '').trim().replace(/\/$/, '');
-    const model = String(req.body?.model || '').trim();
-    if (!apiKey) {
-      await deleteUserAiCredential(userId);
-      return res.json({ success: true, removed: true, message: 'API key pribadi dihapus. Kembali memakai key madrasah.' });
-    }
-    if (apiKey.length < 8 || /[\s]/.test(apiKey)) {
-      return res.status(400).json({ success: false, message: 'API key tidak valid.' });
-    }
-    await saveUserAiCredential(userId, { apiKey, baseUrl, model });
-    return res.json({ success: true, message: 'API key pribadi tersimpan terenkripsi.' });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: safeServerError(error, 'Gagal menyimpan API key.') });
-  }
-});
-
-// Tes koneksi AI pribadi guru
-
-// ===== Perizinan guru: AI & Google Drive (admin) =====
-app.get('/api/staff-access-policy', requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
-  try {
-    const policy = getAiAccessPolicy();
-    const list = filterByMadrasah(teachers, req).map((t: any) => ({ id: String(t.id), name: String(t.name || ''), username: String(t.username || '') }));
-    return res.json({ success: true, policy, teachers: list });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: safeServerError(error, 'Gagal membaca perizinan.') });
-  }
-});
-
-app.put('/api/staff-access-policy', requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
-  try {
-    const normMode = (v: any) => (v === 'allowed' || v === 'own' ? v : 'admin');
-    const body = req.body || {};
-    const policy = {
-      ai: normMode(body.ai),
-      drive: normMode(body.drive),
-      aiTeachers: Array.isArray(body.aiTeachers) ? body.aiTeachers.map(String).slice(0, 500) : [],
-      driveTeachers: Array.isArray(body.driveTeachers) ? body.driveTeachers.map(String).slice(0, 500) : []
-    };
-    appSettings = { ...(appSettings as any), aiAccessPolicy: policy } as any;
-    await saveData('settings', appSettings);
-    return res.json({ success: true, policy, message: 'Perizinan guru tersimpan.' });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: safeServerError(error, 'Gagal menyimpan perizinan.') });
-  }
-});
-
-// Status & kelola Drive pribadi guru
-app.get('/api/my/drive', requireAuth, async (req: any, res) => {
-  try {
-    const userId = String(req.user?.id || '');
-    const role = String(req.user?.role || '').toLowerCase();
-    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
-    const mode = isAdmin ? 'admin' : aiAccessForUser(userId, 'drive');
-    const conn = await getStoredGoogleDriveUserConnection(userId);
-    return res.json({
-      success: true,
-      mode,
-      canConnect: mode !== 'admin',
-      connected: Boolean(conn && conn.refreshToken),
-      folderName: String(conn?.folderName || 'Materi Saya'),
-      connectedAt: String(conn?.connectedAt || '')
-    });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: safeServerError(error, 'Status Drive pribadi tidak tersedia.') });
-  }
-});
-
-app.delete('/api/my/drive', requireAuth, async (req: any, res) => {
-  try {
-    const userId = String(req.user?.id || '');
-    const role = String(req.user?.role || '').toLowerCase();
-    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
-    const mode = isAdmin ? 'allowed' : aiAccessForUser(userId, 'drive');
-    if (mode === 'admin') return res.status(403).json({ success: false, message: 'Tidak diizinkan.' });
-    await deleteGoogleDriveUserConnection(userId);
-    return res.json({ success: true, message: 'Koneksi Google Drive pribadi diputus.' });
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: safeServerError(error, 'Gagal memutus koneksi.') });
-  }
-});app.post('/api/my/ai-key/test', requireAuth, async (req: any, res) => {
-  try {
-    const authUser = req.user;
-    const userId = String(authUser.id || '');
-    const role = String(authUser.role || '').toLowerCase();
-    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
-    const mode = isAdmin ? 'allowed' : aiAccessForUser(userId, 'ai');
-    if (mode === 'admin') return res.status(403).json({ success: false, message: 'Tidak diizinkan memakai API key pribadi.' });
-    const cred = await getStoredUserAiCredential(userId);
-    if (!cred) return res.status(400).json({ success: false, message: 'Anda belum memasang API key pribadi.' });
-    const baseUrl = (cred.baseUrl || 'https://token.lightvela.ai/v1').replace(/\/$/, '');
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), 30000);
-    const testRes = await fetch(baseUrl + '/chat/completions', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + cred.apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: cred.model || 'auto', messages: [{ role: 'user', content: 'Balas dengan kata: OK' }], max_tokens: 512 }),
-      signal: ctrl.signal
-    });
-    clearTimeout(t);
-    const payload: any = await testRes.json().catch(() => ({}));
-    if (!testRes.ok) {
-      return res.json({ success: false, message: 'Tes gagal (HTTP ' + testRes.status + '): ' + String(payload?.error?.message || payload?.error || 'provider menolak').slice(0, 200) });
-    }
-    const text = String(payload?.choices?.[0]?.message?.content || '').trim();
-    if (!text) return res.json({ success: false, message: 'Provider merespons tanpa konten.' });
-    return res.json({ success: true, message: 'Koneksi AI pribadi berfungsi.', sample: text.slice(0, 60) });
-  } catch (error: any) {
-    return res.json({ success: false, message: 'Tes gagal: ' + String(error?.message || error).slice(0, 200) });
-  }
-});
 export const appExport = app;
 export default app;
 const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
@@ -3882,6 +3706,183 @@ app.use((req, res, next) => {
 });
 const requestBodyLimit = isOnlineMode ? '25mb' : '50mb';
 app.use(express.json({ limit: requestBodyLimit }));
+
+// Middleware AI per-guru: jalankan handler dalam ALS context berisi kredensial guru (jika diizinkan).
+async function resolveAiUserContext(req: any): Promise<{ userId: string; role: string; mode: AiAccessMode; overrides: { apiKey: string; baseUrl: string; model: string } | null }> | null {
+  const authUser = req.user || getAuthUser(req);
+  if (!authUser) return null;
+  const userId = String(authUser.id || '');
+  const role = String(authUser.role || '').toLowerCase();
+  if (role !== 'teacher' && role !== 'guru') return null; // admin/bos selalu pakai key madrasah
+  const mode = aiAccessForUser(userId, 'ai');
+  const overrides = await aiRequestOverridesForUser(userId, mode);
+  return { userId, role, mode, overrides };
+}
+
+app.use(['/api/gemini', '/api/modul'], async (req: any, res: any, next: any) => {
+  try {
+    const ctx = await resolveAiUserContext(req);
+    if (!ctx) return next();
+    if (ctx.mode === 'own' && !ctx.overrides) {
+      return res.status(403).json({ success: false, code: 'AI_KEY_REQUIRED', message: 'Fitur AI untuk Anda mewajibkan API key sendiri. Pasang di Pengaturan > AI Saya.' });
+    }
+    if (ctx.overrides) {
+      aiUserStore.run({ apiKey: ctx.overrides.apiKey, baseUrl: ctx.overrides.baseUrl, model: ctx.overrides.model, userId: ctx.userId }, () => next());
+    } else {
+      aiUserStore.run({ userId: ctx.userId }, () => next());
+    }
+  } catch (error: any) {
+    console.warn('[AI per-guru] Middleware error:', error?.message || error);
+    next();
+  }
+});
+
+// ===== Endpoint AI milik guru (pasang/hapus API key sendiri) =====
+app.get('/api/my/ai-key', requireAuth, async (req: any, res) => {
+  try {
+    const authUser = req.user;
+    const userId = String(authUser.id || '');
+    const role = String(authUser.role || '').toLowerCase();
+    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
+    const mode = isAdmin ? 'admin' : aiAccessForUser(userId, 'ai');
+    const cred = await getStoredUserAiCredential(userId);
+    return res.json({
+      success: true,
+      mode,
+      canUseOwnKey: mode !== 'admin',
+      hasKey: Boolean(cred),
+      baseUrl: cred?.baseUrl || '',
+      model: cred?.model || '',
+      maskedKey: cred ? (cred.apiKey.slice(0, 4) + '****' + cred.apiKey.slice(-4)) : ''
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: safeServerError(error, 'Status AI pribadi tidak tersedia.') });
+  }
+});
+
+app.post('/api/my/ai-key', requireAuth, async (req: any, res) => {
+  try {
+    const authUser = req.user;
+    const userId = String(authUser.id || '');
+    const role = String(authUser.role || '').toLowerCase();
+    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
+    const mode = isAdmin ? 'allowed' : aiAccessForUser(userId, 'ai');
+    if (mode === 'admin') {
+      return res.status(403).json({ success: false, message: 'Administrator belum memberi izin API key pribadi untuk akun Anda.' });
+    }
+    const apiKey = String(req.body?.apiKey || '').trim();
+    const baseUrl = String(req.body?.baseUrl || '').trim().replace(/\/$/, '');
+    const model = String(req.body?.model || '').trim();
+    if (!apiKey) {
+      await deleteUserAiCredential(userId);
+      return res.json({ success: true, removed: true, message: 'API key pribadi dihapus. Kembali memakai key madrasah.' });
+    }
+    if (apiKey.length < 8 || /[\s]/.test(apiKey)) {
+      return res.status(400).json({ success: false, message: 'API key tidak valid.' });
+    }
+    await saveUserAiCredential(userId, { apiKey, baseUrl, model });
+    return res.json({ success: true, message: 'API key pribadi tersimpan terenkripsi.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: safeServerError(error, 'Gagal menyimpan API key.') });
+  }
+});
+
+// Tes koneksi AI pribadi guru
+
+// ===== Perizinan guru: AI & Google Drive (admin) =====
+app.get('/api/staff-access-policy', requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    const policy = getAiAccessPolicy();
+    const list = filterByMadrasah(teachers, req).map((t: any) => ({ id: String(t.id), name: String(t.name || ''), username: String(t.username || '') }));
+    return res.json({ success: true, policy, teachers: list });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: safeServerError(error, 'Gagal membaca perizinan.') });
+  }
+});
+
+app.put('/api/staff-access-policy', requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    const normMode = (v: any) => (v === 'allowed' || v === 'own' ? v : 'admin');
+    const body = req.body || {};
+    const policy = {
+      ai: normMode(body.ai),
+      drive: normMode(body.drive),
+      aiTeachers: Array.isArray(body.aiTeachers) ? body.aiTeachers.map(String).slice(0, 500) : [],
+      driveTeachers: Array.isArray(body.driveTeachers) ? body.driveTeachers.map(String).slice(0, 500) : []
+    };
+    appSettings = { ...(appSettings as any), aiAccessPolicy: policy } as any;
+    await saveData('settings', appSettings);
+    return res.json({ success: true, policy, message: 'Perizinan guru tersimpan.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: safeServerError(error, 'Gagal menyimpan perizinan.') });
+  }
+});
+
+// Status & kelola Drive pribadi guru
+app.get('/api/my/drive', requireAuth, async (req: any, res) => {
+  try {
+    const userId = String(req.user?.id || '');
+    const role = String(req.user?.role || '').toLowerCase();
+    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
+    const mode = isAdmin ? 'admin' : aiAccessForUser(userId, 'drive');
+    const conn = await getStoredGoogleDriveUserConnection(userId);
+    return res.json({
+      success: true,
+      mode,
+      canConnect: mode !== 'admin',
+      connected: Boolean(conn && conn.refreshToken),
+      folderName: String(conn?.folderName || 'Materi Saya'),
+      connectedAt: String(conn?.connectedAt || '')
+    });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: safeServerError(error, 'Status Drive pribadi tidak tersedia.') });
+  }
+});
+
+app.delete('/api/my/drive', requireAuth, async (req: any, res) => {
+  try {
+    const userId = String(req.user?.id || '');
+    const role = String(req.user?.role || '').toLowerCase();
+    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
+    const mode = isAdmin ? 'allowed' : aiAccessForUser(userId, 'drive');
+    if (mode === 'admin') return res.status(403).json({ success: false, message: 'Tidak diizinkan.' });
+    await deleteGoogleDriveUserConnection(userId);
+    return res.json({ success: true, message: 'Koneksi Google Drive pribadi diputus.' });
+  } catch (error: any) {
+    return res.status(500).json({ success: false, message: safeServerError(error, 'Gagal memutus koneksi.') });
+  }
+});app.post('/api/my/ai-key/test', requireAuth, async (req: any, res) => {
+  try {
+    const authUser = req.user;
+    const userId = String(authUser.id || '');
+    const role = String(authUser.role || '').toLowerCase();
+    const isAdmin = ['admin', 'administrator', 'bos', 'superadmin'].includes(role);
+    const mode = isAdmin ? 'allowed' : aiAccessForUser(userId, 'ai');
+    if (mode === 'admin') return res.status(403).json({ success: false, message: 'Tidak diizinkan memakai API key pribadi.' });
+    const cred = await getStoredUserAiCredential(userId);
+    if (!cred) return res.status(400).json({ success: false, message: 'Anda belum memasang API key pribadi.' });
+    const baseUrl = (cred.baseUrl || 'https://token.lightvela.ai/v1').replace(/\/$/, '');
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 30000);
+    const testRes = await fetch(baseUrl + '/chat/completions', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + cred.apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: cred.model || 'auto', messages: [{ role: 'user', content: 'Balas dengan kata: OK' }], max_tokens: 512 }),
+      signal: ctrl.signal
+    });
+    clearTimeout(t);
+    const payload: any = await testRes.json().catch(() => ({}));
+    if (!testRes.ok) {
+      return res.json({ success: false, message: 'Tes gagal (HTTP ' + testRes.status + '): ' + String(payload?.error?.message || payload?.error || 'provider menolak').slice(0, 200) });
+    }
+    const text = String(payload?.choices?.[0]?.message?.content || '').trim();
+    if (!text) return res.json({ success: false, message: 'Provider merespons tanpa konten.' });
+    return res.json({ success: true, message: 'Koneksi AI pribadi berfungsi.', sample: text.slice(0, 60) });
+  } catch (error: any) {
+    return res.json({ success: false, message: 'Tes gagal: ' + String(error?.message || error).slice(0, 200) });
+  }
+});
+
 app.use(express.urlencoded({ extended: true, limit: requestBodyLimit }));
 
 const apiRateBuckets = new Map<string, { count: number; resetAt: number }>();
