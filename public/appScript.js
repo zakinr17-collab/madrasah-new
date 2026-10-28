@@ -2040,10 +2040,21 @@ function showOfflineLicenseActivationModal(installationId = '') {
 }
 async function ensureOfflineLicenseActivationUi() {
     if (window.isOfflineMode !== true && appState.isOfflineMode !== true) return true;
-    const status = await getOfflineLicenseStatus();
+    // Retry: status lisensi bisa gagal dibaca sesaat (jaringan/restart server) - jangan langsung minta aktivasi ulang.
+    let status = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        status = await getOfflineLicenseStatus();
+        if (status?.success) break;
+        await new Promise(r => setTimeout(r, 1200));
+    }
     if (status?.success && status.activated) return true;
-    showOfflineLicenseActivationModal(status?.installationId || '');
-    return false;
+    if (status?.success && !status.activated) {
+        showOfflineLicenseActivationModal(status?.installationId || '');
+        return false;
+    }
+    // Status tidak dapat diambil sama sekali: biarkan login jalan; server akan menolak bila memang belum berlisensi.
+    console.warn('[License] Status lisensi tidak dapat diambil dari server; melewati modal aktivasi.');
+    return true;
 }
 async function syncOfflineLicenseToBoss() {
     if (window.isOfflineMode !== true && appState.isOfflineMode !== true) return false;
