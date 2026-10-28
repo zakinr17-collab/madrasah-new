@@ -7890,6 +7890,24 @@ function evaluasiEscapeHtml(value) {
         .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
+async function evaluasiPrefetchReviews(classId, examId, studentIds) {
+    // Ambil review authoritative dari server utk tiap siswa (jawaban & kunci sinkron)
+    const ids = Array.isArray(studentIds) ? studentIds : [];
+    const map = {};
+    if (!window.__evaluasiReviewCache) window.__evaluasiReviewCache = {};
+    const runners = ids.map(async id => {
+        try {
+            const review = await fetchEvaluasiReview(id, examId);
+            window.__evaluasiReviewCache[String(id) + '_' + String(examId)] = review;
+            map[String(id)] = review;
+        } catch (error) {
+            console.warn('[Evaluasi Download] Review gagal utk siswa', id, error?.message || error);
+        }
+    });
+    await Promise.all(runners);
+    return map;
+}
+
 async function fetchEvaluasiReview(studentId, examId) {
     const response = await fetch(`/api/exam/review?studentId=${encodeURIComponent(studentId)}&examId=${encodeURIComponent(examId)}`);
     const data = await response.json().catch(() => ({}));
@@ -7967,13 +7985,22 @@ async function openPreviewJawabanEvaluasi(studentId) {
     }
 }
 
-function downloadSelectedEvaluasiAnswers() {
+async function downloadSelectedEvaluasiAnswers() {
     const selectedIds = evaluasiGetSelectedIds();
     const classId = appState.evaluasiSelectedClassId;
     const examId = appState.evaluasiSelectedExamId;
     const cls = (appState.classes || []).find(c => String(c.id) === String(classId));
     const ex = (appState.exams || []).find(e => String(e.id) === String(examId));
     if (!cls || !ex || selectedIds.length === 0) return showToast('Pilih siswa terlebih dahulu.', 'warning');
+    const includeExplanation = window.__printIncludeExplanation !== false;
+    try {
+        showToast('Mengambil jawaban terbaru dari server...', 'info');
+        await evaluasiPrefetchReviews(classId, examId, selectedIds);
+    } catch (error) {
+        console.error('[Download Jawaban] Gagal sinkron review:', error);
+        showToast('Gagal mengambil jawaban dari server: ' + (error.message || error) + '. Menggunakan data lokal.', 'warning');
+    }
+    window.__printIncludeExplanation = includeExplanation;
     window.__activePrintType = 'jawaban';
     window.__activePrintParams = { scope: 'SELECTED', selectedIds, classId, examId };
     const teacher = (appState.teachers || []).find(t => {
@@ -8803,6 +8830,11 @@ function openCetakJawabanModal() {
                 </div>
                 <div class="space-y-4 text-xs sm:text-sm">
                     <p class="text-slate-500 leading-relaxed text-xs">Pilih apakah Anda ingin mencetak lembar jawaban lengkap beserta kunci jawaban untuk satu siswa saja atau seluruh siswa dalam kelas ini.</p>
+                    <label class="flex items-center gap-2.5 p-3 bg-emerald-50/60 border border-emerald-200 rounded-2xl cursor-pointer">
+                        <input type="checkbox" id="print-include-explanation" checked class="w-4 h-4 accent-emerald-600 cursor-pointer">
+                        <span class="text-xs font-semibold text-slate-700">Sertakan kunci jawaban &amp; pembahasan</span>
+                    </label>
+                    <p class="text-[10px] text-slate-400 leading-relaxed">Data jawaban diambil langsung dari server saat dicetak, jadi selalu sinkron dengan jawaban siswa terbaru.</p>
                     
                     <div>
                         <label class="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">Metode Cetak</label>
@@ -8961,57 +8993,110 @@ function generateReportHTML() {
                 ? clsStudents.filter(st => selectedIds.has(String(st.id)))
                 : clsStudents.filter(st => String(st.id) === String(scope)));
 
-        const answers = appState.studentExamAnswers || JSON.parse(localStorage.getItem('madrasah_student_exam_answers') || '{}') || {};
+        // Data jawaban AUTHORITATIVE dari server (cache hasil prefetch saat tombol cetak ditekan)
+        const reviewCache = window.__evaluasiReviewCache || {};
+        const includeExplanation = window.__printIncludeExplanation !== false;
         const grades = appState.studentExamGrades || JSON.parse(localStorage.getItem('madrasah_student_exam_grades') || '{}') || {};
 
         let printableHTML = '';
+        let missingReviewCount = 0;
 
         targetStudents.forEach((st, idx) => {
-            let questions = getExamQuestions(ex, st.id);
-            const studentAns = answers[st.id + '_' + examId] || {};
-            const studentGr = grades[st.id + '_' + examId] || {};
+            const review = reviewCache[String(st.id) + '_' + String(examId)];
+            const questions = review && Array.isArray(review.questions) ? review.questions : (getExamQuestions(ex, st.id) || []);
+            if (!review) missingReviewCount++;
+            const studentGr = grades[st.id + '_' + examId] || grades[String(st.id) + '_' + String(examId)] || (review && review.grade) || {};
 
             let questionsHTML = questions.map((q, qIdx) => {
-                const rawUserAns = studentAns[q.id] !== undefined ? studentAns[q.id] : studentAns[String(q.id)];
-                const ansVal = (rawUserAns !== undefined && rawUserAns !== null && String(rawUserAns).trim() !== '') ? rawUserAns : '<span style="color: #ef4444; font-style: italic;">Tidak menjawab</span>';
-                const isCorrect = isCorrectAnswer(q, rawUserAns);
-                const essayPoints = q.type === 'esay' || q.type === 'essay' ? (studentGr.essayGrades?.[q.id] !== undefined ? studentGr.essayGrades[q.id] : (studentGr.essayGrades?.[String(q.id)] !== undefined ? studentGr.essayGrades[String(q.id)] : '-')) : null;
-                const keyDisplay = q.correctOptionText || q.answer;
+                const isEssay = q.type === 'esay' || q.type === 'essay';
+                const rawUserAns = q.studentAnswer !== undefined && q.studentAnswer !== null ? q.studentAnswer : (q.answer !== undefined && q.answer !== null ? undefined : undefined);
+                const studentAnsRaw = q.studentAnswer !== undefined && q.studentAnswer !== null ? q.studentAnswer : null;
+                const hasAnswer = studentAnsRaw !== null && String(studentAnsRaw).trim() !== '';
+                const ansVal = hasAnswer
+                    ? assessmentEscapeHtml(String(studentAnsRaw))
+                    : '<span style="color: #ef4444; font-style: italic;">Tidak menjawab</span>';
+                const isCorrect = !isEssay && hasAnswer && q.isCorrect === true;
+                const isWrong = !isEssay && hasAnswer && q.isCorrect === false;
+                const essayPoints = isEssay
+                    ? ((studentGr.essayGrades && (studentGr.essayGrades[q.id] !== undefined ? studentGr.essayGrades[q.id] : studentGr.essayGrades[String(q.id)])) ?? null)
+                    : null;
+                const keyDisplay = q.correctAnswer || q.correctOptionText || q.answer || '-';
+                const explanation = q.explanation ? String(q.explanation).trim() : '';
 
-                let details = '';
-                if (q.type !== 'esay' && q.type !== 'essay') {
-                    details = `
-                        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; font-size: 12px; margin-top: 8px;">
-                            <p style="background-color: #f9fafb; border: 1px solid #e5e7eb; padding: 8px; border-radius: 6px; margin: 0; color: #374151;"><strong>Jawaban Siswa:</strong> ${ansVal} ${isCorrect ? '<span style="color: #059669; font-weight: bold; margin-left: 4px;">✓ Benar</span>' : '<span style="color: #dc2626; font-weight: bold; margin-left: 4px;">✗ Salah</span>'}</p>
-                            <p style="background-color: #ecfdf5; border: 1px solid #d1fae5; padding: 8px; border-radius: 6px; margin: 0; color: #047857;"><strong>Kunci Jawaban:</strong> ${keyDisplay}</p>
-                        </div>
-                    `;
+                let optionsHtml = '';
+                if (!isEssay && Array.isArray(q.options) && q.options.length > 0) {
+                    const studentRaw = String(studentAnsRaw ?? '').trim();
+                    const keyLetter = q.correctOptionLetter || '';
+                    optionsHtml = '<div style="margin-top: 10px; display: flex; flex-direction: column; gap: 6px;">' + q.options.map((opt, oIdx) => {
+                        const letter = String.fromCharCode(65 + oIdx);
+                        const selected = hasAnswer && (studentRaw === String(opt).trim() || studentRaw.toUpperCase() === letter);
+                        const isKey = keyLetter ? letter === keyLetter : (q.correctAnswer && String(opt).trim().toLowerCase() === String(q.correctAnswer).trim().toLowerCase());
+                        let bg = '#f9fafb', border = '#e5e7eb', color = '#374151';
+                        if (selected && isKey) { bg = 'rgba(236,253,245,0.9)'; border = '#34d399'; color = '#065f46'; }
+                        else if (selected) { bg = 'rgba(255,241,242,0.9)'; border = '#f87171'; color = '#991b1b'; }
+                        else if (isKey) { bg = 'rgba(236,253,245,0.55)'; border = '#a7f3d0'; color = '#047857'; }
+                        return '<div style="display: flex; align-items: center; gap: 10px; background-color: ' + bg + '; border: 1px solid ' + border + '; padding: 8px 12px; border-radius: 10px; font-size: 12px; color: ' + color + ';">' +
+                            '<span style="width: 22px; height: 22px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 11px; flex-shrink: 0; background-color: ' + (isKey ? '#059669' : (selected ? '#dc2626' : '#e5e7eb')) + '; color: ' + (isKey || selected ? '#fff' : '#4b5563') + ';">' + letter + '</span>' +
+                            '<span style="flex: 1;">' + assessmentEscapeHtml(String(opt)) + '</span>' +
+                            (selected && isKey ? '<span style="font-size: 9px; font-weight: bold; color: #047857; text-transform: uppercase;">Dipilih &bull; Kunci</span>' :
+                             (selected ? '<span style="font-size: 9px; font-weight: bold; color: #dc2626; text-transform: uppercase;">Dipilih</span>' :
+                              (isKey ? '<span style="font-size: 9px; font-weight: bold; color: #047857; text-transform: uppercase;">Kunci</span>' : ''))) +
+                        '</div>';
+                    }).join('') + '</div>';
+                }
+
+                let statusBadge = '';
+                if (!isEssay) {
+                    if (!hasAnswer) statusBadge = '<span style="font-size: 10px; font-weight: bold; color: #dc2626; background-color: rgba(254,226,226,0.6); border: 1px solid #fca5a5; padding: 2px 10px; border-radius: 999px;">Tidak Menjawab</span>';
+                    else if (isCorrect) statusBadge = '<span style="font-size: 10px; font-weight: bold; color: #047857; background-color: #ecfdf5; border: 1px solid #6ee7b7; padding: 2px 10px; border-radius: 999px;">Benar</span>';
+                    else if (isWrong) statusBadge = '<span style="font-size: 10px; font-weight: bold; color: #dc2626; background-color: rgba(254,226,226,0.6); border: 1px solid #fca5a5; padding: 2px 10px; border-radius: 999px;">Salah</span>';
+                } else if (essayPoints !== null && essayPoints !== undefined) {
+                    statusBadge = '<span style="font-size: 10px; font-weight: bold; color: #047857; background-color: #ecfdf5; border: 1px solid #6ee7b7; padding: 2px 10px; border-radius: 999px;">Nilai: ' + essayPoints + '%</span>';
+                } else if (!hasAnswer) {
+                    statusBadge = '<span style="font-size: 10px; font-weight: bold; color: #dc2626; background-color: rgba(254,226,226,0.6); border: 1px solid #fca5a5; padding: 2px 10px; border-radius: 999px;">Tidak Menjawab</span>';
                 } else {
-                    details = `
-                        <div style="margin-top: 8px;">
-                            <div style="background-color: rgba(254, 243, 199, 0.5); border: 1px solid #fde68a; padding: 12px; border-radius: 8px; font-size: 13px; color: #374151; margin-bottom: 8px;">
-                                <strong>Jawaban Siswa (Esay):</strong>
-                                <p style="margin: 4px 0 0 0; leading-relaxed: 1.5; whitespace-pre-wrap: break-spaces;">${ansVal}</p>
-                            </div>
-                            <div style="background-color: rgba(209, 250, 229, 0.5); border: 1px solid #a7f3d0; padding: 12px; border-radius: 8px; font-size: 13px; color: #047857; margin-bottom: 8px;">
-                                <strong>Kunci Jawaban / Acuan Penilaian:</strong>
-                                <p style="margin: 4px 0 0 0; leading-relaxed: 1.5; whitespace-pre-wrap: break-spaces;">${q.answer}</p>
-                            </div>
-                            <div style="font-size: 12px; font-weight: bold; color: #4b5563;">
-                                Pemberian Nilai Esay: <span style="color: #047857; background-color: #ecfdf5; padding: 2px 8px; border-radius: 4px; border: 1px solid #a7f3d0;">${essayPoints !== '-' ? essayPoints + '%' : 'Belum Dinilai'}</span>
-                            </div>
-                        </div>
-                    `;
+                    statusBadge = '<span style="font-size: 10px; font-weight: bold; color: #92400e; background-color: rgba(254,243,199,0.6); border: 1px solid #fcd34d; padding: 2px 10px; border-radius: 999px;">Belum Dinilai</span>';
+                }
+
+                // Jawaban siswa & kunci (di bawah pilihan utk PG, atau blok teks utk esay)
+                let studentAnswerBlock = '';
+                if (isEssay) {
+                    studentAnswerBlock = '<div style="margin-top: 10px; background-color: rgba(254,243,199,0.5); border: 1px solid #fde68a; padding: 12px; border-radius: 10px; font-size: 13px; color: #374151;">' +
+                        '<strong>Jawaban Siswa:</strong>' +
+                        '<p style="margin: 4px 0 0 0; white-space: pre-wrap; word-wrap: break-word;">' + ansVal + '</p></div>';
+                }
+
+                let keyBlock = '';
+                if (includeExplanation) {
+                    const keyLabel = isEssay ? 'Kunci Jawaban / Acuan Penilaian' : 'Kunci Jawaban';
+                    keyBlock = '<div style="margin-top: 10px; background-color: rgba(209,250,229,0.5); border: 1px solid #a7f3d0; padding: 12px; border-radius: 10px; font-size: 13px; color: #047857;">' +
+                        '<strong>' + keyLabel + ':</strong>' +
+                        '<p style="margin: 4px 0 0 0; white-space: pre-wrap; word-wrap: break-word;">' + assessmentEscapeHtml(String(keyDisplay)) + '</p></div>';
+                    if (explanation) {
+                        keyBlock += '<div style="margin-top: 8px; background-color: rgba(239,246,255,0.7); border: 1px solid #bfdbfe; padding: 12px; border-radius: 10px; font-size: 13px; color: #1e40af;">' +
+                            '<strong>Pembahasan:</strong>' +
+                            '<p style="margin: 4px 0 0 0; white-space: pre-wrap; word-wrap: break-word;">' + assessmentEscapeHtml(explanation) + '</p></div>';
+                    }
                 }
 
                 return `
                     <div style="background-color: #fff; border: 1px solid #e5e7eb; padding: 16px; border-radius: 12px; margin-bottom: 16px;">
-                        <p style="font-weight: bold; font-size: 13px; color: #1f2937; margin: 0 0 6px 0;">Soal No. ${qIdx + 1} (${q.type === 'esay' || q.type === 'essay' ? 'Esay' : 'Pilihan Ganda'})</p>
-                        <p style="font-size: 13px; line-height: 1.625; color: #374151; margin: 0;">${assessmentEscapeHtml(q.question)}</p>
-                        ${details}
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px;">
+                            <p style="font-weight: bold; font-size: 13px; color: #1f2937; margin: 0;">Soal No. ${qIdx + 1} (${isEssay ? 'Esay' : 'Pilihan Ganda'})</p>
+                            ${statusBadge}
+                        </div>
+                        <p style="font-size: 13px; line-height: 1.625; color: #374151; margin: 0;">${assessmentEscapeHtml(q.question || '')}</p>
+                        ${q.imageUrl || q.image ? '<img src="' + assessmentEscapeAttr(String(q.imageUrl || q.image)) + '" style="max-width: 60%; border: 1px solid #e5e7eb; border-radius: 8px; margin-top: 8px;" />' : ''}
+                        ${optionsHtml}
+                        ${studentAnswerBlock}
+                        ${keyBlock}
                     </div>
                 `;
             }).join('');
+
+            const nilaiAkhir = (studentGr && studentGr.finalScore !== null && studentGr.finalScore !== undefined) ? studentGr.finalScore
+                : (review && review.grade && review.grade.finalScore !== null && review.grade.finalScore !== undefined) ? review.grade.finalScore
+                : (review ? ((review.pgScore !== undefined) ? review.pgScore : 'Proses') : 'Proses');
 
             printableHTML += `
                 <div class="${idx > 0 ? 'page-break mt-12' : ''}" style="color: #1f2937; font-family: 'Plus Jakarta Sans', sans-serif; margin-bottom: 48px;">
@@ -9027,13 +9112,13 @@ function generateReportHTML() {
                         <div style="text-align: right;">
                             <p style="margin: 0 0 4px 0;"><strong>Ujian CBT:</strong> ${assessmentEscapeHtml(ex.title)}</p>
                             <p style="margin: 0 0 4px 0;"><strong>Mata Pelajaran:</strong> ${ex.subject}</p>
-                            <p style="margin: 0;"><strong>Nilai Akhir:</strong> <span style="font-weight: bold; color: #047857; background-color: #ecfdf5; padding: 2px 8px; border-radius: 4px; border: 1px solid #a7f3d0;">${studentGr.finalScore !== null && studentGr.finalScore !== undefined ? studentGr.finalScore : 'Proses'}</span></p>
+                            <p style="margin: 0;"><strong>Nilai Akhir:</strong> <span style="font-weight: bold; color: #047857; background-color: #ecfdf5; padding: 2px 8px; border-radius: 4px; border: 1px solid #a7f3d0;">${nilaiAkhir}</span></p>
                         </div>
                     </div>
 
                     <!-- Lembar Jawaban List -->
                     <div style="margin-top: 16px; margin-bottom: 24px;">
-                        <h4 style="font-size: 13px; font-weight: bold; text-transform: uppercase; color: #374151; letter-spacing: 0.05em; margin: 0 0 12px 0;">Rincian Pertanyaan & Jawaban Siswa</h4>
+                        <h4 style="font-size: 13px; font-weight: bold; text-transform: uppercase; color: #374151; letter-spacing: 0.05em; margin: 0 0 12px 0;">Rincian Soal, Jawaban Siswa${includeExplanation ? ', Kunci & Pembahasan' : ' & Kunci'}</h4>
                         ${questionsHTML}
                     </div>
 
@@ -9041,6 +9126,10 @@ function generateReportHTML() {
                 </div>
             `;
         });
+
+        if (missingReviewCount > 0) {
+            printableHTML += '<p style="font-size: 11px; color: #b45309; background-color: rgba(254,243,199,0.6); border: 1px solid #fcd34d; padding: 10px 14px; border-radius: 10px;">Catatan: jawaban ' + missingReviewCount + ' siswa tidak dapat diambil dari server dan ditampilkan dari data lokal (mungkin belum tersinkron).</p>';
+        }
 
         return printableHTML;
     }
@@ -9257,7 +9346,7 @@ function cetakNilaiEvaluasi() {
     openDownloadPreviewModal();
 }
 
-function cetakJawabanEvaluasi() {
+async function cetakJawabanEvaluasi() {
     const scopeSelect = document.getElementById('print-scope-select');
     const scope = scopeSelect ? scopeSelect.value : 'ALL';
     const classId = appState.evaluasiSelectedClassId;
@@ -9266,7 +9355,22 @@ function cetakJawabanEvaluasi() {
     const ex = appState.exams.find(e => String(e.id) === String(examId));
     if (!cls || !ex) return;
 
+    const includeExplanation = (() => {
+        const cb = document.getElementById('print-include-explanation');
+        return cb ? cb.checked : true;
+    })();
+
     closeModal();
+    try {
+        showToast('Mengambil jawaban terbaru dari server...', 'info');
+        await evaluasiPrefetchReviews(classId, examId, scope === 'ALL'
+            ? appState.students.filter(st => String(st.classId) === String(classId)).map(st => st.id)
+            : [scope]);
+    } catch (error) {
+        console.error('[Cetak Jawaban] Gagal sinkron review:', error);
+        showToast('Gagal mengambil jawaban dari server: ' + (error.message || error) + '. Menggunakan data lokal.', 'warning');
+    }
+    window.__printIncludeExplanation = includeExplanation;
 
     window.__activePrintType = 'jawaban';
     window.__activePrintParams = { scope, classId, examId };

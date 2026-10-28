@@ -16173,7 +16173,8 @@ app.get("/api/exam/review", requireAuth, requireRole(['teacher', 'guru', 'admin'
         correctAnswer,
         correctOptionIndex,
         correctOptionLetter: correctOptionIndex >= 0 ? String.fromCharCode(65 + correctOptionIndex) : null,
-        isCorrect: isEssay ? null : isMasterMultipleChoiceAnswerCorrect(q, studentAnswer)
+        isCorrect: isEssay ? null : isMasterMultipleChoiceAnswerCorrect(q, studentAnswer),
+        explanation: String(q.explanation || '').trim()
       };
     });
 
