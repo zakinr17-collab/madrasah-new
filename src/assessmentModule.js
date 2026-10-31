@@ -8569,72 +8569,93 @@ async function refreshEvaluasiData(classId, examId) {
     showToast(synced ? 'Data nilai berhasil diperbarui!' : 'Data server belum dapat diperbarui. Menampilkan cache terakhir.', synced ? 'success' : 'warning');
 }
 
-async function runAutoKoreksiNonAI(classId, examId) {
-    const btn = document.getElementById('btn-auto-koreksi-non-ai');
+function ensureEvaluasiProgressBar(anchorBtnId, label) {
+    let bar = document.getElementById('evaluasi-progress-bar-wrap');
+    const anchor = document.getElementById(anchorBtnId);
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'evaluasi-progress-bar-wrap';
+        bar.style.cssText = 'margin-top:8px;display:none;';
+        if (anchor && anchor.parentElement) anchor.parentElement.insertBefore(bar, anchor.nextSibling);
+        else document.body.appendChild(bar);
+    }
+    bar.innerHTML = '<div style="display:flex;justify-content:space-between;font-size:10px;font-weight:bold;color:#475569;margin-bottom:3px;"><span id="evaluasi-progress-label">' + (label || 'Memproses...') + '</span><span id="evaluasi-progress-pct">0%</span></div>' +
+        '<div style="height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;"><div id="evaluasi-progress-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#059669,#10b981);border-radius:999px;transition:width .3s;"></div></div>';
+    bar.style.display = 'block';
+    return {
+        set(pct, text) {
+            const fill = document.getElementById('evaluasi-progress-fill');
+            const pctEl = document.getElementById('evaluasi-progress-pct');
+            const lblEl = document.getElementById('evaluasi-progress-label');
+            const pr = Math.max(0, Math.min(100, Math.round(pct)));
+            if (fill) fill.style.width = pr + '%';
+            if (pctEl) pctEl.textContent = pr + '%';
+            if (lblEl && text) lblEl.textContent = text;
+        },
+        done(ok) {
+            const fill = document.getElementById('evaluasi-progress-fill');
+            if (fill) { fill.style.width = '100%'; fill.style.background = ok === false ? '#dc2626' : 'linear-gradient(90deg,#059669,#10b981)'; }
+            setTimeout(() => { if (bar) bar.style.display = 'none'; }, 2500);
+        }
+    };
+}
+
+async function runAutoKoreksiPerStudent(classId, examId, method) {
+    const isAi = method === 'ai';
+    const btn = document.getElementById(isAi ? 'btn-auto-koreksi' : 'btn-auto-koreksi-non-ai');
     let originalHtml = '';
     if (btn) {
         originalHtml = btn.innerHTML;
         btn.disabled = true;
-        btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Proses...`;
+        btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Koreksi berjalan... 0%';
     }
-    showToast('Proses koreksi otomatis Non-AI dimulai, harap tunggu sebentar...', 'info');
+    const progress = ensureEvaluasiProgressBar(isAi ? 'btn-auto-koreksi' : 'btn-auto-koreksi-non-ai', isAi ? 'Koreksi AI berjalan...' : 'Koreksi Non-AI berjalan...');
 
-    try {
-        const res = await fetch('/api/gemini/auto-koreksi', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ classId, examId, method: 'keyword' })
-        }).then(r => r.json());
+    const completed = appState.completedExams || {};
+    const answers = appState.studentExamAnswers || JSON.parse(localStorage.getItem('madrasah_student_exam_answers') || '{}') || {};
+    const classStudents = (appState.students || []).filter(st => String(st.classId) === String(classId))
+        .filter(st => {
+            const k = st.id + '_' + examId;
+            return Boolean(completed[k] || answers[k] !== undefined);
+        });
 
-        if (res && res.success) {
-            showToast(res.message, 'success');
-            await refreshEvaluasiData(classId, examId);
-        } else {
-            showToast(res ? res.message : 'Gagal melakukan auto koreksi.', 'error');
-        }
-    } catch (err) {
-        console.error('[runAutoKoreksiNonAI Error]:', err);
-        showToast('Terjadi kesalahan jaringan atau server saat melakukan auto koreksi.', 'error');
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
-        }
+    if (classStudents.length === 0) {
+        progress.done(false);
+        if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+        showToast('Belum ada siswa yang dapat dikoreksi.', 'warning');
+        return;
     }
+
+    let ok = 0, fail = 0;
+    for (let i = 0; i < classStudents.length; i++) {
+        const st = classStudents[i];
+        const shortName = String(st.name || 'Siswa').split(' ')[0];
+        progress.set((i / classStudents.length) * 100, (isAi ? 'Koreksi AI' : 'Koreksi Non-AI') + ' ' + (i + 1) + '/' + classStudents.length + ' — ' + shortName);
+        if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Koreksi... ' + Math.round((i / classStudents.length) * 100) + '%';
+        try {
+            const res = await fetch('/api/gemini/auto-koreksi', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ classId, examId, studentId: st.id, method: isAi ? 'ai' : 'keyword' })
+            });
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data.success) ok++; else fail++;
+        } catch (_) { fail++; }
+    }
+
+    progress.set(100, 'Selesai');
+    progress.done(true);
+    if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+    const msg = (isAi ? 'Koreksi AI' : 'Koreksi Non-AI') + ' selesai: ' + ok + ' berhasil' + (fail ? ', ' + fail + ' gagal' : '') + '.';
+    try { await refreshEvaluasiData(classId, examId); } catch (_) {}
+    showToast(msg, fail ? 'warning' : 'success');
+}
+
+async function runAutoKoreksiNonAI(classId, examId) {
+    return runAutoKoreksiPerStudent(classId, examId, 'keyword');
 }
 
 async function runAutoKoreksiAI(classId, examId) {
-    const btn = document.getElementById('btn-auto-koreksi');
-    let originalHtml = '';
-    if (btn) {
-        originalHtml = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Proses Auto Koreksi AI...`;
-    }
-    showToast('Proses koreksi otomatis dengan AI dimulai, harap tunggu sebentar...', 'info');
-
-    try {
-        const res = await fetch('/api/gemini/auto-koreksi', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ classId, examId })
-        }).then(r => r.json());
-
-        if (res && res.success) {
-            showToast(res.message, 'success');
-            await refreshEvaluasiData(classId, examId);
-        } else {
-            showToast(res ? res.message : 'Gagal melakukan auto koreksi.', 'error');
-        }
-    } catch (err) {
-        console.error('[runAutoKoreksiAI Error]:', err);
-        showToast('Terjadi kesalahan jaringan atau server saat melakukan auto koreksi.', 'error');
-    } finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerHTML = originalHtml;
-        }
-    }
+    return runAutoKoreksiPerStudent(classId, examId, 'ai');
 }
 
 function generateNilaiEvaluasi() {
