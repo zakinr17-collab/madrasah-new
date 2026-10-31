@@ -3515,6 +3515,36 @@ async function triggerAIGenerateModulPopup(subjectId) {
     `;
 }
 
+function ensureModulProgressBar(anchorEl, label) {
+    let bar = document.getElementById('modul-progress-bar-wrap');
+    if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'modul-progress-bar-wrap';
+        bar.style.cssText = 'margin-top:10px;display:none;';
+        if (anchorEl && anchorEl.parentElement) anchorEl.parentElement.insertBefore(bar, anchorEl.nextSibling);
+        else document.body.appendChild(bar);
+    }
+    bar.innerHTML = '<div style="display:flex;justify-content:space-between;font-size:10px;font-weight:bold;color:#475569;margin-bottom:3px;"><span id="modul-progress-label">' + (label || 'Memproses...') + '</span><span id="modul-progress-pct">0%</span></div>' +
+        '<div style="height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;"><div id="modul-progress-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#4f46e5,#8b5cf6);border-radius:999px;transition:width .3s;"></div></div>';
+    bar.style.display = 'block';
+    return {
+        set(pct, text) {
+            const fill = document.getElementById('modul-progress-fill');
+            const pctEl = document.getElementById('modul-progress-pct');
+            const lblEl = document.getElementById('modul-progress-label');
+            const v = Math.max(0, Math.min(100, Math.round(pct)));
+            if (fill) fill.style.width = v + '%';
+            if (pctEl) pctEl.textContent = v + '%';
+            if (lblEl && text) lblEl.textContent = text;
+        },
+        done(ok) {
+            const fill = document.getElementById('modul-progress-fill');
+            if (fill) { fill.style.width = '100%'; fill.style.background = ok === false ? '#dc2626' : 'linear-gradient(90deg,#4f46e5,#8b5cf6)'; }
+            setTimeout(() => { if (bar) bar.style.display = 'none'; }, 2500);
+        }
+    };
+}
+
 async function generateEntireModulAjarWithAI(event, subjectId, subjectName) {
     event.preventDefault();
     const topic = document.getElementById('ai-modul-topic').value;
@@ -3524,549 +3554,73 @@ async function generateEntireModulAjarWithAI(event, subjectId, subjectName) {
     const selectedClasses = [selectedTingkat];
     const gradeDisplay = selectedTingkat === 'ALL' ? 'Semua Tingkat' : 'Tingkat ' + selectedTingkat;
     const model = document.getElementById('ai-modul-model')?.value || 'Deep Learning';
-    
+    const bookId = document.getElementById('ai-modul-book')?.value || null;
+
     const submitBtn = document.getElementById('ai-submit-btn');
     if (!submitBtn) return;
-    
+
+    if (!topic) {
+        showToast('Silakan isi kolom materi / topik utama terlebih dahulu sebelum melakukan generate AI!', 'error');
+        return;
+    }
+
     const originalContent = submitBtn.innerHTML;
     submitBtn.disabled = true;
-    submitBtn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> <span>Sedang Menyusun Modul...</span>`;
+    submitBtn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> <span>Sedang Menyusun Modul...</span>';
+
+    // ===== GENERATE PER KOMPONEN: progress nyata N/17 =====
+    const COMPONENTS = [["identitasModul","Identitas Modul"],["kompetensiAwal","Kompetensi Awal"],["profilPancasila","Profil Pelajar Pancasila"],["saranaPrasarana","Sarana & Prasarana"],["targetPeserta","Target Peserta Didik"],["modelPembelajaran","Model Pembelajaran"],["tujuanPembelajaran","Tujuan Pembelajaran"],["pemahamanBermakna","Pemahaman Bermakna"],["pertanyaanPemantik","Pertanyaan Pemantik"],["persiapanPembelajaran","Persiapan Pembelajaran"],["kegiatanPembelajaran","Kegiatan Pembelajaran"],["asesmen","Asesmen"],["pengayaanRemedial","Pengayaan & Remedial"],["lkpd","LKPD"],["lembarKerja","Lembar Kerja Peserta"],["glosarium","Glosarium"],["daftarPustaka","Daftar Pustaka"]];
+    const progress = ensureModulProgressBar(submitBtn, 'Menyusun modul ajar...');
+    const collected = {};
+    let okCount = 0;
+
+    for (let i = 0; i < COMPONENTS.length; i++) {
+        const field = COMPONENTS[i][0];
+        const label = COMPONENTS[i][1];
+        progress.set((i / COMPONENTS.length) * 100, 'Komponen ' + (i + 1) + '/' + COMPONENTS.length + ' — ' + label);
+        submitBtn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> <span>' + label + ' (' + (i + 1) + '/' + COMPONENTS.length + ')</span>';
+        let text = '';
+        try {
+            const res = await fetch('/api/gemini/generate-modul', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ subjectName, topic, grade: gradeDisplay, classes: selectedClasses, fieldName: label, materiDetail, bookId })
+            });
+            const r = await res.json().catch(() => ({}));
+            if (res.ok && r.success) text = String(r.text || (r.data && r.data.text) || '').trim();
+        } catch (err) {
+            console.warn('[ModulAll] komponen gagal:', label, err);
+        }
+        collected[field] = text || ('**' + label + '** belum berhasil dibuat otomatis. Silakan klik tombol generate pada bagian ini untuk mencoba lagi.');
+        if (text) okCount++;
+    }
+
+    progress.set(100, 'Selesai menyusun modul');
+    progress.done(true);
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = originalContent;
 
     try {
-        const response = await fetch('/api/gemini/generate-modul-all', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ subjectName, topic, materiDetail, grade: gradeDisplay, classes: selectedClasses, model, semester, bookId: document.getElementById('ai-modul-book')?.value || null })
-        });
-        
-        const res = await response.json();
-        if (!response.ok || !res.success) throw new Error(res.message || 'Gagal generate modul.');
-        
-        // Open the lesson plan modal with the generated data!
         closeModal();
-        openLessonPlanModalWithData({
+        openLessonPlanModalWithData(Object.assign({
             subjectId,
             semester,
-            title: `Modul ${subjectName}: ${topic}`,
+            title: 'Modul ' + subjectName + ': ' + topic,
             topic,
             grade: selectedTingkat,
             classes: selectedClasses,
-            targetClasses: selectedClasses,
-            identitasModul: res.data.identitasModul || '',
-            kompetensiAwal: res.data.kompetensiAwal || '',
-            profilPancasila: res.data.profilPancasila || '',
-            saranaPrasarana: res.data.saranaPrasarana || '',
-            targetPeserta: res.data.targetPeserta || '',
-            modelPembelajaran: res.data.modelPembelajaran || '',
-            tujuanPembelajaran: res.data.tujuanPembelajaran || '',
-            pemahamanBermakna: res.data.pemahamanBermakna || '',
-            pertanyaanPemantik: res.data.pertanyaanPemantik || '',
-            persiapanPembelajaran: res.data.persiapanPembelajaran || '',
-            kegiatanPembelajaran: res.data.kegiatanPembelajaran || '',
-            asesmen: res.data.asesmen || '',
-            pengayaanRemedial: res.data.pengayaanRemedial || '',
-            lkpd: res.data.lkpd || '',
-            lembarKerja: res.data.lembarKerja || '',
-            glosarium: res.data.glosarium || '',
-            daftarPustaka: res.data.daftarPustaka || ''
-        });
-        showToast('Modul Ajar berhasil disusun oleh AI! Silakan review dan simpan.', 'success');
-    } catch (err) {
-        showToast(err.message, 'error');
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = originalContent;
-    }
-}
-
-function openLessonPlanModalWithData(data) {
-    openLessonPlanModal(null, data.subjectId, data);
-}
-
-// Open Lesson Plan Editor Modal (Handles Manual Create, AI Generated, or Editing existing)
-function openLessonPlanModal(id = null, subjectId, prefilledData = null) {
-    const subjectObj = (appState.subjects || []).find(s => isSameSubject(s.id, subjectId, appState.subjects));
-    const canonicalSubId = subjectObj ? subjectObj.id : subjectId;
-    const isEdit = !!id;
-    let lp = {
-        id: '',
-        subjectId: canonicalSubId,
-        title: '',
-        topic: '',
-        grade: 'ALL',
-        classes: ['ALL'],
-        identitasModul: '',
-        kompetensiAwal: '',
-        profilPancasila: '',
-        saranaPrasarana: '',
-        targetPeserta: '',
-        modelPembelajaran: '',
-        tujuanPembelajaran: '',
-        pemahamanBermakna: '',
-        pertanyaanPemantik: '',
-        persiapanPembelajaran: '',
-        kegiatanPembelajaran: '',
-        asesmen: '',
-        pengayaanRemedial: '',
-        lkpd: '',
-        lembarKerja: '',
-        glosarium: '',
-        daftarPustaka: ''
-    };
-
-    if (isEdit) {
-        const found = appState.lessonPlans.find(item => String(item.id) === String(id));
-        if (found) lp = { ...found };
-    } else if (prefilledData) {
-        lp = { ...lp, ...prefilledData };
-    }
-
-    if (Array.isArray(lp.classes) && lp.classes.length > 0) {
-        tempModulClasses = [...lp.classes];
-    } else if (Array.isArray(lp.targetClasses) && lp.targetClasses.length > 0) {
-        tempModulClasses = [...lp.targetClasses];
-    } else if (lp.grade) {
-        tempModulClasses = String(lp.grade).split(',').map(s => s.trim()).filter(Boolean);
-    } else {
-        tempModulClasses = ['ALL'];
-    }
-
-    const subject = appState.subjects ? appState.subjects.find(s => String(s.id) === String(subjectId)) : null;
-    const subjectName = subject ? subject.name : 'Mata Pelajaran';
-
-    const modal = document.getElementById('modal-container');
-    if (!modal) return;
-
-    document.body.style.overflow = 'hidden';
-    document.body.style.overflow = 'hidden';
-    modal.innerHTML = `
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-fade-in">
-            <div class="bg-white w-full max-w-5xl rounded-3xl shadow-2xl p-6 sm:p-8 flex flex-col h-[90vh] overflow-hidden">
-                <!-- Modal Header -->
-                <div class="flex justify-between items-center pb-4 border-b border-slate-100">
-                    <div class="flex items-center space-x-2.5">
-                        <div class="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                            <i class="fa-solid fa-file-invoice text-xs"></i>
-                        </div>
-                        <div>
-                            <h3 class="font-extrabold text-slate-800 text-sm sm:text-base">${isEdit ? 'Edit Modul Ajar' : 'Penyusunan Modul Ajar'}</h3>
-                            <p class="text-[10px] text-slate-400 font-medium">Mapel: <span class="font-semibold text-slate-600">${subjectName}</span></p>
-                        </div>
-                    </div>
-                    <button type="button" onclick="closeModal()"><i class="fa-solid fa-xmark text-lg text-slate-400 hover:text-slate-600"></i></button>
-                </div>
-
-                <!-- Modal Navigation Tabs -->
-                ${lp.isImported ? `
-                    <div class="flex items-center space-x-2.5 py-2.5 px-4 bg-blue-50/80 border border-blue-200 rounded-2xl text-xs text-blue-900 font-bold my-2 shadow-xs">
-                        <i class="fa-solid fa-file-word text-blue-600 text-sm"></i>
-                        <div>
-                            <p class="font-extrabold text-blue-900">Mode Edit Dokumen Utuh (${escapeHtml(lp.sourceFileName || 'File Dokumen')})</p>
-                            <p class="text-[10px] text-blue-700 font-medium">Edit naskah teks seperti mengedit dokumen Word biasa secara langsung di bawah ini.</p>
-                        </div>
-                    </div>
-                ` : `
-                    <div class="flex border-b border-slate-100 py-2 overflow-x-auto space-x-2">
-                        <button type="button" id="tab-btn-umum" onclick="switchModulFormTab('umum')" class="px-4 py-2 text-xs font-bold rounded-xl bg-slate-50 border border-slate-100 text-slate-600 transition flex items-center space-x-1.5 shrink-0">
-                            <i class="fa-solid fa-circle-info text-[10px]"></i><span>Informasi Umum</span>
-                        </button>
-                        <button type="button" id="tab-btn-inti" onclick="switchModulFormTab('inti')" class="px-4 py-2 text-xs font-bold rounded-xl bg-slate-50 border border-slate-100 text-slate-600 transition flex items-center space-x-1.5 shrink-0">
-                            <i class="fa-solid fa-crosshairs text-[10px]"></i><span>Komponen Inti</span>
-                        </button>
-                        <button type="button" id="tab-btn-lampiran" onclick="switchModulFormTab('lampiran')" class="px-4 py-2 text-xs font-bold rounded-xl bg-slate-50 border border-slate-100 text-slate-600 transition flex items-center space-x-1.5 shrink-0">
-                            <i class="fa-solid fa-paperclip text-[10px]"></i><span>Lampiran</span>
-                        </button>
-                    </div>
-                `}
-
-                <!-- Modal Scrollable Content Area -->
-                <div class="flex-1 min-h-0 overflow-y-auto py-4 pr-1">
-                    <form id="lesson-plan-edit-form" class="space-y-6">
-                        <input type="hidden" id="lp-id" value="${lp.id}">
-                        <input type="hidden" id="lp-subjectId" value="${lp.subjectId}">
-                        <input type="hidden" id="lp-isImported" value="${lp.isImported ? 'true' : 'false'}">
-                        <input type="hidden" id="lp-sourceFileName" value="${escapeHtml(lp.sourceFileName || '')}">
-                        <input type="hidden" id="lp-sourceType" value="${escapeHtml(lp.sourceType || '')}">
-                        <textarea id="lp-extractedContent" class="hidden">${escapeHtml(lp.extractedContent || '')}</textarea>
-                        <textarea id="lp-sourceBase64" class="hidden">${escapeHtml(lp.sourceBase64 || '')}</textarea>
-                        <textarea id="lp-htmlContent" class="hidden">${escapeHtml(lp.htmlContent || '')}</textarea>
-
-                        ${lp.isImported ? `
-                            <div class="p-3.5 bg-blue-50/80 border border-blue-200 rounded-2xl flex items-center justify-between text-xs text-blue-900 shadow-xs">
-                                <div class="flex items-center space-x-3">
-                                    <div class="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-xs">
-                                        <i class="fa-solid fa-file-import"></i>
-                                    </div>
-                                    <div>
-                                        <p class="font-extrabold text-blue-900">Modul Diimpor dari File Dokumen</p>
-                                        <p class="text-[11px] text-blue-700">Sumber: <strong>${escapeHtml(lp.sourceFileName || 'File Dokumen')}</strong> (${(lp.sourceType || 'doc').toUpperCase()}) • Tersimpan Utuh Tanpa Perubahan</p>
-                                    </div>
-                                </div>
-                                <span class="px-2.5 py-1 bg-blue-200/70 font-extrabold text-[10px] text-blue-900 rounded-lg shrink-0">
-                                    <i class="fa-solid fa-check-double mr-1"></i>Arsip Utuh
-                                </span>
-                            </div>
-                        ` : ''}
-
-                        <!-- Basic Information Header inputs -->
-                        <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 p-4 bg-slate-50/80 rounded-2xl border border-slate-100">
-                            <div class="space-y-1 sm:col-span-1">
-                                <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500">Judul Modul Ajar</label>
-                                <input type="text" id="lp-title" required value="${lp.title || `Modul ${subjectName}`}" placeholder="Misal: Modul Ajar Fiqih Shalat" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold">
-                            </div>
-                            <div class="space-y-1 sm:col-span-1">
-                                <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500">Materi / Topik Utama</label>
-                                <input type="text" id="lp-topic" required value="${lp.topic}" placeholder="Misal: Shalat Berjamaah" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold">
-                            </div>
-                            <div class="space-y-1 sm:col-span-1">
-                                <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500">Semester</label>
-                                <select id="lp-semester" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold cursor-pointer focus:ring-2 focus:ring-emerald-500">
-                                    <option value="1" ${String(lp.semester) === '1' || !lp.semester ? 'selected' : ''}>Semester 1 (Ganjil)</option>
-                                    <option value="2" ${String(lp.semester) === '2' ? 'selected' : ''}>Semester 2 (Genap)</option>
-                                </select>
-                            </div>
-                            <div class="space-y-1 sm:col-span-1">
-                                <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500">Target Kelas (Bisa Ditambah)</label>
-                                <select id="lp-class-dropdown" onchange="addModulClass(this.value)" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold cursor-pointer focus:ring-2 focus:ring-emerald-500">
-                                    <option value="">-- Tambah Kelas --</option>
-                                    <option value="ALL">Semua Kelas</option>
-                                    ${(appState.classes || []).map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
-                                </select>
-                                <div id="lp-selected-classes-container" class="flex flex-wrap gap-1.5 p-2 bg-white rounded-xl border border-slate-200 min-h-[38px] items-center">
-                                </div>
-                            </div>
-                        </div>
-
-                        ${lp.isImported ? `
-                            <!-- Document Text Editor for Imported Modules -->
-                            <div class="space-y-2 pt-1">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
-                                        <i class="fa-solid fa-file-lines text-blue-600"></i>
-                                        <span>Isi Naskah Dokumen Modul Ajar</span>
-                                    </label>
-                                    <span class="text-[11px] text-slate-500 font-medium">Format tulisan biasa (seperti Word / Document)</span>
-                                </div>
-                                <textarea id="lp-documentContent" rows="18" class="w-full p-4 font-sans text-xs sm:text-sm leading-relaxed border border-slate-300 rounded-2xl focus:bg-white focus:ring-2 focus:ring-blue-500 font-medium whitespace-pre-wrap shadow-inner" placeholder="Edit isi naskah dokumen modul ajar di sini...">${escapeHtml(lp.extractedContent || lp.identitasModul || lp.kegiatanPembelajaran || '')}</textarea>
-                            </div>
-                        ` : `
-                            <!-- SECTION 1: INFORMASI UMUM -->
-                            <div id="form-tab-section-umum" class="space-y-4">
-                            <!-- Identitas Modul -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Identitas Modul</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('identitasModul', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('identitasModul', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-identitasModul" rows="3" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Sebutkan Penyusun, Instansi, Tahun, Alokasi Waktu...">${lp.identitasModul}</textarea>
-                            </div>
-
-                            <!-- Kompetensi Awal -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Kompetensi Awal</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('kompetensiAwal', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('kompetensiAwal', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-kompetensiAwal" rows="3" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Kemampuan prasyarat siswa sebelum pembelajaran...">${lp.kompetensiAwal}</textarea>
-                            </div>
-
-                            <!-- Profil Pelajar Pancasila -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Profil Pelajar Pancasila & Rahmatan Lil Alamin</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('profilPancasila', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('profilPancasila', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-profilPancasila" rows="3" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Dimensi profil siswa yang ingin dibangun...">${lp.profilPancasila}</textarea>
-                            </div>
-
-                            <!-- Sarana dan Prasarana -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Sarana dan Prasarana</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('saranaPrasarana', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('saranaPrasarana', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-saranaPrasarana" rows="3" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Fasilitas, media, alat dan bahan belajar yang dibutuhkan...">${lp.saranaPrasarana}</textarea>
-                            </div>
-
-                            <!-- Target Peserta Didik -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Target Peserta Didik</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('targetPeserta', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('targetPeserta', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-targetPeserta" rows="2" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Kategori siswa penerima manfaat pembelajaran...">${lp.targetPeserta}</textarea>
-                            </div>
-
-                            <!-- Model Pembelajaran -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Model Pembelajaran</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('modelPembelajaran', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('modelPembelajaran', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-modelPembelajaran" rows="2" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Model dan metode pembelajaran yang diterapkan...">${lp.modelPembelajaran}</textarea>
-                            </div>
-                        </div>
-
-                        <!-- SECTION 2: KOMPONEN INTI -->
-                        <div id="form-tab-section-inti" class="space-y-4 hidden">
-                            <!-- Tujuan Pembelajaran -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Tujuan Pembelajaran</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('tujuanPembelajaran', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('tujuanPembelajaran', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-tujuanPembelajaran" rows="3" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Tujuan yang ingin dicapai selama pembelajaran...">${lp.tujuanPembelajaran}</textarea>
-                            </div>
-
-                            <!-- Pemahaman Bermakna -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Pemahaman Bermakna</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('pemahamanBermakna', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('pemahamanBermakna', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-pemahamanBermakna" rows="3" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Manfaat nyata setelah proses pembelajaran...">${lp.pemahamanBermakna}</textarea>
-                            </div>
-
-                            <!-- Pertanyaan Pemantik -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Pertanyaan Pemantik</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('pertanyaanPemantik', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('pertanyaanPemantik', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-pertanyaanPemantik" rows="2" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Pertanyaan pemancing diskusi awal...">${lp.pertanyaanPemantik}</textarea>
-                            </div>
-
-                            <!-- Persiapan Pembelajaran -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Persiapan Pembelajaran</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('persiapanPembelajaran', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('persiapanPembelajaran', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-persiapanPembelajaran" rows="3" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Langkah teknis guru sebelum masuk kelas...">${lp.persiapanPembelajaran}</textarea>
-                            </div>
-
-                            <!-- Kegiatan Pembelajaran -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Kegiatan Pembelajaran</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('kegiatanPembelajaran', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('kegiatanPembelajaran', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-kegiatanPembelajaran" rows="5" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Skenario detail Pendahuluan, Inti, dan Penutup...">${lp.kegiatanPembelajaran}</textarea>
-                            </div>
-
-                            <!-- Asesmen -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Asesmen</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('asesmen', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('asesmen', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-asesmen" rows="3" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Metode asesmen diagnostik, formatif, sumatif...">${lp.asesmen}</textarea>
-                            </div>
-
-                            <!-- Pengayaan dan Remedial -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Pengayaan dan Remedial</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('pengayaanRemedial', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('pengayaanRemedial', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-pengayaanRemedial" rows="3" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Program tindak lanjut belajar...">${lp.pengayaanRemedial}</textarea>
-                            </div>
-                        </div>
-
-                        <!-- SECTION 3: LAMPIRAN -->
-                        <div id="form-tab-section-lampiran" class="space-y-4 hidden">
-                            <!-- LKPD -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Lembar Kerja Peserta Didik (LKPD)</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('lkpd', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('lkpd', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-lkpd" rows="4" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Tugas, instruksi pengerjaan, dan soal latihan peserta didik...">${lp.lkpd}</textarea>
-                            </div>
-
-                            <!-- Lembar Kerja -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Bahan Bacaan Guru & Siswa / Lembar Kerja Tambahan</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('lembarKerja', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('lembarKerja', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-lembarKerja" rows="3" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Format refleksi, draf materi, atau kuesioner mandiri...">${lp.lembarKerja}</textarea>
-                            </div>
-
-                            <!-- Glosarium -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Glosarium</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('glosarium', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('glosarium', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-glosarium" rows="3" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Daftar kosakata penting beserta artinya...">${lp.glosarium}</textarea>
-                            </div>
-
-                            <!-- Daftar Pustaka -->
-                            <div class="space-y-1.5">
-                                <div class="flex items-center justify-between">
-                                    <label class="block text-xs font-extrabold uppercase tracking-wider text-slate-600">Daftar Pustaka</label>
-                                    <div class="flex items-center space-x-1.5">
-                                        <button type="button" onclick="generateNonAIField('daftarPustaka', '${subjectName}')" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-bolt text-[9px] text-emerald-600"></i><span>Non-AI</span>
-                                        </button>
-                                        <button type="button" onclick="generateAIField('daftarPustaka', '${subjectName}')" class="px-2 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-100 rounded-lg text-[10px] font-bold flex items-center space-x-1 transition cursor-pointer">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-[9px]"></i><span>Isi AI</span>
-                                        </button>
-                                    </div>
-                                </div>
-                                <textarea id="lp-daftarPustaka" rows="3" class="w-full px-3 py-2 bg-slate-50/50 border border-slate-200 rounded-xl text-xs font-semibold focus:bg-white" placeholder="Referensi sumber belajar yang kredibel...">${lp.daftarPustaka}</textarea>
-                            </div>
-                        </div>
-                        `}
-                    </form>
-                </div>
-
-                <!-- Modal Actions footer -->
-                <div class="flex justify-between items-center pt-4 border-t border-slate-100 mt-2">
-                    <button type="button" onclick="closeModal()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-bold transition cursor-pointer">Batal</button>
-                    <button type="button" onclick="saveLessonPlan()" class="px-6 py-2.5 bg-emerald-600 text-white rounded-2xl text-xs font-bold hover:bg-emerald-700 shadow-md transition cursor-pointer">Simpan Modul Ajar</button>
-                </div>
-            </div>
-        </div>
-    `;
-
-    if (!lp.isImported) {
-        switchModulFormTab('umum');
-    }
-    setTimeout(() => { if (typeof window.renderModulClassChips === 'function') window.renderModulClassChips(); }, 50);
-}
-
-function switchModulFormTab(tabName) {
-    const tabs = ['umum', 'inti', 'lampiran'];
-    tabs.forEach(t => {
-        const btn = document.getElementById(`tab-btn-${t}`);
-        const sec = document.getElementById(`form-tab-section-${t}`);
-        if (!btn || !sec) return;
-        if (t === tabName) {
-            btn.classList.add('bg-emerald-600', 'text-white', 'border-emerald-600');
-            btn.classList.remove('bg-slate-50', 'text-slate-600', 'border-slate-100');
-            sec.classList.remove('hidden');
+            targetClasses: selectedClasses
+        }, collected));
+        if (okCount < COMPONENTS.length) {
+            showToast('Modul selesai, tetapi ' + (COMPONENTS.length - okCount) + ' komponen perlu diisi/di-generate manual.', 'warning');
         } else {
-            btn.classList.remove('bg-emerald-600', 'text-white', 'border-emerald-600');
-            btn.classList.add('bg-slate-50', 'text-slate-600', 'border-slate-100');
-            sec.classList.add('hidden');
+            showToast('Modul ajar lengkap berhasil disusun (' + okCount + '/' + COMPONENTS.length + ' komponen).', 'success');
         }
-    });
+    } catch (error) {
+        showToast('Modul tersusun tetapi gagal ditampilkan: ' + (error.message || error), 'error');
+    }
 }
 
-// Generate a single field with AI based on subject name and topic
 async function generateAIField(fieldName, subjectName) {
     const topicInput = document.getElementById('lp-topic');
     const textarea = document.getElementById(`lp-${fieldName}`);
@@ -5322,25 +4876,69 @@ async function generateSoalKisi(event, subjectId, subjectName) {
     }
 
     try {
-        const response = await fetch('/api/gemini/generate-soal-kisi', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                subjectName,
-                mcCount,
-                essayCount,
-                optionCount,
-                lessons: filteredPlans,
-                difficulty
-            })
-        });
+        // ===== BATCH: pecah total soal jadi beberapa request — progress valid =====
+        const BATCH = 5;
+        const remainingMC = mcCount;
+        const remainingEssay = essayCount;
+        let allQuestions = [];
+        const totalTarget = remainingMC + remainingEssay;
+        let made = 0;
+        let lastMeta = null;
 
-        const res = await response.json();
-        if (!response.ok || !res.success) {
-            throw new Error(res.message || 'Gagal menghasilkan soal & kisi-kisi.');
+        while (made < totalTarget) {
+            const wantMC = Math.min(BATCH, Math.max(0, remainingMC - allQuestions.filter(q => q.type !== 'essay').length));
+            const wantEssay = Math.min(BATCH, Math.max(0, remainingEssay - allQuestions.filter(q => q.type === 'essay').length));
+            if (wantMC === 0 && wantEssay === 0) break;
+
+            const doneNow = allQuestions.length;
+            if (modalBody) {
+                modalBody.innerHTML = `
+                    <div class="py-12 flex flex-col items-center justify-center text-center space-y-4">
+                        <div class="w-16 h-16 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-2xl relative">
+                            <i class="fa-solid fa-brain"></i>
+                            <div class="absolute inset-0 rounded-full border-4 border-indigo-500/20 border-t-indigo-500 animate-spin"></div>
+                        </div>
+                        <div>
+                            <h4 class="font-extrabold text-slate-800 text-sm">Menyusun Soal ${doneNow}/${totalTarget}...</h4>
+                            <p class="text-[11px] text-slate-400 mt-1">AI sedang membuat soal & kisi-kisi secara bertahap agar kualitas terjaga.</p>
+                        </div>
+                        <div class="w-64 bg-slate-100 h-2 rounded-full overflow-hidden">
+                            <div id="soal-progress-fill" class="bg-indigo-600 h-full rounded-full transition-all duration-300" style="width:${Math.round((doneNow / totalTarget) * 100)}%"></div>
+                        </div>
+                        <p class="text-[11px] font-bold text-indigo-600" id="soal-progress-pct">${Math.round((doneNow / totalTarget) * 100)}%</p>
+                    </div>`;
+            }
+            if (submitBtn) submitBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> <span>Membuat soal ' + doneNow + '/' + totalTarget + '</span>';
+
+            const response = await fetch('/api/gemini/generate-soal-kisi', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    subjectName,
+                    mcCount: wantMC,
+                    essayCount: wantEssay,
+                    optionCount,
+                    lessons: filteredPlans,
+                    difficulty
+                })
+            });
+
+            const res = await response.json();
+            if (!response.ok || !res.success) {
+                throw new Error(res.message || 'Gagal menghasilkan soal & kisi-kisi.');
+            }
+
+            const batchData = res.data || {};
+            lastMeta = { kisiMeta: batchData.kisiMeta || batchData.meta || null, header: batchData.header || batchData.identitas || null };
+            const qs = Array.isArray(batchData.questions) ? batchData.questions : [];
+            allQuestions = allQuestions.concat(qs);
+            made = allQuestions.length;
         }
 
-        const data = res.data;
+        // Penomoran ulang agar urut
+        allQuestions.forEach((q, i) => { q.number = i + 1; q.no = i + 1; });
+
+        const data = Object.assign({}, lastMeta || {}, { questions: allQuestions });
         window.lastGeneratedExamData = data;
         window.lastGeneratedExamSubjectName = subjectName;
 
