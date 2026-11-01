@@ -8,6 +8,21 @@
     const role = String(window.appState?.role || window.appState?.currentUser?.role || '').toLowerCase();
     return role === 'admin' || role === 'administrator' || role === 'bos' || role === 'superadmin';
   }
+  function isTeacherUser() {
+    const role = String(window.appState?.role || window.appState?.currentUser?.role || '').toLowerCase();
+    return role === 'teacher' || role === 'guru';
+  }
+  // Status izin guru di-cache agar FAB tidak berkedip; cek ringan sekali per sesi.
+  let teacherAllowedCache = null;
+  async function teacherAllowed() {
+    if (teacherAllowedCache !== null) return teacherAllowedCache;
+    try {
+      const res = await fetch('/api/ai-assistant/teacher/history', { credentials: 'include' });
+      const data = await res.json();
+      teacherAllowedCache = data?.allowed === true;
+    } catch (e) { teacherAllowedCache = false; }
+    return teacherAllowedCache;
+  }
 
   function esc(s) {
     return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[c]));
@@ -19,28 +34,34 @@
   }
 
   window.renderAiAssistantButton = function () {
-    if (!isAdminUser()) return '';
-    return `
+    if (isAdminUser()) return `
       <button id="ai-assistant-fab" onclick="window.openAiAssistantPanel()" title="Asisten AI Madrasah"
         class="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 text-white shadow-2xl shadow-indigo-500/40 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform cursor-pointer">
         <i class="fa-solid fa-robot text-xl"></i>
         <span class="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-emerald-400 border-2 border-white animate-pulse"></span>
+      </button>`;
+    return `
+      <button id="ai-assistant-fab" onclick="window.openAiAssistantPanel()" title="Asisten Guru"
+        class="fixed bottom-6 right-6 z-40 w-14 h-14 rounded-full bg-gradient-to-br from-emerald-600 to-teal-600 text-white shadow-2xl shadow-emerald-500/40 flex items-center justify-center hover:scale-105 active:scale-95 transition-transform cursor-pointer">
+        <i class="fa-solid fa-robot text-xl"></i>
       </button>`;
   };
 
   window.openAiAssistantPanel = function () {
     let panel = document.getElementById('ai-assistant-panel');
     if (panel) { panel.classList.remove('translate-x-full'); return; }
+    const teacherMode = isTeacherUser();
+    const headerGrad = teacherMode ? 'from-emerald-600 to-teal-600' : 'from-indigo-600 to-violet-600';
     panel = document.createElement('div');
     panel.id = 'ai-assistant-panel';
     panel.className = 'fixed top-0 right-0 z-[60] h-full w-full sm:w-[420px] bg-white shadow-2xl border-l border-slate-200 flex flex-col translate-x-full transition-transform duration-300';
     panel.innerHTML = `
-      <div class="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white">
+      <div class="flex items-center justify-between px-4 py-3 bg-gradient-to-r ${headerGrad} text-white">
         <div class="flex items-center gap-2.5">
           <div class="w-9 h-9 rounded-xl bg-white/15 flex items-center justify-center"><i class="fa-solid fa-robot"></i></div>
           <div>
-            <p class="text-sm font-extrabold leading-tight">Asisten Madrasah</p>
-            <p class="text-[10px] text-indigo-100">AI aktif: profil pengaturan &bull; mengenal aplikasi ini</p>
+            <p class="text-sm font-extrabold leading-tight">${teacherMode ? 'Asisten Guru' : 'Asisten Madrasah'}</p>
+            <p class="text-[10px] text-white/80">${teacherMode ? 'Hanya data kelas ampuan Anda & panduan aplikasi' : 'AI aktif: profil pengaturan &bull; mengenal aplikasi ini'}</p>
           </div>
         </div>
         <div class="flex items-center gap-1">
@@ -56,7 +77,7 @@
           <button id="ai-assistant-send" onclick="window.sendAiAssistantMessage()"
             class="w-10 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center shrink-0 cursor-pointer"><i class="fa-solid fa-paper-plane text-sm"></i></button>
         </div>
-        <p class="text-[10px] text-slate-400 mt-1.5">Asisten memakai API key yang diaktifkan di Pengaturan.</p>
+        <p class="text-[10px] text-slate-400 mt-1.5">${teacherMode ? 'Asisten hanya bisa melihat data kelas ampuan Anda — tidak bisa mengubah apa pun.' : 'Asisten memakai API key yang diaktifkan di Pengaturan.'}</p>
       </div>`;
     document.body.appendChild(panel);
     requestAnimationFrame(() => panel.classList.remove('translate-x-full'));
@@ -109,12 +130,36 @@
   function hideTyping() { document.getElementById('ai-assistant-typing')?.remove(); }
 
   window.loadAiAssistantHistory = async function () {
+    const teacherMode = isTeacherUser();
+    const historyUrl = teacherMode ? '/api/ai-assistant/teacher/history' : '/api/ai-assistant/history';
     try {
-      const res = await fetch('/api/ai-assistant/history', { credentials: 'include' });
+      const res = await fetch(historyUrl, { credentials: 'include' });
       const data = await res.json();
+      const allowed = teacherMode ? (data?.allowed === true) : true;
       const turns = Array.isArray(data?.turns) ? data.turns : [];
       const box = messagesBox();
+      if (!allowed) {
+        if (box) box.innerHTML = `<div class="text-center py-8 px-4">
+          <div class="w-14 h-14 mx-auto rounded-2xl bg-slate-100 text-slate-400 flex items-center justify-center mb-3"><i class="fa-solid fa-lock text-2xl"></i></div>
+          <p class="text-sm font-bold text-slate-700">Asisten AI belum diizinkan</p>
+          <p class="text-xs text-slate-500 mt-1">Fitur ini memerlukan izin dari admin madrasah melalui menu Perizinan Guru. Hubungi admin Anda.</p></div>`;
+        const input = document.getElementById('ai-assistant-input');
+        const send = document.getElementById('ai-assistant-send');
+        if (input) input.disabled = true;
+        if (send) send.disabled = true;
+        return;
+      }
       if (box && turns.length === 0) {
+        if (teacherMode) {
+          box.innerHTML = `<div class="text-center py-8 px-4">
+          <div class="w-14 h-14 mx-auto rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mb-3"><i class="fa-solid fa-robot text-2xl"></i></div>
+          <p class="text-sm font-bold text-slate-700">Halo! 👋</p>
+          <p class="text-xs text-slate-500 mt-1">Saya Asisten Guru — saya bisa melihat data kelas ampuan Anda, mengantar ke halaman, menunjukkan lokasi fitur, dan menjawab pertanyaan umum.</p>
+          <div class="flex flex-wrap gap-2 justify-center mt-4">
+            <button onclick="window.aiAssistantQuick('Tampilkan ringkasan data saya')" class="text-[11px] px-3 py-1.5 bg-white border border-slate-200 rounded-full hover:border-emerald-300 text-slate-600 cursor-pointer">Ringkasan data saya</button>
+            <button onclick="window.aiAssistantQuick('Antar saya ke bank soal')" class="text-[11px] px-3 py-1.5 bg-white border border-slate-200 rounded-full hover:border-emerald-300 text-slate-600 cursor-pointer">Antar ke Bank Soal</button>
+          </div></div>`;
+        } else {
         box.innerHTML = `<div class="text-center py-8 px-4">
           <div class="w-14 h-14 mx-auto rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-3"><i class="fa-solid fa-robot text-2xl"></i></div>
           <p class="text-sm font-bold text-slate-700">Halo, Admin! 👋</p>
@@ -124,6 +169,7 @@
             <button onclick="window.aiAssistantQuick('Antar saya ke halaman evaluasi')" class="text-[11px] px-3 py-1.5 bg-white border border-slate-200 rounded-full hover:border-indigo-300 text-slate-600 cursor-pointer">Antar ke Evaluasi</button>
             <button onclick="window.aiAssistantQuick('Bagaimana cara membuat ujian CBT baru?')" class="text-[11px] px-3 py-1.5 bg-white border border-slate-200 rounded-full hover:border-indigo-300 text-slate-600 cursor-pointer">Cara buat ujian?</button>
           </div></div>`;
+        }
         return;
       }
       turns.forEach((t) => appendBubble(t.role, t.content));
@@ -250,7 +296,8 @@
     showTyping();
     if (sendBtn) { sendBtn.disabled = true; sendBtn.classList.add('opacity-50'); }
     try {
-      const res = await fetch('/api/ai-assistant/chat', {
+      const endpoint = isTeacherUser() ? '/api/ai-assistant/teacher/chat' : '/api/ai-assistant/chat';
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

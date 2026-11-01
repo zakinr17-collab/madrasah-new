@@ -3711,6 +3711,7 @@ app.use((req, res, next) => {
 const requestBodyLimit = isOnlineMode ? '25mb' : '50mb';
 app.use(express.json({ limit: requestBodyLimit }));
 setAssistantDataStore({ get students(){ return students; }, get teachers(){ return teachers; }, get classes(){ return classes; }, get subjects(){ return subjects; }, get exams(){ return exams; }, get questions(){ return questions; }, get lessonPlans(){ return lessonPlans; }, get attendance(){ return attendance; } });
+(globalThis as any).__assistantAiAccessFor = (userId: string, kind: 'ai' | 'drive') => aiAccessForUser(userId, kind);
 registerAiAssistantEndpoints(app, { requireAuth, requireRole, getAuthUser, callAI });
 
 // Middleware AI per-guru: jalankan handler dalam ALS context berisi kredensial guru (jika diizinkan).

@@ -64,6 +64,121 @@ const UI_ELEMENT_MAP: Record<string, Record<string, UIElementDef>> = {
 };
 
 // ---------------------------------------------------------------------------
+// TOOL GURU (read-only, terkurung) — terpisah dari tool admin.
+// Guru hanya boleh: data kelas/mapel yang DIA ampu, statistik ringkas
+// kelasnya, jadwal, dan navigasi/tunjuk elemen. TANPA settings, TANPA data
+// lintas kelas, TANPA tool tulis. Keputusan di server, bukan kata model.
+// ---------------------------------------------------------------------------
+function makeTeacherTools(teacherId: string, teacher: any): ToolDef[] {
+  const g: any = globalThis as any;
+  const homeroomId = String(teacher?.homeroom_class_id || "");
+  const mySubject = String(teacher?.mapel || teacher?.subject || "");
+  // Kelas yang diampu: wali kelas + kelas pada mapel yang diajar (mapping subjects.teacherId bila ada)
+  const taughtClassIds = new Set<string>();
+  if (homeroomId) taughtClassIds.add(String(homeroomId));
+  for (const s of (g.__assistantStore?.subjects || [])) {
+    if (String(s?.teacherId || "") === String(teacherId)) {
+      if (s?.classId) taughtClassIds.add(String(s.classId));
+      if (Array.isArray(s?.classIds)) s.classIds.forEach((c: any) => taughtClassIds.add(String(c)));
+    }
+  }
+
+  const myStudents = () => scopedAll(g.__assistantStore?.students, null).filter((s: any) =>
+    taughtClassIds.has(String(s.classId || s.kelas || ""))
+  );
+  const myExams = () => scopedAll(g.__assistantStore?.exams, null).filter((e: any) =>
+    String(e?.teacherId || e?.createdBy || "") === String(teacherId) ||
+    (mySubject && [e.subject, e.subjectName].some((v: any) => String(v || "").toLowerCase() === mySubject.toLowerCase()))
+  );
+
+  return [
+    {
+      name: "get_my_overview",
+      description: "Ringkasan data SAYA sebagai guru: kelas yang diampu (wali kelas & mapel), jumlah siswa di kelas tersebut, mata pelajaran, ujian yang saya buat.",
+      parameters: { type: "object", properties: {} },
+      exec: () => {
+        const classes = scopedAll(g.__assistantStore?.classes, null).filter((c: any) => taughtClassIds.has(String(c.id)));
+        const students = myStudents();
+        return {
+          namaGuru: teacher?.name || "",
+          mapel: mySubject,
+          waliKelas: homeroomId || null,
+          kelasDiampu: classes.map((c: any) => ({ nama: c.name || c.className, id: c.id })),
+          jumlahSiswaDiKelas: students.length,
+          jumlahUjianSaya: myExams().length,
+        };
+      },
+    },
+    {
+      name: "search_my_students",
+      description: "Cari siswa DI KELAS YANG SAYA AMPU saja berdasarkan nama/NIS. Maks 15 hasil. Tidak bisa mencari siswa di luar kelas ampuan.",
+      parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+      exec: (args: any) => {
+        const q = String(args.query || "").toLowerCase();
+        return myStudents()
+          .filter((s: any) => [s.name, s.nis].some((v: any) => String(v || "").toLowerCase().includes(q)))
+          .slice(0, 15)
+          .map((s: any) => ({ nama: s.name, nis: s.nis, kelas: s.className || s.kelas || s.classId }));
+      },
+    },
+    {
+      name: "list_my_exams",
+      description: "Daftar ujian yang SAYA buat (judul, kelas, status). Maks 15.",
+      parameters: { type: "object", properties: {} },
+      exec: () => myExams().slice(0, 15).map((e: any) => ({
+        judul: e.title || e.name, kelas: e.className || e.classId || "", status: e.status || (e.isActive ? "aktif" : "nonaktif"), id: e.id,
+      })),
+    },
+    {
+      name: "navigate_to",
+      description: "Antarkan guru langsung ke halaman tertentu. Panggil WAJIB sebelum menjawab bila diminta membuka/mencari halaman.",
+      parameters: {
+        type: "object",
+        properties: {
+          route: { type: "string", description: "Salah satu: dashboard, jadwal, asesmen, bank_soal, modul_ajar, kalender, evaluasi" },
+          label: { type: "string" },
+        },
+        required: ["route"],
+      },
+      exec: (args: any) => {
+        const TEACHER_ROUTES = ["dashboard", "jadwal", "asesmen", "bank_soal", "modul_ajar", "kalender", "evaluasi"];
+        const route = String(args.route || "").trim().toLowerCase();
+        if (!TEACHER_ROUTES.includes(route)) return { ok: false, error: `Halaman tidak tersedia untuk guru: ${route}` };
+        return { ok: true, route, label: args.label || route, __navigate: route };
+      },
+    },
+    {
+      name: "highlight_element",
+      description: "Tunjuk/sorot elemen UI (setelah navigate_to). Kunci tersedia: guru->teacher_search, bank_soal->question_search, modul_ajar->subject_search, asesmen->exam_list, dashboard->attendance_trend/agenda_banner/quick_actions.",
+      parameters: {
+        type: "object",
+        properties: {
+          route: { type: "string" },
+          element: { type: "string" },
+          label: { type: "string" },
+        },
+        required: ["route", "element"],
+      },
+      exec: (args: any) => {
+        const ALLOWED: Record<string, string[]> = {
+          guru: ["teacher_search"],
+          bank_soal: ["question_search"],
+          modul_ajar: ["subject_search"],
+          asesmen: ["exam_list"],
+          dashboard: ["attendance_trend", "agenda_banner", "quick_actions"],
+        };
+        const route = String(args.route || "").trim().toLowerCase();
+        const element = String(args.element || "").trim();
+        if (!ALLOWED[route] || !ALLOWED[route].includes(element)) {
+          return { ok: false, error: "Elemen tidak tersedia untuk guru." };
+        }
+        return { ok: true, route, element, label: args.label || element, __navigate: route, __highlight: element, __label: args.label || element };
+      },
+    },
+  ];
+}
+
+// ---------------------------------------------------------------------------
 // TOOLS
 // ---------------------------------------------------------------------------
 type ToolDef = { name: string; description: string; parameters: any; exec: (args: any, req: any) => any };
@@ -256,6 +371,30 @@ ATURAN JAWABAN:
 }
 
 // ---------------------------------------------------------------------------
+// SYSTEM PROMPT GURU — sama semangatnya dengan admin tapi batasan jelas.
+// ---------------------------------------------------------------------------
+function buildTeacherSystemPrompt(teacher: any): string {
+  return `Kamu adalah "Asisten Guru" — asisten AI AGENT resmi di aplikasi CBT "Madrasah Digital", melayani guru bernama ${(teacher?.name || "Bapak/Ibu Guru")} (mapel: ${teacher?.mapel || "-"}${teacher?.homeroom_class_id ? ", wali kelas: " + teacher.homeroom_class_id : ""}).
+
+KEMAMPUANMU (terbatas & aman):
+- Melihat ringkasan data milik guru sendiri (kelas ampuan, siswa di kelas itu, ujian yang guru buat) via tool.
+- Mengantar guru ke halaman: dashboard, jadwal, asesmen, bank_soal, modul_ajar, kalender, evaluasi.
+- Menunjuk/sorot elemen UI di halaman-halaman tersebut.
+- Menjelaskan cara memakai fitur aplikasi + menjawab pertanyaan umum seperti asisten AI biasa.
+
+BATASAN MUTLAK (jangan pernah dilanggar):
+- Kamu TIDAK bisa melihat/mengubah data di luar kelas ampuan guru (siswa kelas lain, data guru lain, pengaturan/aplikasi, akun, lisensi, API key).
+- Kamu TIDAK bisa menulis/mengubah/menghapus apa pun — hanya membaca & menunjuk. Jika diminta mengubah data, jelaskan langkah manualnya di aplikasi.
+- Jika guru meminta hal di luar kemampuanmu, tolak dengan sopan dan arahkan ke admin madrasah.
+
+ATURAN JAWABAN:
+- Selalu Bahasa Indonesia, ramah, terstruktur (poin/strip, TANPA ** atau #).
+- Pertanyaan tentang data → panggil tool dulu, jangan mengarang angka.
+- Permintaan "buka/cari halaman X" → panggil navigate_to dulu; "tunjukkan kolom X" → panggil highlight_element.
+- Jangan sebut nama tool secara teknis; sebutkan natural ("saya cek dulu ya…", "sudah saya antarkan…").`;
+}
+
+// ---------------------------------------------------------------------------
 // SESSION HELPERS
 // ---------------------------------------------------------------------------
 function getSession(req: any): { key: string; session: { turns: ChatTurn[]; updatedAt: number } } {
@@ -363,15 +502,17 @@ function detectHighlightIntent(userText: string): Array<{ route: string; element
 // ---------------------------------------------------------------------------
 const MAX_TOOL_ROUNDS = 5;
 
-async function runAgent(text: string, session: any, req: any, h: AssistantHelpers) {
-  const tools = makeTools();
+async function runAgent(text: string, session: any, req: any, h: AssistantHelpers, opts?: { mode?: "admin" | "teacher"; teacher?: any }) {
+  const mode = opts?.mode || "admin";
+  const tools = mode === "teacher" ? makeTeacherTools(String(opts?.teacher?.id || ""), opts?.teacher) : makeTools();
+  const sysPrompt = mode === "teacher" ? buildTeacherSystemPrompt(opts?.teacher) : buildAssistantSystemPrompt();
   const g: any = globalThis as any;
   const runtime = g.__aiProviderRuntime || {};
   const baseUrl = String(runtime.customBaseUrl || process.env.CUSTOM_AI_BASE_URL || "https://token.lightvela.ai/v1").replace(/\/$/, "");
   const apiKey = runtime.customApiKey || process.env.CUSTOM_AI_API_KEY || "";
   const model = runtime.customModel || process.env.CUSTOM_AI_MODEL || "auto";
 
-  const messages: any[] = [{ role: "system", content: buildAssistantSystemPrompt() }];
+  const messages: any[] = [{ role: "system", content: sysPrompt }];
   for (const t of session.turns.slice(0, -1)) {
     messages.push({ role: t.role === "user" ? "user" : "assistant", content: t.content });
   }
@@ -450,7 +591,7 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
   // API key tetap mampu menjadi agent penuh.
   if (process.env.GEMINI_API_KEY) {
     try {
-      const gem = await runGeminiAgent(text, session, req, true);
+      const gem = await runGeminiAgent(text, session, req, true, { sysPrompt, tools });
       if (gem.reply) return gem;
     } catch (e: any) {
       console.warn("[AIAssistant] Gemini agent fallback gagal:", e?.message);
@@ -460,7 +601,7 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
   // Fallback level 2 (terakhir): callAI teks biasa tanpa tool
   const response = await h.callAI(null, {
     contents: foldHistory(session, text),
-    config: { systemInstruction: buildAssistantSystemPrompt(), generationConfig: { temperature: 0.6, maxOutputTokens: 2048 } },
+    config: { systemInstruction: sysPrompt, generationConfig: { temperature: 0.6, maxOutputTokens: 2048 } },
   });
   const reply = String(response?.text || "").trim();
   if (!reply) throw new Error("AI memberikan respons kosong.");
@@ -471,6 +612,76 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
 // ENDPOINTS
 // ---------------------------------------------------------------------------
 export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) {
+  // Rate limit per pengguna (agent boros token): maks 30 chat / 10 menit
+  const assistantRate = new Map<string, number[]>();
+  function rateLimited(key: string): boolean {
+    const now = Date.now();
+    const arr = (assistantRate.get(key) || []).filter((t) => now - t < 10 * 60 * 1000);
+    if (arr.length >= 30) { assistantRate.set(key, arr); return true; }
+    arr.push(now);
+    assistantRate.set(key, arr);
+    return false;
+  }
+
+  // Data guru untuk mode teacher (dari store yang di-inject server)
+  function findTeacher(userId: string): any {
+    const g: any = globalThis as any;
+    const teachers = g.__assistantStore?.teachers || [];
+    return teachers.find((t: any) => String(t.id || "") === String(userId) || String(t.username || "") === String((g.__assistantAuthUser || {}).username || ""));
+  }
+
+  // Endpoint khusus guru — tool terkurung read-only, hanya guru BERIZIN via
+  // Perizinan (mode 'allowed' pakai AI bersama ATAU 'own' dengan key terpasang).
+  app.post("/api/ai-assistant/teacher/chat", h.requireAuth, h.requireRole(["teacher", "guru"]), async (req: Request, res: Response) => {
+    try {
+      const { message } = (req.body || {}) as { message?: string };
+      const text = String(message || "").trim();
+      if (!text) return res.status(400).json({ success: false, message: "Pesan tidak boleh kosong." });
+
+      const authUser: any = h.getAuthUser(req);
+      const userId = String(authUser?.id || "");
+      // Izin diputuskan SERVER via aiAccessForUser (server.ts context) — tidak percaya klien.
+      const g: any = globalThis as any;
+      const mode: string = typeof (g as any).__assistantAiAccessFor === "function" ? (g as any).__assistantAiAccessFor(userId, "ai") : "admin";
+      if (mode === "admin") {
+        return res.status(403).json({ success: false, code: "AI_NOT_ALLOWED", message: "Asisten AI belum diizinkan untuk Anda. Hubungi admin madrasah (Perizinan Guru)." });
+      }
+      const teacher = findTeacher(userId);
+      if (!teacher) return res.status(404).json({ success: false, message: "Data guru tidak ditemukan." });
+
+      if (rateLimited("t:" + userId)) {
+        return res.status(429).json({ success: false, message: "Terlalu banyak pertanyaan. Coba lagi beberapa menit lagi." });
+      }
+
+      (globalThis as any).__assistantAuthUser = authUser;
+      const { session } = getSession(req);
+      pushTurn(session, "user", text);
+
+      const { reply, navigation: agentNav, highlights: agentHl } = await runAgent(text, session, req, h, { mode: "teacher", teacher });
+      const navigation = agentNav;
+      const highlights = agentHl && agentHl.length ? agentHl : [];
+      pushTurn(session, "assistant", reply);
+
+      return res.json({ success: true, reply, navigation, highlights, mode, turns: session.turns.length });
+    } catch (err: any) {
+      console.error("[AIAssistant] teacher chat gagal:", err?.message || err);
+      return res.status(500).json({ success: false, message: err?.message || "Asisten AI gagal merespons." });
+    }
+  });
+
+  app.get("/api/ai-assistant/teacher/history", h.requireAuth, h.requireRole(["teacher", "guru"]), async (req: Request, res: Response) => {
+    try {
+      const authUser: any = h.getAuthUser(req);
+      const g: any = globalThis as any;
+      const mode: string = typeof (g as any).__assistantAiAccessFor === "function" ? (g as any).__assistantAiAccessFor(String(authUser?.id || ""), "ai") : "admin";
+      (globalThis as any).__assistantAuthUser = authUser;
+      const { session } = getSession(req);
+      return res.json({ success: true, allowed: mode !== "admin", mode, turns: session.turns });
+    } catch {
+      return res.json({ success: true, allowed: false, mode: "admin", turns: [] });
+    }
+  });
+
   app.post("/api/ai-assistant/chat", h.requireAuth, h.requireRole(["admin", "administrator", "bos", "superadmin"]), async (req: Request, res: Response) => {
     try {
       const { message } = (req.body || {}) as { message?: string };
@@ -543,13 +754,14 @@ function geminiToolDefs(tools: ToolDef[]) {
   }];
 }
 
-export async function runGeminiAgent(text: string, session: any, req: any, historyMode: boolean): Promise<{ reply: string; navigation: string[]; highlights: Array<{ route: string; element: string; label: string }> }> {
+export async function runGeminiAgent(text: string, session: any, req: any, historyMode: boolean, opts?: { sysPrompt?: string; tools?: ToolDef[] }): Promise<{ reply: string; navigation: string[]; highlights: Array<{ route: string; element: string; label: string }> }> {
+  const tools = opts?.tools || makeTools();
+  const sysPrompt = opts?.sysPrompt || buildAssistantSystemPrompt();
   const apiKey = process.env.GEMINI_API_KEY || "";
   if (!apiKey) throw new Error("GEMINI_API_KEY kosong");
   const { GoogleGenAI } = await import("@google/genai");
   const ai = new GoogleGenAI({ apiKey, httpOptions: { headers: { "User-Agent": "aistudio-build" } } });
 
-  const tools = makeTools();
   const contents: any[] = [];
   for (const t of session.turns.slice(0, -1)) {
     contents.push({ role: t.role === "user" ? "user" : "model", parts: [{ text: t.content }] });
@@ -566,7 +778,7 @@ export async function runGeminiAgent(text: string, session: any, req: any, histo
           model,
           contents,
           config: {
-            systemInstruction: buildAssistantSystemPrompt(),
+            systemInstruction: sysPrompt,
             tools: geminiToolDefs(tools),
             temperature: 0.6,
             maxOutputTokens: 2048,
