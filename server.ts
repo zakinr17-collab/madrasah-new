@@ -3712,6 +3712,61 @@ const requestBodyLimit = isOnlineMode ? '25mb' : '50mb';
 app.use(express.json({ limit: requestBodyLimit }));
 setAssistantDataStore({ get students(){ return students; }, get teachers(){ return teachers; }, get classes(){ return classes; }, get subjects(){ return subjects; }, get exams(){ return exams; }, get questions(){ return questions; }, get lessonPlans(){ return lessonPlans; }, get attendance(){ return attendance; } });
 (globalThis as any).__assistantAiAccessFor = (userId: string, kind: 'ai' | 'drive') => aiAccessForUser(userId, kind);
+(globalThis as any).__assistantWriteAction = async (action: string, args: any, req: any) => {
+  if (action === 'create_student') {
+    const nis = String(args.nis || args.NIS || '').trim();
+    const name = String(args.name || args.nama || '').trim();
+    const username = String(args.username || '').trim() || ('siswa' + Date.now().toString().slice(-6));
+    if (!nis || !name) throw new Error('NIS dan nama siswa wajib diisi.');
+    const tenantStudents = filterByMadrasah(students, req);
+    if (tenantStudents.some((s: any) => String(s.nis || '').trim() === nis)) throw new Error('NIS ' + nis + ' sudah dipakai siswa lain.');
+    const rawPassword = String(args.password || '').trim().length >= 8 ? String(args.password).trim() : generateTemporaryStudentPassword();
+    const newStudent = tagNewRecord({
+      id: 'ST_' + Date.now(),
+      nis,
+      name,
+      classId: args.classId || 'C1',
+      class_id: args.classId || 'C1',
+      username,
+      password: hashPassword(rawPassword),
+      passwordAdminCipher: encryptStudentAdminPassword(rawPassword),
+      photo: '',
+      no_hp: '',
+      role: normalizeStudentStoredRole('student'),
+    }, req);
+    students.push(newStudent);
+    await saveData('students', students);
+    return { ok: true, message: 'Siswa ' + name + ' dibuat.', username, temporaryPassword: rawPassword, studentId: newStudent.id };
+  }
+  if (action === 'create_exam') {
+    const title = String(args.judul || args.title || '').trim();
+    if (!title) throw new Error('Judul ujian wajib diisi.');
+    const newExam = tagNewRecord({
+      id: 'EX_' + Date.now(),
+      title,
+      name: title,
+      classId: args.classId || '',
+      className: args.className || '',
+      subjectName: args.subjectName || '',
+      subject: args.subjectName || '',
+      date: args.tanggal || args.date || new Date().toISOString().split('T')[0],
+      status: 'draft',
+      duration: Number(args.duration || 90),
+      questions: [],
+    }, req);
+    exams.push(newExam);
+    await saveData('exams', exams);
+    return { ok: true, message: 'Ujian \"" + title + "\" dibuat sebagai DRAF.', examId: newExam.id };
+  }
+  if (action === 'set_running_text') {
+    const text = String(args.text || '').trim();
+    if (!text) throw new Error('Teks berjalan tidak boleh kosong.');
+    appSettings.runningText = text;
+    await saveData('settings', appSettings);
+    return { ok: true, message: 'Teks berjalan diperbarui.' };
+  }
+  throw new Error('Aksi tidak dikenal: ' + action);
+};
 registerAiAssistantEndpoints(app, { requireAuth, requireRole, getAuthUser, callAI });
 
 // Middleware AI per-guru: jalankan handler dalam ALS context berisi kredensial guru (jika diizinkan).

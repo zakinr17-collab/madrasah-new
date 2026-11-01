@@ -316,6 +316,45 @@
           });
           if (typeof showToast === 'function') showToast('Asisten mengantarkanmu ke halaman tujuan.', 'info');
         }
+        // Agent: aksi tulis menunggu konfirmasi admin → tombol [Lanjutkan]/[Batal]
+        if (Array.isArray(data.pendingWrites) && data.pendingWrites.length) {
+          data.pendingWrites.forEach((p) => {
+            if (!p?.id) return;
+            const box = document.getElementById('ai-assistant-messages');
+            if (!box) return;
+            const wrap = document.createElement('div');
+            wrap.className = 'bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2';
+            wrap.innerHTML = `
+              <p class="text-[11px] font-bold text-amber-800"><i class="fa-solid fa-pen-to-square mr-1"></i>Aksi butuh konfirmasi</p>
+              <p class="text-xs text-slate-700">${esc(p.summary || '')}</p>
+              <div class="flex gap-2">
+                <button class="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer">✓ Lanjutkan</button>
+                <button class="text-[11px] font-bold px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 cursor-pointer">✕ Batal</button>
+              </div>`;
+            const [btnOk, btnNo] = wrap.querySelectorAll('button');
+            const decide = async (cancel) => {
+              btnOk.disabled = btnNo.disabled = true;
+              btnOk.classList.add('opacity-50'); btnNo.classList.add('opacity-50');
+              try {
+                const res = await fetch('/api/ai-assistant/confirm', {
+                  method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ token: p.id, cancel }),
+                });
+                const d = await res.json();
+                wrap.querySelector('p.text-xs').textContent = (p.summary || '') + ' — ' + (d.message || (cancel ? 'Dibatalkan.' : 'Selesai.'));
+                wrap.classList.toggle('bg-amber-50', false);
+                wrap.classList.add(cancel ? 'bg-slate-100' : 'bg-emerald-50', cancel ? 'border-slate-200' : 'border-emerald-200');
+                if (!cancel && d.success && appendBubble) appendBubble('assistant', '✅ ' + (d.message || 'Aksi dijalankan.'));
+              } catch (e) {
+                wrap.querySelector('p.text-xs').textContent = (p.summary || '') + ' — gagal memproses konfirmasi.';
+              }
+            };
+            btnOk.onclick = () => decide(false);
+            btnNo.onclick = () => decide(true);
+            box.appendChild(wrap);
+            box.scrollTop = box.scrollHeight;
+          });
+        }
         // Agent: tunjuk/sorot elemen UI
         if (Array.isArray(data.highlights) && data.highlights.length) {
           data.highlights.forEach((h) => {

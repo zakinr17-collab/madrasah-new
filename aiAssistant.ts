@@ -200,6 +200,66 @@ function scopedAll(list: any[], req: any): any[] {
   return arr.filter((item: any) => tenantOf(item) === tenant);
 }
 
+// ---------------------------------------------------------------------------
+// TOOL TULIS ADMIN — aksi mengubah data HANYA lewat konfirmasi dua langkah:
+// 1) prepare_write_action membuat "rencana" + token (TTL 15 menit, sekali pakai)
+// 2) admin klik Lanjutkan → /api/ai-assistant/confirm {token} → eksekusi nyata
+// Guru TIDAK mendapat tool ini sama sekali (lihat makeTeacherTools).
+// ---------------------------------------------------------------------------
+interface PendingWriteAction {
+  id: string;
+  action: string;
+  summary: string;
+  args: any;
+  userId: string;
+  createdAt: number;
+}
+const pendingWrites = new Map<string, PendingWriteAction>();
+const PENDING_TTL = 15 * 60 * 1000;
+
+function newPendingId(): string {
+  return "wact_" + Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
+}
+
+function makeWriteTools(): ToolDef[] {
+  return [
+    {
+      name: "prepare_write_action",
+      description:
+        "SIAPKAN aksi tulis (mengubah data aplikasi) ATAS PERMINTAAN EKSPLISIT admin. Jangan panggil kecuali admin jelas meminta membuat/mengubah sesuatu. Aksi TIDAK langsung dijalankan — server membuat rencana + token konfirmasi; admin harus menyetujui via tombol di chat. Aksi tersedia: create_student (nama, nis, username, password, classId), create_exam (judul, classId, subjectName, tanggal), set_running_text (teks). Untuk classId gunakan hasil list_classes.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: { type: "string", description: "Salah satu: create_student | create_exam | set_running_text" },
+          args: { type: "object", description: "Argumen aksi sesuai skema di deskripsi" },
+        },
+        required: ["action", "args"],
+      },
+      exec: (args: any, req: any) => {
+        const authUser: any = (globalThis as any).__assistantAuthUser || {};
+        const action = String(args.action || "");
+        const a = args.args || {};
+        const summaries: Record<string, (x: any) => string> = {
+          create_student: (x) => `Tambah siswa baru "${x.name || x.nama || "(tanpa nama)"}" (NIS ${x.nis || "-"})${x.classId ? ` ke kelas ${x.classId}` : ""} dengan username ${x.username || "(otomatis)"}.`,
+          create_exam: (x) => `Buat ujian "${x.judul || x.title}"${x.classId ? ` untuk kelas ${x.classId}` : ""}${x.subjectName ? ` mapel ${x.subjectName}` : ""}.`,
+          set_running_text: (x) => `Ubah teks berjalan menjadi: "${String(x.text || "").slice(0, 80)}".`,
+        };
+        if (!summaries[action]) return { error: "Aksi tidak dikenal. Gunakan: create_student, create_exam, set_running_text." };
+        const id = newPendingId();
+        pendingWrites.set(id, { id, action, summary: summaries[action](a), args: a, userId: String(authUser?.id || ""), createdAt: Date.now() });
+        // bersihkan kadaluarsa
+        for (const [k, v] of pendingWrites) if (Date.now() - v.createdAt > PENDING_TTL) pendingWrites.delete(k);
+        return {
+          __pendingWrite: id,
+          status: "menunggu_konfirmasi",
+          summary: summaries[action](a),
+          note: "JANGAN mengaku aksi sudah dilakukan. Katakan ke admin bahwa tombol konfirmasi muncul di chat dan aksi baru berjalan setelah disetujui.",
+        };
+      },
+    },
+  ];
+}
+
 function makeTools(): ToolDef[] {
   const g: any = globalThis as any;
   return [
@@ -504,7 +564,7 @@ const MAX_TOOL_ROUNDS = 5;
 
 async function runAgent(text: string, session: any, req: any, h: AssistantHelpers, opts?: { mode?: "admin" | "teacher"; teacher?: any }) {
   const mode = opts?.mode || "admin";
-  const tools = mode === "teacher" ? makeTeacherTools(String(opts?.teacher?.id || ""), opts?.teacher) : makeTools();
+  const tools = mode === "teacher" ? makeTeacherTools(String(opts?.teacher?.id || ""), opts?.teacher) : [...makeTools(), ...makeWriteTools()];
   const sysPrompt = mode === "teacher" ? buildTeacherSystemPrompt(opts?.teacher) : buildAssistantSystemPrompt();
   const g: any = globalThis as any;
   const runtime = g.__aiProviderRuntime || {};
@@ -520,16 +580,20 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
 
   const navigation: string[] = [];
   const highlights: Array<{ route: string; element: string; label: string }> = [];
+  const pendingWritesOut: Array<{ id: string; summary: string }> = [];
 
   const processToolResult = (result: any) => {
     if (result && result.__navigate) {
       navigation.push(result.route);
     }
+    if (result && result.__pendingWrite) {
+      pendingWritesOut.push({ id: result.__pendingWrite, summary: result.__summary || result.summary || "Aksi tulis" });
+    }
     if (result && result.__highlight) {
       highlights.push({ route: result.route, element: result.__highlight, label: result.__label || result.__highlight });
     }
     if (result && (result.__navigate || result.__highlight)) {
-      const { __navigate, __highlight, __label, ...rest } = result;
+      const { __navigate, __highlight, __label, __pendingWrite, __summary, ...rest } = result;
       return rest;
     }
     return result;
@@ -559,7 +623,7 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
         const toolCalls = msg.tool_calls || [];
         if (!toolCalls.length) {
           const reply = String(msg.content || "").trim();
-          if (reply) return { reply, navigation, highlights };
+          if (reply) return { reply, navigation, highlights, pendingWrites: pendingWritesOut };
           break;
         }
         messages.push(msg);
@@ -575,6 +639,10 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
           if (result && result.__navigate) {
             navigation.push(result.route);
             result = { ok: true, route: result.route, label: result.label, message: "Navigasi dikirim ke browser admin." };
+          }
+          if (result && result.__pendingWrite) {
+            pendingWritesOut.push({ id: result.__pendingWrite, summary: result.__summary || result.summary || "Aksi tulis" });
+            result = { ok: true, status: "menunggu_konfirmasi", summary: result.__summary || result.summary, message: "Rencana dibuat. Menunggu admin menekan tombol konfirmasi di chat." };
           }
           if (result && result.__highlight) {
             result = { ok: true, route: result.route, element: result.__highlight, label: result.__label || result.__highlight, message: "Sorotan elemen dikirim ke browser admin." };
@@ -692,7 +760,7 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       const { session } = getSession(req);
       pushTurn(session, "user", text);
 
-      const { reply, navigation: agentNav, highlights: agentHl } = await runAgent(text, session, req, h);
+      const { reply, navigation: agentNav, highlights: agentHl, pendingWrites: pendingW } = await runAgent(text, session, req, h);
       // Jaminan navigasi nyata: bila model mengklaim mengantar tanpa tool call,
       // ekstrak tujuan dari teks admin secara deterministik.
       const navigation = reconcileNavigation(reply, text, agentNav);
@@ -703,7 +771,7 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       for (const hl of highlights) { if (!navSet.has(hl.route)) navigation.unshift(hl.route); }
       pushTurn(session, "assistant", reply);
 
-      return res.json({ success: true, reply, navigation, highlights, turns: session.turns.length });
+      return res.json({ success: true, reply, navigation, highlights, pendingWrites: pendingW || [], turns: session.turns.length });
     } catch (err: any) {
       console.error("[AIAssistant] chat gagal:", err?.message || err);
       return res.status(500).json({ success: false, message: err?.message || "Asisten AI gagal merespons." });
@@ -717,6 +785,33 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       return res.json({ success: true, turns: session.turns });
     } catch {
       return res.json({ success: true, turns: [] });
+    }
+  });
+
+  // KONFIRMASI AKSI TULIS (admin) — eksekusi rencana yang dibuat agent.
+  // Token sekali pakai, TTL 15 menit, terikat userId pembuatnya.
+  app.post("/api/ai-assistant/confirm", h.requireAuth, h.requireRole(["admin", "administrator", "bos", "superadmin"]), async (req: Request, res: Response) => {
+    try {
+      const { token, cancel } = (req.body || {}) as { token?: string; cancel?: boolean };
+      const authUser: any = h.getAuthUser(req);
+      const uid = String(authUser?.id || "");
+      const pending = token ? pendingWrites.get(String(token)) : undefined;
+      if (!pending) return res.status(404).json({ success: false, message: "Rencana tidak ditemukan / sudah kadaluarsa. Minta agent membuat ulang." });
+      if (pending.userId !== uid) return res.status(403).json({ success: false, message: "Rencana ini bukan dibuat dari sesi Anda." });
+      pendingWrites.delete(String(token)); // sekali pakai
+      if (cancel) {
+        return res.json({ success: true, cancelled: true, message: "Aksi dibatalkan." });
+      }
+      const g: any = globalThis as any;
+      if (typeof g.__assistantWriteAction !== "function") return res.status(500).json({ success: false, message: "Executor aksi tulis tidak tersedia." });
+      const result = await g.__assistantWriteAction(pending.action, pending.args, req);
+      try {
+        (g as any).__assistantAudit?.(uid, "assistant_write", { action: pending.action, summary: pending.summary, result: { ok: result?.ok, message: result?.message } });
+      } catch {}
+      return res.json({ success: true, executed: result?.ok !== false, action: pending.action, ...result });
+    } catch (err: any) {
+      console.error("[AIAssistant] confirm gagal:", err?.message || err);
+      return res.status(400).json({ success: false, message: err?.message || "Eksekusi aksi gagal." });
     }
   });
 
@@ -754,7 +849,7 @@ function geminiToolDefs(tools: ToolDef[]) {
   }];
 }
 
-export async function runGeminiAgent(text: string, session: any, req: any, historyMode: boolean, opts?: { sysPrompt?: string; tools?: ToolDef[] }): Promise<{ reply: string; navigation: string[]; highlights: Array<{ route: string; element: string; label: string }> }> {
+export async function runGeminiAgent(text: string, session: any, req: any, historyMode: boolean, opts?: { sysPrompt?: string; tools?: ToolDef[] }): Promise<{ reply: string; navigation: string[]; highlights: Array<{ route: string; element: string; label: string }>; pendingWrites?: Array<{ id: string; summary: string }> }> {
   const tools = opts?.tools || makeTools();
   const sysPrompt = opts?.sysPrompt || buildAssistantSystemPrompt();
   const apiKey = process.env.GEMINI_API_KEY || "";
@@ -770,6 +865,7 @@ export async function runGeminiAgent(text: string, session: any, req: any, histo
 
   const navigation: string[] = [];
   const highlights: Array<{ route: string; element: string; label: string }> = [];
+  const pendingWritesOut: Array<{ id: string; summary: string }> = [];
 
   for (const model of GEMINI_AGENT_MODELS) {
     try {
@@ -790,7 +886,7 @@ export async function runGeminiAgent(text: string, session: any, req: any, histo
 
         if (!fnCalls.length) {
           const reply = String(response?.text || parts.map((p: any) => p?.text || "").join("") || "").trim();
-          if (reply) return { reply, navigation, highlights };
+          if (reply) return { reply, navigation, highlights, pendingWrites: pendingWritesOut };
           break;
         }
         contents.push({ role: "model", parts });
@@ -806,6 +902,10 @@ export async function runGeminiAgent(text: string, session: any, req: any, histo
           if (result && result.__navigate) {
             navigation.push(result.route);
             result = { ok: true, route: result.route, label: result.label, message: "Navigasi dikirim ke browser admin." };
+          }
+          if (result && result.__pendingWrite) {
+            pendingWritesOut.push({ id: result.__pendingWrite, summary: result.__summary || result.summary || "Aksi tulis" });
+            result = { ok: true, status: "menunggu_konfirmasi", summary: result.__summary || result.summary, message: "Rencana dibuat. Menunggu admin menekan tombol konfirmasi di chat." };
           }
           if (result && result.__highlight) {
             highlights.push({ route: result.route, element: result.__highlight, label: result.__label || result.__highlight });
