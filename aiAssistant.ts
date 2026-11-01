@@ -21,6 +21,42 @@ const ASSISTANT_MAX_TURNS = 40;
 const ASSISTANT_SESSION_TTL = 1000 * 60 * 60 * 12; // 12 jam
 
 // ---------------------------------------------------------------------------
+// PETA ELEMEN UI per halaman — kunci -> CSS selector + deskripsi.
+// Dipakai tool highlight_element (server menandai __highlight, frontend
+// mencari elemennya lalu memberi sorot berdenyut + tooltip).
+// ---------------------------------------------------------------------------
+type UIElementDef = { sel: string; desc: string };
+const UI_ELEMENT_MAP: Record<string, Record<string, UIElementDef>> = {
+  setting: {
+    account_search: { sel: "#account-search-input", desc: "Kolom pencarian akun pengguna (nama/NIS/NIP/username) di kartu Pengaturan Akun & Peran" },
+    set_school_name: { sel: "#set-school", desc: "Kolom nama madrasah/sekolah" },
+    set_admin_name: { sel: "#set-admin-name", desc: "Kolom nama administrator" },
+    chat_toggle: { sel: "#set-chat-enabled", desc: "Saklar aktif/nonaktif chat" },
+    running_text: { sel: "#set-running-text", desc: "Kolom teks berjalan" },
+    turn_username: { sel: "#set-turn-username", desc: "Kolom TURN username (pengaturan server video)" },
+  },
+  siswa: {
+    student_search: { sel: "#student-search-input, #search-student-input, input[placeholder*='cari siswa' i], input[placeholder*='Cari siswa' i]", desc: "Kolom pencarian siswa" },
+    add_student_btn: { sel: "button[onclick*='openAddStudent'], button[onclick*='addStudent']", desc: "Tombol tambah siswa" },
+  },
+  guru: {
+    teacher_search: { sel: "#teacher-search-input, #search-teacher-input, input[placeholder*='cari guru' i], input[placeholder*='Cari guru' i]", desc: "Kolom pencarian guru" },
+  },
+  kelas: {
+    class_search: { sel: "input[placeholder*='cari kelas' i], input[placeholder*='Cari kelas' i], #class-search-input", desc: "Kolom pencarian kelas" },
+  },
+  bank_soal: {
+    question_search: { sel: "input[placeholder*='cari soal' i], input[placeholder*='Cari soal' i], #question-search-input", desc: "Kolom pencarian soal" },
+  },
+  asesmen: {
+    exam_list: { sel: "#exam-list-container, #assessment-list", desc: "Daftar ujian/sesi asesmen" },
+  },
+  modul_ajar: {
+    subject_search: { sel: "input[placeholder*='cari mapel' i], input[placeholder*='Cari mapel' i], #mapel-search-input", desc: "Kolom pencarian mata pelajaran" },
+  },
+};
+
+// ---------------------------------------------------------------------------
 // TOOLS
 // ---------------------------------------------------------------------------
 type ToolDef = { name: string; description: string; parameters: any; exec: (args: any, req: any) => any };
@@ -144,6 +180,42 @@ function makeTools(): ToolDef[] {
         return { ok: true, route, label: args.label || route, __navigate: route };
       },
     },
+    {
+      name: "highlight_element",
+      description: "TUNJUK/sorot elemen UI tertentu di halaman (setelah navigate_to). Admin melihat kotak sorot berdenyut + panah pada elemen yang dimaksud. Gunakan saat admin minta 'tunjukkan kolom X', 'yang mana tombol Y', atau menjelaskan lokasi elemen.",
+      parameters: {
+        type: "object",
+        properties: {
+          route: { type: "string", description: "Halaman tempat elemen berada (sama seperti navigate_to)." },
+          element: { type: "string", description: "Kunci elemen dari daftar ELEMENT_MAP, mis. 'account_search', 'set_school_name', 'set_teacher_name', 'reset_password_input', 'profile_tab'." },
+          label: { type: "string", description: "Nama ramah elemen untuk tooltip, mis. 'Kolom pencarian akun'." },
+        },
+        required: ["route", "element"],
+      },
+      exec: (args: any, _req: any) => {
+        const VALID = ["dashboard", "siswa", "guru", "kelas", "mapel", "jadwal", "asesmen", "bank_soal", "modul_ajar", "evaluasi", "kalender", "setting", "perizinan", "ai_assistant"];
+        const route = String(args.route || "").trim().toLowerCase();
+        const element = String(args.element || "").trim();
+        if (!VALID.includes(route)) return { ok: false, error: `Route tidak dikenal: ${route}` };
+        if (!element) return { ok: false, error: "element wajib diisi" };
+        return { ok: true, route, element, label: args.label || element, __navigate: route, __highlight: element, __label: args.label || element };
+      },
+    },
+    {
+      name: "list_ui_elements",
+      description: "Lihat daftar kunci elemen UI yang bisa disorot per halaman (untuk memilih argumen 'element' yang benar pada highlight_element).",
+      parameters: {
+        type: "object",
+        properties: { route: { type: "string", description: "Halaman yang ingin dilihat elemennya." } },
+        required: ["route"],
+      },
+      exec: (args: any, _req: any) => {
+        const route = String(args.route || "").trim().toLowerCase();
+        const map = UI_ELEMENT_MAP[route];
+        if (!map) return { ok: false, error: `Tidak ada peta elemen untuk route: ${route}. Halaman dengan peta: ${Object.keys(UI_ELEMENT_MAP).join(", ")}` };
+        return { ok: true, route, elements: Object.entries(map).map(([k, v]) => ({ key: k, deskripsi: v.desc })) };
+      },
+    },
   ];
 }
 
@@ -250,6 +322,31 @@ function reconcileNavigation(reply: string, userText: string, navigation: string
 }
 
 // ---------------------------------------------------------------------------
+// RECONCILE HIGHLIGHT: bila admin eksplisit minta "tunjukkan/sorot kolom X"
+// dan model tidak memanggil highlight_element, eksekusi sendiri secara
+// deterministik (kata kunci -> route + element).
+// ---------------------------------------------------------------------------
+const HIGHLIGHT_INTENT_RE = /(tunjuk(?:an|kan)?|sorot|tandai|tunjukkan|mana (?:kolom|tombol|yang)|dimana (?:kolom|tombol)|di mana (?:kolom|tombol)|kolom (?:username|pencarian)|highlight)/i;
+
+const HIGHLIGHT_ELEMENT_PATTERNS: Array<{ re: RegExp; route: string; element: string; label: string }> = [
+  { re: /kolom (?:pencarian )?(?:akun|username|user name|nis|nama)/i, route: "setting", element: "account_search", label: "Kolom pencarian akun (username/NIS/NIP)" },
+  { re: /nama (?:madrasah|sekolah)/i, route: "setting", element: "set_school_name", label: "Kolom nama madrasah" },
+  { re: /nama admin(?:istrator)?/i, route: "setting", element: "set_admin_name", label: "Kolom nama administrator" },
+  { re: /(?:cari|pencarian) siswa/i, route: "siswa", element: "student_search", label: "Kolom pencarian siswa" },
+  { re: /(?:cari|pencarian) guru/i, route: "guru", element: "teacher_search", label: "Kolom pencarian guru" },
+  { re: /(?:cari|pencarian) kelas/i, route: "kelas", element: "class_search", label: "Kolom pencarian kelas" },
+  { re: /(?:cari|pencarian) soal/i, route: "bank_soal", element: "question_search", label: "Kolom pencarian soal" },
+];
+
+function detectHighlightIntent(userText: string): Array<{ route: string; element: string; label: string }> {
+  if (!HIGHLIGHT_INTENT_RE.test(userText)) return [];
+  for (const p of HIGHLIGHT_ELEMENT_PATTERNS) {
+    if (p.re.test(userText)) return [{ route: p.route, element: p.element, label: p.label }];
+  }
+  return [];
+}
+
+// ---------------------------------------------------------------------------
 // AGENT LOOP (custom OpenAI-compatible provider dengan function calling)
 // ---------------------------------------------------------------------------
 const MAX_TOOL_ROUNDS = 5;
@@ -269,6 +366,21 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
   messages.push({ role: "user", content: text });
 
   const navigation: string[] = [];
+  const highlights: Array<{ route: string; element: string; label: string }> = [];
+
+  const processToolResult = (result: any) => {
+    if (result && result.__navigate) {
+      navigation.push(result.route);
+    }
+    if (result && result.__highlight) {
+      highlights.push({ route: result.route, element: result.__highlight, label: result.__label || result.__highlight });
+    }
+    if (result && (result.__navigate || result.__highlight)) {
+      const { __navigate, __highlight, __label, ...rest } = result;
+      return rest;
+    }
+    return result;
+  };
 
   if (apiKey && baseUrl) {
     try {
@@ -294,7 +406,7 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
         const toolCalls = msg.tool_calls || [];
         if (!toolCalls.length) {
           const reply = String(msg.content || "").trim();
-          if (reply) return { reply, navigation };
+          if (reply) return { reply, navigation, highlights };
           break;
         }
         messages.push(msg);
@@ -310,6 +422,9 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
           if (result && result.__navigate) {
             navigation.push(result.route);
             result = { ok: true, route: result.route, label: result.label, message: "Navigasi dikirim ke browser admin." };
+          }
+          if (result && result.__highlight) {
+            result = { ok: true, route: result.route, element: result.__highlight, label: result.__label || result.__highlight, message: "Sorotan elemen dikirim ke browser admin." };
           }
           messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result) });
         }
@@ -337,7 +452,7 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
   });
   const reply = String(response?.text || "").trim();
   if (!reply) throw new Error("AI memberikan respons kosong.");
-  return { reply, navigation };
+  return { reply, navigation, highlights: highlights || [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -354,13 +469,18 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       const { session } = getSession(req);
       pushTurn(session, "user", text);
 
-      const { reply, navigation: agentNav } = await runAgent(text, session, req, h);
+      const { reply, navigation: agentNav, highlights: agentHl } = await runAgent(text, session, req, h);
       // Jaminan navigasi nyata: bila model mengklaim mengantar tanpa tool call,
       // ekstrak tujuan dari teks admin secara deterministik.
       const navigation = reconcileNavigation(reply, text, agentNav);
+      // Jaminan sorotan nyata: intent eksplisit "tunjukkan kolom X" dijamin tereksekusi.
+      const highlights = agentHl && agentHl.length ? agentHl : detectHighlightIntent(text);
+      // Bila highlight diberikan tapi halamannya belum dinavigasi, pastikan pindah dulu.
+      const navSet = new Set(navigation);
+      for (const hl of highlights) { if (!navSet.has(hl.route)) navigation.unshift(hl.route); }
       pushTurn(session, "assistant", reply);
 
-      return res.json({ success: true, reply, navigation, turns: session.turns.length });
+      return res.json({ success: true, reply, navigation, highlights, turns: session.turns.length });
     } catch (err: any) {
       console.error("[AIAssistant] chat gagal:", err?.message || err);
       return res.status(500).json({ success: false, message: err?.message || "Asisten AI gagal merespons." });
@@ -411,7 +531,7 @@ function geminiToolDefs(tools: ToolDef[]) {
   }];
 }
 
-export async function runGeminiAgent(text: string, session: any, req: any, historyMode: boolean): Promise<{ reply: string; navigation: string[] }> {
+export async function runGeminiAgent(text: string, session: any, req: any, historyMode: boolean): Promise<{ reply: string; navigation: string[]; highlights: Array<{ route: string; element: string; label: string }> }> {
   const apiKey = process.env.GEMINI_API_KEY || "";
   if (!apiKey) throw new Error("GEMINI_API_KEY kosong");
   const { GoogleGenAI } = await import("@google/genai");
@@ -425,6 +545,7 @@ export async function runGeminiAgent(text: string, session: any, req: any, histo
   contents.push({ role: "user", parts: [{ text: historyMode ? foldHistory(session, text) : text }] });
 
   const navigation: string[] = [];
+  const highlights: Array<{ route: string; element: string; label: string }> = [];
 
   for (const model of GEMINI_AGENT_MODELS) {
     try {
@@ -445,7 +566,7 @@ export async function runGeminiAgent(text: string, session: any, req: any, histo
 
         if (!fnCalls.length) {
           const reply = String(response?.text || parts.map((p: any) => p?.text || "").join("") || "").trim();
-          if (reply) return { reply, navigation };
+          if (reply) return { reply, navigation, highlights };
           break;
         }
         contents.push({ role: "model", parts });
@@ -461,6 +582,10 @@ export async function runGeminiAgent(text: string, session: any, req: any, histo
           if (result && result.__navigate) {
             navigation.push(result.route);
             result = { ok: true, route: result.route, label: result.label, message: "Navigasi dikirim ke browser admin." };
+          }
+          if (result && result.__highlight) {
+            highlights.push({ route: result.route, element: result.__highlight, label: result.__label || result.__highlight });
+            result = { ok: true, route: result.route, element: result.__highlight, label: result.__label || result.__highlight, message: "Sorotan elemen dikirim ke browser admin." };
           }
           resultParts.push({ functionResponse: { name: fc.name, response: result } });
         }

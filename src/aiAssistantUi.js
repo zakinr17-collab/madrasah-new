@@ -135,6 +135,83 @@
     if (input) { input.value = text; window.sendAiAssistantMessage(); }
   };
 
+  // ---------------------------------------------------------------------------
+  // SOROT ELEMEN UI: kunci elemen (server) -> selector -> highlight + tooltip
+  // ---------------------------------------------------------------------------
+  const UI_ELEMENT_SELECTORS = {
+    setting: {
+      account_search: "#account-search-input",
+      set_school_name: "#set-school",
+      set_admin_name: "#set-admin-name",
+      chat_toggle: "#set-chat-enabled",
+      running_text: "#set-running-text",
+      turn_username: "#set-turn-username",
+    },
+    siswa: {
+      student_search: "#student-search-input, #search-student-input, input[placeholder*='cari siswa' i], input[placeholder*='Cari siswa' i]",
+      add_student_btn: "button[onclick*='openAddStudent'], button[onclick*='addStudent']",
+    },
+    guru: {
+      teacher_search: "#teacher-search-input, #search-teacher-input, input[placeholder*='cari guru' i], input[placeholder*='Cari guru' i]",
+    },
+    kelas: {
+      class_search: "input[placeholder*='cari kelas' i], input[placeholder*='Cari kelas' i], #class-search-input",
+    },
+    bank_soal: {
+      question_search: "input[placeholder*='cari soal' i], input[placeholder*='Cari soal' i], #question-search-input",
+    },
+    asesmen: {
+      exam_list: "#exam-list-container, #assessment-list",
+    },
+    modul_ajar: {
+      subject_search: "input[placeholder*='cari mapel' i], input[placeholder*='Cari mapel' i], #mapel-search-input",
+    },
+  };
+
+  window.aiAssistantHighlight = function (route, element, label, attempt = 0) {
+    try {
+      const map = UI_ELEMENT_SELECTORS[route];
+      if (!map || !map[element]) return;
+      const el = document.querySelector(map[element]);
+      if (!el) {
+        // Halaman mungkin masih dirender — coba lagi hingga ~8 detik.
+        if (attempt < 16) setTimeout(() => window.aiAssistantHighlight(route, element, label, attempt + 1), 500);
+        return;
+      }
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Wrap: beberapa elemen (checkbox) tidak bisa diberi ring
+      const target = el;
+      target.style.position = target.style.position || 'relative';
+      target.style.zIndex = '50';
+      target.style.transition = 'box-shadow 0.3s ease';
+      let pulses = 0;
+      const pulse = () => {
+        if (pulses % 2 === 0) {
+          target.style.boxShadow = '0 0 0 4px rgba(99,102,241,0.55), 0 0 24px 6px rgba(99,102,241,0.35)';
+          target.style.outline = '3px solid rgba(99,102,241,0.9)';
+          target.style.outlineOffset = '2px';
+        } else {
+          target.style.boxShadow = '0 0 0 4px rgba(99,102,241,0.15)';
+        }
+        pulses++;
+        if (pulses < 22) setTimeout(pulse, 450);
+        else {
+          target.style.boxShadow = ''; target.style.outline = ''; target.style.zIndex = '';
+        }
+      };
+      pulse();
+      // Tooltip panah
+      const tip = document.createElement('div');
+      tip.textContent = '👉 ' + (label || 'Elemen ini');
+      tip.style.cssText = 'position:absolute;top:-34px;left:0;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;font-size:12px;font-weight:700;padding:6px 12px;border-radius:12px;white-space:nowrap;z-index:60;box-shadow:0 8px 20px rgba(79,70,229,.4);';
+      const holder = target.closest('div,form,section') || target.parentElement;
+      if (holder && getComputedStyle(holder).position === 'static') holder.style.position = 'relative';
+      (holder || target.parentElement).appendChild(tip);
+      setTimeout(() => tip.remove(), 5000);
+      if (typeof showToast === 'function') showToast('Asisten menunjukkan: ' + (label || element), 'info');
+    } catch (e) { /* diam */ }
+  };
+
   window.resetAiAssistantChat = async function () {
     try { await fetch('/api/ai-assistant/reset', { method: 'POST', credentials: 'include' }); } catch (e) {}
     const box = messagesBox();
@@ -171,6 +248,26 @@
             }
           });
           if (typeof showToast === 'function') showToast('Asisten mengantarkanmu ke halaman tujuan.', 'info');
+        }
+        // Agent: tunjuk/sorot elemen UI
+        if (Array.isArray(data.highlights) && data.highlights.length) {
+          data.highlights.forEach((h) => {
+            if (h && typeof h.route === 'string' && typeof h.element === 'string') {
+              const label = h.label || h.element;
+              setTimeout(() => window.aiAssistantHighlight(h.route, h.element, label), 1200);
+              // Tombol "sorot lagi" di bubble jawaban
+              setTimeout(() => {
+                const box = document.getElementById('ai-assistant-messages');
+                if (!box) return;
+                const btn = document.createElement('button');
+                btn.textContent = '👉 Sorot lagi';
+                btn.className = 'text-[11px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-full mt-1 cursor-pointer';
+                btn.onclick = () => window.aiAssistantHighlight(h.route, h.element, label);
+                const last = box.lastElementChild;
+                if (last) last.appendChild(btn);
+              }, 1400);
+            }
+          });
         }
       } else {
         appendBubble('assistant', data?.message || 'Maaf, terjadi kesalahan. Coba lagi.', { pending: true });
