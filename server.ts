@@ -21,6 +21,7 @@ import { encryptGoogleDriveOAuthToken, decryptGoogleDriveOAuthToken } from "./sr
 import selfsigned from "selfsigned";
 import { GoogleGenAI } from "@google/genai";
 import { callAI } from "./aiProvider";
+import { registerAiAssistantEndpoints } from "./aiAssistant";
 import { deriveAiProviderCredentialKey, encryptSecret, decryptSecret, sanitizeAiProviderInput, publicAiProviderView, AiProviderConfig, AiProviderProfile, getAiProviderProfiles, publicProfileView, sanitizeProfileInput } from "./aiProviderSettings";
 import { v2 as cloudinary } from "cloudinary";
 import JSZip from "jszip";
@@ -3708,6 +3709,7 @@ app.use((req, res, next) => {
 });
 const requestBodyLimit = isOnlineMode ? '25mb' : '50mb';
 app.use(express.json({ limit: requestBodyLimit }));
+registerAiAssistantEndpoints(app, { requireAuth, requireRole, getAuthUser, callAI });
 
 // Middleware AI per-guru: jalankan handler dalam ALS context berisi kredensial guru (jika diizinkan).
 async function resolveAiUserContext(req: any): Promise<{ userId: string; role: string; mode: AiAccessMode; overrides: { apiKey: string; baseUrl: string; model: string } | null }> | null {

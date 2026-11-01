@@ -41,6 +41,7 @@ import './gameArenaLayoutGuard.js';
 import './lkpdModule.js';
 import './learningModule.js';
 import './operationsCenter.js';
+import './aiAssistantUi.js';
 
 // Smoothly dismiss the initial preloader once all styles and scripts are loaded
 function removeInitialPreloader() {
