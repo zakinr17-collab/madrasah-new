@@ -16998,6 +16998,28 @@ app.post("/api/exam/violation", async (req, res) => {
 });
 
 // Phase 5 Endpoint: Anti-Cheat Violation Audit Feed (GET /api/exams/:examId/violations)
+// Rekap pelanggaran lintas ujian (admin) — untuk laporan kecurangan menyeluruh
+app.get("/api/exam-violations/summary", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), (req: any, res) => {
+  const rows: any[] = [];
+  for (const [vk, list] of Object.entries(examViolationLogs || {})) {
+    if (!Array.isArray(list)) continue;
+    for (const v of list) {
+      rows.push({ examId: v.examId || vk, studentName: v.studentName, nis: v.nis, className: v.className, reason: v.reason, at: v.timestamp || v.at || null });
+    }
+  }
+  rows.sort((a: any, b: any) => String(b.at || '').localeCompare(String(a.at || '')));
+  const perStudent: Record<string, any> = {};
+  for (const r of rows) {
+    const k = String(r.studentName || r.nis || '?');
+    perStudent[k] = perStudent[k] || { studentName: r.studentName, nis: r.nis, className: r.className, count: 0, reasons: {} };
+    perStudent[k].count++;
+    perStudent[k].reasons[r.reason] = (perStudent[k].reasons[r.reason] || 0) + 1;
+  }
+  const top = Object.values(perStudent).sort((a: any, b: any) => b.count - a.count).slice(0, 20);
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ success: true, total: rows.length, recent: rows.slice(0, 100), topStudents: top });
+});
+
 app.get("/api/exams/:examId/violations", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), (req: any, res) => {
   const { examId } = req.params;
   const authUser = req.user || getAuthUser(req);
@@ -25089,29 +25111,39 @@ app.get("/api/system/backup-credentials", requireAuth, requireRole(['admin', 'ad
 // Efficient tenant-safe bulk reset for controlled account recovery.
 app.post("/api/admin/reset-student-passwords-bulk", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
   const ids = Array.isArray(req.body?.ids) ? Array.from(new Set(req.body.ids.map((id: any) => String(id).trim()).filter(Boolean))) : [];
-  const newPassword = String(req.body?.password || '').trim();
+  const mode = String(req.body?.mode || 'uniform');
+  const uniformPassword = String(req.body?.password || '').trim();
   if (ids.length === 0) return res.status(400).json({ success: false, message: "Daftar ID siswa kosong." });
   if (ids.length > 1000) return res.status(400).json({ success: false, message: "Maksimal 1000 akun per proses." });
-  if (newPassword.length < 8) return res.status(400).json({ success: false, message: "Password baru minimal 8 karakter." });
+  if (mode === 'uniform' && uniformPassword.length < 8) return res.status(400).json({ success: false, message: "Password baru minimal 8 karakter." });
 
   const allowedIds = new Set((filterByMadrasah(students, req) || []).map((s: any) => String(s.id)));
   const wanted = new Set(ids);
   let updated = 0;
   let skipped = 0;
+  const credentials: Array<{ studentId: string; name: string; nis: string; username: string; password: string }> = [];
+  const genPassword = (): string => {
+    const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+    let out = '';
+    for (let i = 0; i < 10; i++) out += chars[Math.floor(Math.random() * chars.length)];
+    return out;
+  };
   for (let i = 0; i < students.length; i++) {
     const id = String(students[i]?.id || '');
     if (!wanted.has(id)) continue;
     if (!allowedIds.has(id)) { skipped++; continue; }
+    const pw = mode === 'generate' ? genPassword() : uniformPassword;
     students[i] = {
       ...students[i],
-      password: hashPassword(newPassword),
-      passwordAdminCipher: encryptStudentAdminPassword(newPassword)
+      password: hashPassword(pw),
+      passwordAdminCipher: encryptStudentAdminPassword(pw)
     };
+    credentials.push({ studentId: id, name: String(students[i].name || ''), nis: String(students[i].nis || ''), username: String(students[i].username || ''), password: pw });
     updated++;
   }
   if (updated > 0) await saveData('students', students);
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
-  res.json({ success: true, updated, skipped, requested: ids.length });
+  res.json({ success: true, updated, skipped, requested: ids.length, credentials });
 });
 
 // System Backup & Restore API

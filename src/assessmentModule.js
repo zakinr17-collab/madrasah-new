@@ -86,7 +86,19 @@ function requestCbtFullscreen() {
     } catch (_) {}
 }
 document.addEventListener('fullscreenchange', () => {
-    if (document.fullscreenElement !== document.documentElement) cbtFullscreenOwned = false;
+    if (document.fullscreenElement !== document.documentElement) {
+        const wasOwned = cbtFullscreenOwned;
+        cbtFullscreenOwned = false;
+        // ANTI-CURANG: keluar dari fullscreen saat ujian aktif = pelanggaran tercatat
+        if (wasOwned && activeExamSession && document.getElementById('cbt-active-exam-screen')) {
+            setTimeout(() => {
+                if (activeExamSession && !document.fullscreenElement &&
+                    document.getElementById('cbt-active-exam-screen')) {
+                    window.triggerExamViolation('Keluar dari Mode Layar Penuh Ujian');
+                }
+            }, 250);
+        }
+    }
 });
 window.requestCbtFullscreen = requestCbtFullscreen;
 window.__onCbtRouteNavigation = function(nextRoute) {
@@ -1772,6 +1784,9 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                         <!-- Log Pelanggaran Anti-Cheat -->
                                         <button type="button" onclick="openViolationsLogModal('${activeExam.id}')" class="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-2xl text-xs shadow flex items-center space-x-1.5 transition cursor-pointer">
                                             <i class="fa-solid fa-triangle-exclamation text-[11px]"></i><span>Log Pelanggaran</span>
+                                        </button>
+                                        <button type="button" onclick="window.openCheatingReportModal()" class="px-4 py-2.5 bg-slate-700 hover:bg-slate-800 text-white font-bold rounded-2xl text-xs shadow flex items-center space-x-1.5 transition cursor-pointer">
+                                            <i class="fa-solid fa-clipboard-list text-[11px]"></i><span>Laporan Kecurangan</span>
                                         </button>
                                     </div>
                                 </div>

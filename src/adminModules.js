@@ -1405,6 +1405,7 @@ function renderStudentModule(container) {
                     </label>
                     <button type="button" onclick="openStudentModal()" class="px-4 py-2.5 bg-emerald-600 text-white rounded-2xl text-xs font-semibold shadow hover:bg-emerald-700 transition">Tambah</button>
                     <button type="button" onclick="downloadStudentTemplate()" class="px-3.5 py-2.5 bg-slate-100 text-slate-700 rounded-2xl text-xs font-semibold hover:bg-slate-200 transition"><i class="fa-solid fa-download mr-1"></i>Template</button>
+                    <button type="button" onclick="window.openBulkResetPasswordModal()" class="px-3.5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl text-xs font-semibold shadow transition"><i class="fa-solid fa-key mr-1"></i>Reset Password</button>
                     <button type="button" onclick="deleteSelectedStudentsPage()" class="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-semibold shadow transition"><i class="fa-solid fa-trash mr-1"></i>Hapus Terpilih</button>
                     ` : ''}
                     <button type="button" onclick="openExportStudentModal()" class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-semibold shadow transition"><i class="fa-solid fa-file-export mr-1.5"></i>Ekspor</button>

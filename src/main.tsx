@@ -40,6 +40,7 @@ import './gameArenaPublishGuard.js';
 import './gameArenaLayoutGuard.js';
 import './lkpdModule.js';
 import './learningModule.js';
+import './bulkPasswordModule.js';
 import './operationsCenter.js';
 import './aiAssistantUi.js';
 
