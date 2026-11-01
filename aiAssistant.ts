@@ -226,7 +226,7 @@ function makeWriteTools(): ToolDef[] {
     {
       name: "prepare_write_action",
       description:
-        "WAJIB dipanggil setiap kali admin meminta MEMBUAT/MENGUBAH data (tambah siswa, buat ujian, ubah teks berjalan, dsb). PANGGIL TOOL INI DULU sebelum menulis jawaban — JANGAN hanya mengklaim rencana siap tanpa memanggil tool. Aksi TIDAK langsung dijalankan: server membuat rencana + tombol konfirmasi muncul otomatis di chat. Aksi tersedia: create_student (args: nama|name, nis, username, password, classId), create_exam (args: judul, classId, subjectName, tanggal), set_running_text (args: text). Untuk classId gunakan hasil list_classes.",
+        "WAJIB dipanggil setiap kali admin meminta MEMBUAT/MENGUBAH data. PANGGIL TOOL INI DULU sebelum menulis jawaban — JANGAN hanya mengklaim rencana siap tanpa memanggil tool. Aksi TIDAK langsung dijalankan: server membuat rencana + tombol konfirmasi muncul otomatis di chat. Aksi ringan tersedia: create_student {nama, nis, username, password, classId}; update_student {studentId, name?, nis?, classId?, no_hp?, password?} (ubah nama/NIS/kelas/HP/password siswa); update_teacher {teacherId, name?, mapel?, homeroom_class_id?, phone?, password?}; update_admin_settings {adminName?, schoolName?, newPassword?, runningText?} (ganti nama admin/madrasah, reset password admin, teks berjalan); set_grade {studentId, classId?, subjectName, category, score 0-100} (masukkan/ubah nilai); create_calendar_event {title, date YYYY-MM-DD, description?, type?}; update_calendar_event {eventId, title, date, description?}; set_schedule_entry {day (senin-jumat), classId, time (mis 07:30), subjectId, teacherId?} (ubah roster/jadwal); assign_homeroom {classId, teacherId}; create_exam {judul, classId?, subjectName?, tanggal?}; set_running_text {text}. SELALU cari ID dulu via tool cari (search_students, list_classes, search_teachers, list_subjects) — jangan menebak ID.",
       parameters: {
         type: "object",
         properties: {
@@ -243,6 +243,14 @@ function makeWriteTools(): ToolDef[] {
           create_student: (x) => `Tambah siswa baru "${x.name || x.nama || "(tanpa nama)"}" (NIS ${x.nis || "-"})${x.classId ? ` ke kelas ${x.classId}` : ""} dengan username ${x.username || "(otomatis)"}.`,
           create_exam: (x) => `Buat ujian "${x.judul || x.title}"${x.classId ? ` untuk kelas ${x.classId}` : ""}${x.subjectName ? ` mapel ${x.subjectName}` : ""}.`,
           set_running_text: (x) => `Ubah teks berjalan menjadi: "${String(x.text || "").slice(0, 80)}".`,
+          update_student: (x) => `Perbarui data siswa (ID ${x.studentId}): ${Object.entries(x).filter(([k]) => !["studentId"].includes(k)).map(([k, v]) => `${k}=${String(v).slice(0, 30)}`).join(", ")}.`,
+          update_teacher: (x) => `Perbarui data guru (ID ${x.teacherId}): ${Object.entries(x).filter(([k]) => !["teacherId"].includes(k)).map(([k, v]) => `${k}=${k.includes("password") ? "(rahasia)" : String(v).slice(0, 30)}`).join(", ")}.`,
+          update_admin_settings: (x) => `Perbarui pengaturan: ${Object.entries(x).map(([k, v]) => `${k}=${k.includes("password") ? "(rahasia)" : String(v).slice(0, 40)}`).join(", ")}.`,
+          set_grade: (x) => `Masukkan nilai ${x.subjectName}/${x.category} = ${x.score} untuk siswa ID ${x.studentId}.`,
+          create_calendar_event: (x) => `Tambah acara kalender "${x.title}" pada ${x.date}${x.description ? ` — ${String(x.description).slice(0, 50)}` : ""}.`,
+          update_calendar_event: (x) => `Perbarui acara kalender (ID ${x.eventId}): "${x.title}" pada ${x.date}.`,
+          set_schedule_entry: (x) => `Set jadwal ${x.day} ${x.time} kelas ${x.classId} → mapel ID ${x.subjectId}${x.teacherId ? ` guru ID ${x.teacherId}` : ""}.`,
+          assign_homeroom: (x) => `Tetapkan wali kelas ${x.classId} = guru ID ${x.teacherId || "(kosong)"}.`,
         };
         if (!summaries[action]) return { error: "Aksi tidak dikenal. Gunakan: create_student, create_exam, set_running_text." };
         const id = newPendingId();
@@ -329,6 +337,47 @@ function makeTools(): ToolDef[] {
           id: c.id,
           jumlahSiswa: students.filter((s: any) => String(s.classId || s.kelas || "") === String(c.id) || String(s.className || "") === String(c.name || c.className)).length,
         }));
+      },
+    },
+    {
+      name: "list_subjects",
+      description: "Daftar semua mata pelajaran (id, nama, guru pengampu). Gunakan untuk mendapat subjectId/teacherId sebelum mengubah jadwal.",
+      parameters: { type: "object", properties: {} },
+      exec: (_args: any, req: any) => {
+        const subjects = scopedAll(g.__assistantStore?.subjects, req);
+        const teachers = scopedAll(g.__assistantStore?.teachers, req);
+        return subjects.map((s: any) => ({
+          nama: s.name || s.subjectName,
+          id: s.id,
+          guru: (() => { const t = teachers.find((x: any) => String(x.id) === String(s.teacherId)); return t ? t.name : (s.teacherId || ""); })(),
+        }));
+      },
+    },
+    {
+      name: "list_schedules",
+      description: "Daftar jadwal/roster pelajaran (hari, jam, kelas, mapel, guru). Untuk melihat jadwal sebelum mengubahnya.",
+      parameters: { type: "object", properties: { day: { type: "string", description: "Filter hari opsional: senin..sabtu" } } },
+      exec: (args: any, req: any) => {
+        const schedules = scopedAll(g.__assistantStore?.schedules, req);
+        const subjects = scopedAll(g.__assistantStore?.subjects, req);
+        const classes = scopedAll(g.__assistantStore?.classes, req);
+        const teachers = scopedAll(g.__assistantStore?.teachers, req);
+        const d = String(args?.day || "").toLowerCase();
+        return schedules.filter((s: any) => !d || String(s.day || "").toLowerCase() === d).slice(0, 40).map((s: any) => {
+          const subj = subjects.find((x: any) => String(x.id) === String(s.subjectId));
+          const cls = classes.find((x: any) => String(x.id) === String(s.classId));
+          const tch = teachers.find((x: any) => String(x.id) === String(s.teacherId));
+          return { hari: s.day, jam: s.time, kelas: cls?.name || s.classId, mapel: subj?.name || s.subjectName, guru: tch?.name || s.teacherId || "" };
+        });
+      },
+    },
+    {
+      name: "list_calendar_events",
+      description: "Daftar acara kalender/agenda (judul, tanggal, deskripsi). Untuk melihat agenda sebelum mengubah/menambah.",
+      parameters: { type: "object", properties: {} },
+      exec: (_args: any, req: any) => {
+        const events = scopedAll(g.__assistantStore?.calendarEvents, req);
+        return events.slice(0, 30).map((e: any) => ({ id: e.id, judul: e.title, tanggal: e.date, deskripsi: e.description || "" }));
       },
     },
     {
@@ -654,7 +703,7 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
             temperature: 0.6,
             max_tokens: 2048,
           }),
-          signal: AbortSignal.timeout(60000),
+          signal: AbortSignal.timeout(120000),
         });
         if (!resp.ok) throw new Error(`Provider ${resp.status}`);
         const data: any = await resp.json();

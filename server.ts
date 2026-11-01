@@ -3710,7 +3710,7 @@ app.use((req, res, next) => {
 });
 const requestBodyLimit = isOnlineMode ? '25mb' : '50mb';
 app.use(express.json({ limit: requestBodyLimit }));
-setAssistantDataStore({ get students(){ return students; }, get teachers(){ return teachers; }, get classes(){ return classes; }, get subjects(){ return subjects; }, get exams(){ return exams; }, get questions(){ return questions; }, get lessonPlans(){ return lessonPlans; }, get attendance(){ return attendance; } });
+setAssistantDataStore({ get students(){ return students; }, get teachers(){ return teachers; }, get classes(){ return classes; }, get subjects(){ return subjects; }, get exams(){ return exams; }, get questions(){ return questions; }, get lessonPlans(){ return lessonPlans; }, get attendance(){ return attendance; }, get grades(){ return grades; }, get schedules(){ return schedules; }, get calendarEvents(){ return calendarEvents; } });
 (globalThis as any).__assistantAiAccessFor = (userId: string, kind: 'ai' | 'drive') => aiAccessForUser(userId, kind);
 (globalThis as any).__assistantWriteAction = async (action: string, args: any, req: any) => {
   if (action === 'create_student') {
@@ -3764,6 +3764,105 @@ setAssistantDataStore({ get students(){ return students; }, get teachers(){ retu
     appSettings.runningText = text;
     await saveData('settings', appSettings);
     return { ok: true, message: 'Teks berjalan diperbarui.' };
+  }
+  if (action === 'update_student') {
+    const sid = String(args.studentId || '').trim();
+    const st = students.find((s: any) => String(s.id) === sid && isItemForCurrentMadrasah(s, req));
+    if (!st) throw new Error('Siswa dengan ID ' + sid + ' tidak ditemukan.');
+    const changes: string[] = [];
+    if (args.name) { st.name = String(args.name).trim(); changes.push('nama=' + st.name); }
+    if (args.nis) { st.nis = String(args.nis).trim(); changes.push('NIS=' + st.nis); }
+    if (args.classId !== undefined) { st.classId = String(args.classId); st.class_id = st.classId; changes.push('kelas=' + st.classId); }
+    if (args.no_hp !== undefined) { st.no_hp = String(args.no_hp); changes.push('no_hp=' + st.no_hp); }
+    if (args.password && String(args.password).length >= 8) { st.password = hashPassword(String(args.password)); st.passwordAdminCipher = encryptStudentAdminPassword(String(args.password)); changes.push('password=diperbarui'); }
+    else if (args.password) throw new Error('Password siswa minimal 8 karakter.');
+    if (!changes.length) throw new Error('Tidak ada perubahan. Isi name/nis/classId/no_hp/password.');
+    return { ok: true, message: 'Siswa ' + st.name + ' diperbarui: ' + changes.join(', ') + '.' };
+  }
+  if (action === 'update_teacher') {
+    const tid = String(args.teacherId || '').trim();
+    const t = teachers.find((x: any) => String(x.id) === tid && isItemForCurrentMadrasah(x, req));
+    if (!t) throw new Error('Guru dengan ID ' + tid + ' tidak ditemukan.');
+    const changes: string[] = [];
+    if (args.name) { t.name = String(args.name).trim(); changes.push('nama=' + t.name); }
+    if (args.mapel) { t.mapel = String(args.mapel); changes.push('mapel=' + t.mapel); }
+    if (args.homeroom_class_id !== undefined) { t.homeroom_class_id = String(args.homeroom_class_id); changes.push('wali_kelas=' + (t.homeroom_class_id || '(kosong)')); }
+    if (args.phone !== undefined) { t.phone = String(args.phone); t.no_hp = t.phone; changes.push('no_hp=' + t.phone); }
+    if (args.password && String(args.password).length >= 8) { t.password = hashPassword(String(args.password)); changes.push('password=diperbarui'); }
+    else if (args.password) throw new Error('Password guru minimal 8 karakter.');
+    if (!changes.length) throw new Error('Tidak ada perubahan. Isi name/mapel/homeroom_class_id/phone/password.');
+    return { ok: true, message: 'Guru ' + t.name + ' diperbarui: ' + changes.join(', ') + '.' };
+  }
+  if (action === 'update_admin_settings') {
+    const changes: string[] = [];
+    if (args.adminName) { appSettings.adminName = String(args.adminName).trim(); changes.push('nama admin=' + appSettings.adminName); }
+    if (args.schoolName) { appSettings.schoolName = String(args.schoolName).trim(); const m0 = madrasahs[0]; if (m0) m0.name = appSettings.schoolName; changes.push('nama madrasah=' + appSettings.schoolName); }
+    if (args.newPassword && String(args.newPassword).length >= 8) { const salt = crypto.randomBytes(16).toString('hex'); appSettings.adminPass = 'scrypt$16384$8$1$' + salt + '$' + crypto.scryptSync(String(args.newPassword), salt, 64).toString('hex'); const m0 = madrasahs[0]; if (m0) m0.adminPass = appSettings.adminPass; changes.push('password admin=diperbarui'); }
+    else if (args.newPassword) throw new Error('Password admin minimal 8 karakter.');
+    if (args.runningText !== undefined) { appSettings.runningText = String(args.runningText); changes.push('teks berjalan=diperbarui'); }
+    if (!changes.length) throw new Error('Tidak ada perubahan. Isi adminName/schoolName/newPassword/runningText.');
+    await saveData('settings', appSettings); await saveData('madrasahs', madrasahs);
+    return { ok: true, message: 'Pengaturan diperbarui: ' + changes.join(', ') + '.' };
+  }
+  if (action === 'set_grade') {
+    const st = students.find((s: any) => String(s.id) === String(args.studentId) && isItemForCurrentMadrasah(s, req));
+    if (!st) throw new Error('Siswa tidak ditemukan.');
+    const cls = classes.find((c: any) => String(c.id) === String(args.classId || st.classId));
+    const subjectName = String(args.subjectName || '').trim();
+    const category = String(args.category || '').trim();
+    const score = Number(args.score);
+    if (!subjectName || !category || isNaN(score)) throw new Error('subjectName, category, dan score wajib (score angka).');
+    if (score < 0 || score > 100) throw new Error('Nilai harus 0-100.');
+    const classId = String(args.classId || st.classId);
+    const ex = grades.findIndex((g: any) => isItemForCurrentMadrasah(g, req) && String(g.classId) === classId && String(g.studentId) === String(st.id) && String(g.subjectName || '').toLowerCase() === subjectName.toLowerCase() && String(g.category || '').toLowerCase() === category.toLowerCase());
+    const gObj = tagNewRecord({ id: ex >= 0 ? grades[ex].id : ('G_' + Date.now() + '_' + Math.random().toString(36).substring(2, 5)), classId, studentId: String(st.id), subjectName, category, score }, req);
+    if (ex >= 0) grades[ex] = gObj; else grades.push(gObj);
+    await saveData('grades', grades);
+    return { ok: true, message: 'Nilai ' + st.name + ' (' + subjectName + '/' + category + ') = ' + score + (ex >= 0 ? ' (diperbarui)' : ' (baru)') + '.' };
+  }
+  if (action === 'create_calendar_event' || action === 'update_calendar_event') {
+    const isUpdate = action === 'update_calendar_event';
+    const title = String(args.title || '').trim();
+    if (!title) throw new Error('Judul acara wajib diisi.');
+    const date = String(args.date || '').trim();
+    if (!date) throw new Error('Tanggal wajib (format YYYY-MM-DD).');
+    if (isUpdate) {
+      const ev = calendarEvents.find((c: any) => String(c.id) === String(args.eventId) && isItemForCurrentMadrasah(c, req));
+      if (!ev) throw new Error('Acara tidak ditemukan.');
+      ev.title = title; ev.date = date; if (args.description !== undefined) ev.description = String(args.description);
+      await saveData('calendarEvents', calendarEvents);
+      return { ok: true, message: 'Acara kalender diperbarui: ' + title + ' (' + date + ').' };
+    }
+    const ev = tagNewRecord({ id: 'CE_' + Date.now(), title, date, description: String(args.description || ''), type: args.type || 'event' }, req);
+    calendarEvents.push(ev); await saveData('calendarEvents', calendarEvents);
+    return { ok: true, message: 'Acara kalender ditambahkan: ' + title + ' (' + date + ').' };
+  }
+  if (action === 'set_schedule_entry') {
+    const day = String(args.day || '').trim();
+    const classId = String(args.classId || '').trim();
+    const time = String(args.time || '').trim();
+    const subjectId = String(args.subjectId || '').trim();
+    const teacherId = String(args.teacherId || '').trim();
+    if (!day || !classId || !time || !subjectId) throw new Error('day, classId, time, subjectId wajib diisi.');
+    const subj = subjects.find((s: any) => String(s.id) === subjectId);
+    if (!subj) throw new Error('Mapel ID tidak ditemukan. Gunakan list mapel dulu.');
+    const idx = schedules.findIndex((s: any) => isItemForCurrentMadrasah(s, req) && String(s.day).toLowerCase() === day.toLowerCase() && String(s.classId) === classId && String(s.time) === time);
+    const entry = tagNewRecord({ id: idx >= 0 ? schedules[idx].id : ('SC_' + Date.now()), day: day.toLowerCase(), classId, time, subjectId, teacherId, subjectName: subj.name }, req);
+    if (idx >= 0) schedules[idx] = entry; else schedules.push(entry);
+    await saveData('schedules', schedules);
+    return { ok: true, message: 'Jadwal ' + day + ' ' + time + ' kelas ' + classId + ' = ' + subj.name + (teacherId ? ' (guru ' + teacherId + ')' : '') + (idx >= 0 ? ' (diperbarui)' : '') + '.' };
+  }
+  if (action === 'assign_homeroom') {
+    const cid = String(args.classId || '').trim();
+    const cls = classes.find((c: any) => String(c.id) === cid && isItemForCurrentMadrasah(c, req));
+    if (!cls) throw new Error('Kelas tidak ditemukan.');
+    const tid = String(args.teacherId || '').trim();
+    const t = teachers.find((x: any) => String(x.id) === tid && isItemForCurrentMadrasah(x, req));
+    if (tid && !t) throw new Error('Guru tidak ditemukan.');
+    cls.homeroomTeacherId = tid; cls.homeroom_teacher_id = tid;
+    await saveData('classes', classes);
+    if (tid && t) { t.homeroom_class_id = cid; await saveData('teachers', teachers); }
+    return { ok: true, message: 'Wali kelas ' + cls.name + ' = ' + (t ? t.name : '(kosong)') + '.' };
   }
   throw new Error('Aksi tidak dikenal: ' + action);
 };
