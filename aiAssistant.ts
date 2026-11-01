@@ -128,7 +128,7 @@ function makeTools(): ToolDef[] {
     },
     {
       name: "navigate_to",
-      description: "Arahkan admin langsung ke halaman/fitur tertentu di aplikasi (browser admin otomatis berpindah halaman). Gunakan saat admin bertanya 'di mana', 'buka', 'tunjukkan', atau setelah menjelaskan lokasi fitur.",
+      description: "WAJIB dipanggil setiap kali admin meminta dibukakan/diantarkan ke halaman, atau bertanya 'di mana' suatu fitur. PANGGIL TOOL INI DULU sebelum menulis jawaban akhir — jangan hanya mengklaim sudah mengantarkan tanpa memanggil tool.",
       parameters: {
         type: "object",
         properties: {
@@ -205,6 +205,48 @@ function foldHistory(session: { turns: ChatTurn[] }, current: string): string {
     .map((t) => (t.role === "user" ? "Admin: " : "Asisten: ") + t.content)
     .join("\n\n");
   return hist ? `Riwayat percakapan sebelumnya (konteks):\n\n${hist}\n\n---\nPesan baru dari admin:\n${current}` : current;
+}
+
+// ---------------------------------------------------------------------------
+// INTENT FALLBACK: deteksi permintaan navigasi dari teks admin secara
+// deterministik — menjamin navigasi NYATA meski model lupa memanggil tool.
+// ---------------------------------------------------------------------------
+const NAV_INTENT_PATTERNS: Array<{ re: RegExp; route: string }> = [
+  { re: /(evaluasi|hasil ujian|penilaian hasil)/i, route: "evaluasi" },
+  { re: /(data siswa|halaman siswa|buka siswa|ke siswa|daftar siswa)/i, route: "siswa" },
+  { re: /(data guru|halaman guru|buka guru|ke guru|daftar guru)/i, route: "guru" },
+  { re: /(data kelas|halaman kelas|buka kelas|ke kelas|daftar kelas)/i, route: "kelas" },
+  { re: /(mata pelajaran|\bmapel\b)/i, route: "mapel" },
+  { re: /(jadwal)/i, route: "jadwal" },
+  { re: /(asesmen|monitoring ujian|monitor ujian|sesi ujian)/i, route: "asesmen" },
+  { re: /(bank soal|soal)/i, route: "bank_soal" },
+  { re: /(modul ajar)/i, route: "modul_ajar" },
+  { re: /(kalender|agenda)/i, route: "kalender" },
+  { re: /(pengaturan|setting)/i, route: "setting" },
+  { re: /(perizinan)/i, route: "perizinan" },
+  { re: /(dashboard|beranda)/i, route: "dashboard" },
+];
+
+const NAV_REQUEST_RE = /(antar|buka(?:kan)?|tunjuk(?:an)?|arah(?:kan)?|pindah(?:kan)?|masuk ke|ke halaman|bawakan|navigasi|go to|open)/i;
+
+function detectNavigationIntent(userText: string): string[] {
+  const nav: string[] = [];
+  if (!NAV_REQUEST_RE.test(userText)) return nav;
+  for (const p of NAV_INTENT_PATTERNS) {
+    if (p.re.test(userText)) { nav.push(p.route); break; }
+  }
+  return nav;
+}
+
+// Klaim navigasi tanpa aksi: reply menyebut mengantar tetapi tidak ada tool call
+const NAV_CLAIM_RE = /(sudah (saya )?(antarkan|buka(?:n)?|mengantarkan|arahkan)|telah (saya )?(antarkan|buka)|mengantar(kan)? (kamu|anda|bos|admin))/i;
+
+function reconcileNavigation(reply: string, userText: string, navigation: string[]): string[] {
+  if (navigation.length > 0) return navigation;
+  if (NAV_CLAIM_RE.test(reply)) {
+    return detectNavigationIntent(userText);
+  }
+  return [];
 }
 
 // ---------------------------------------------------------------------------
@@ -312,7 +354,10 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       const { session } = getSession(req);
       pushTurn(session, "user", text);
 
-      const { reply, navigation } = await runAgent(text, session, req, h);
+      const { reply, navigation: agentNav } = await runAgent(text, session, req, h);
+      // Jaminan navigasi nyata: bila model mengklaim mengantar tanpa tool call,
+      // ekstrak tujuan dari teks admin secara deterministik.
+      const navigation = reconcileNavigation(reply, text, agentNav);
       pushTurn(session, "assistant", reply);
 
       return res.json({ success: true, reply, navigation, turns: session.turns.length });
