@@ -166,17 +166,36 @@
     modul_ajar: {
       subject_search: "input[placeholder*='cari mapel' i], input[placeholder*='Cari mapel' i], #mapel-search-input",
     },
+    dashboard: {
+      attendance_trend: "div.bg-white.rounded-3xl:has(> div h3)", // fallback di bawah via teks
+      quick_actions: "#main-app .grid.grid-cols-1.sm\\:grid-cols-2.lg\\:grid-cols-3",
+      agenda_banner: "#main-app",
+    },
   };
 
   window.aiAssistantHighlight = function (route, element, label, attempt = 0) {
     try {
       const map = UI_ELEMENT_SELECTORS[route];
       if (!map || !map[element]) return;
-      const el = document.querySelector(map[element]);
+      let el = document.querySelector(map[element]);
+      if (!el) {
+        // Fallback teks: cari judul/elemen yang mengandung kata kunci label
+        const key = String(label || element).toLowerCase();
+        const candidates = Array.from(document.querySelectorAll('#main-app h1, #main-app h2, #main-app h3, #main-app p, #main-app button, #main-app input'));
+        el = candidates.find((c) => c.textContent && c.textContent.toLowerCase().includes(key.split(' ').slice(-2).join(' ')));
+        if (el) el = el.closest('div.bg-white, .rounded-3xl, section, form') || el;
+      }
       if (!el) {
         // Halaman mungkin masih dirender — coba lagi hingga ~8 detik.
         if (attempt < 16) setTimeout(() => window.aiAssistantHighlight(route, element, label, attempt + 1), 500);
         return;
+      }
+      // Di layar kecil, panel chat menutupi elemen yang disorot -> geser panel dulu
+      const panel = document.getElementById('ai-assistant-panel');
+      let panelReopened = false;
+      if (panel && !panel.classList.contains('translate-x-full')) {
+        panel.classList.add('translate-x-full');
+        panelReopened = true;
       }
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       // Wrap: beberapa elemen (checkbox) tidak bisa diberi ring
@@ -197,6 +216,7 @@
         if (pulses < 22) setTimeout(pulse, 450);
         else {
           target.style.boxShadow = ''; target.style.outline = ''; target.style.zIndex = '';
+          if (panelReopened && panel) panel.classList.remove('translate-x-full');
         }
       };
       pulse();

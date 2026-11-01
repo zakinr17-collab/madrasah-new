@@ -54,6 +54,13 @@ const UI_ELEMENT_MAP: Record<string, Record<string, UIElementDef>> = {
   modul_ajar: {
     subject_search: { sel: "input[placeholder*='cari mapel' i], input[placeholder*='Cari mapel' i], #mapel-search-input", desc: "Kolom pencarian mata pelajaran" },
   },
+  dashboard: {
+    attendance_trend: { sel: "", desc: "Kartu grafik Tren Kehadiran Mingguan (disorot via pencarian teks)" },
+    quick_actions: { sel: "", desc: "Baris kartu Aksi Cepat & Navigasi Pintas (Absen Siswa, Ujian CBT, Bank Soal)" },
+    agenda_banner: { sel: "", desc: "Banner Agenda & Hari Libur Terdekat" },
+    recent_students: { sel: "", desc: "Bagian Siswa Terdaftar Terakhir" },
+    activity_log: { sel: "", desc: "Bagian Log Aktivitas Sistem" },
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -326,7 +333,7 @@ function reconcileNavigation(reply: string, userText: string, navigation: string
 // dan model tidak memanggil highlight_element, eksekusi sendiri secara
 // deterministik (kata kunci -> route + element).
 // ---------------------------------------------------------------------------
-const HIGHLIGHT_INTENT_RE = /(tunjuk(?:an|kan)?|sorot|tandai|tunjukkan|mana (?:kolom|tombol|yang)|dimana (?:kolom|tombol)|di mana (?:kolom|tombol)|kolom (?:username|pencarian)|highlight)/i;
+const HIGHLIGHT_INTENT_RE = /(tunjuk(?:an|kan)?|sorot|tandai|tunjukkan|mana (?:kolom|tombol|yang|letak)|dimana|di mana|kolom (?:username|pencarian)|highlight|\bcari (?:menu|tren|grafik|kartu|kolom|tombol)|letak)/i;
 
 const HIGHLIGHT_ELEMENT_PATTERNS: Array<{ re: RegExp; route: string; element: string; label: string }> = [
   { re: /kolom (?:pencarian )?(?:akun|username|user name|nis|nama)/i, route: "setting", element: "account_search", label: "Kolom pencarian akun (username/NIS/NIP)" },
@@ -336,6 +343,11 @@ const HIGHLIGHT_ELEMENT_PATTERNS: Array<{ re: RegExp; route: string; element: st
   { re: /(?:cari|pencarian) guru/i, route: "guru", element: "teacher_search", label: "Kolom pencarian guru" },
   { re: /(?:cari|pencarian) kelas/i, route: "kelas", element: "class_search", label: "Kolom pencarian kelas" },
   { re: /(?:cari|pencarian) soal/i, route: "bank_soal", element: "question_search", label: "Kolom pencarian soal" },
+  { re: /(tren kehadiran|kehadiran mingguan|grafik kehadiran)/i, route: "dashboard", element: "attendance_trend", label: "Kartu Tren Kehadiran Mingguan" },
+  { re: /(aksi cepat|navigasi pintas)/i, route: "dashboard", element: "quick_actions", label: "Baris Aksi Cepat" },
+  { re: /(agenda|hari libur)/i, route: "dashboard", element: "agenda_banner", label: "Banner Agenda & Hari Libur" },
+  { re: /siswa terdaftar terakhir/i, route: "dashboard", element: "recent_students", label: "Bagian Siswa Terdaftar Terakhir" },
+  { re: /(log aktivitas)/i, route: "dashboard", element: "activity_log", label: "Bagian Log Aktivitas Sistem" },
 ];
 
 function detectHighlightIntent(userText: string): Array<{ route: string; element: string; label: string }> {
