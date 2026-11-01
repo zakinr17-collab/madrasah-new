@@ -277,7 +277,18 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
     }
   }
 
-  // Fallback: callAI (custom-first lama + Gemini) tanpa function calling
+  // Fallback level 1: Gemini agent (function calling native) — setiap jalur
+  // API key tetap mampu menjadi agent penuh.
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const gem = await runGeminiAgent(text, session, req, true);
+      if (gem.reply) return gem;
+    } catch (e: any) {
+      console.warn("[AIAssistant] Gemini agent fallback gagal:", e?.message);
+    }
+  }
+
+  // Fallback level 2 (terakhir): callAI teks biasa tanpa tool
   const response = await h.callAI(null, {
     contents: foldHistory(session, text),
     config: { systemInstruction: buildAssistantSystemPrompt(), generationConfig: { temperature: 0.6, maxOutputTokens: 2048 } },
@@ -336,4 +347,84 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
 // Dipanggil server utama saat boot untuk menyuntikkan referensi data live
 export function setAssistantDataStore(store: Record<string, any[]>) {
   (globalThis as any).__assistantStore = store;
+}
+
+// ---------------------------------------------------------------------------
+// GEMINI AGENT FALLBACK — function calling native Gemini (@google/genai)
+// Dipakai bila jalur custom agent loop gagal; membuat SETIAP jalur API key
+// (custom maupun Gemini) mampu menjadi agent penuh.
+// ---------------------------------------------------------------------------
+const GEMINI_AGENT_MODELS = ["gemini-3.7-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"];
+
+function geminiToolDefs(tools: ToolDef[]) {
+  return [{
+    functionDeclarations: tools.map((t) => ({
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters,
+    })),
+  }];
+}
+
+export async function runGeminiAgent(text: string, session: any, req: any, historyMode: boolean): Promise<{ reply: string; navigation: string[] }> {
+  const apiKey = process.env.GEMINI_API_KEY || "";
+  if (!apiKey) throw new Error("GEMINI_API_KEY kosong");
+  const { GoogleGenAI } = await import("@google/genai");
+  const ai = new GoogleGenAI({ apiKey, httpOptions: { headers: { "User-Agent": "aistudio-build" } } });
+
+  const tools = makeTools();
+  const contents: any[] = [];
+  for (const t of session.turns.slice(0, -1)) {
+    contents.push({ role: t.role === "user" ? "user" : "model", parts: [{ text: t.content }] });
+  }
+  contents.push({ role: "user", parts: [{ text: historyMode ? foldHistory(session, text) : text }] });
+
+  const navigation: string[] = [];
+
+  for (const model of GEMINI_AGENT_MODELS) {
+    try {
+      for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+        const response: any = await ai.models.generateContent({
+          model,
+          contents,
+          config: {
+            systemInstruction: buildAssistantSystemPrompt(),
+            tools: geminiToolDefs(tools),
+            temperature: 0.6,
+            maxOutputTokens: 2048,
+          },
+        });
+        const cand = response?.candidates?.[0];
+        const parts = cand?.content?.parts || [];
+        const fnCalls = parts.filter((p: any) => p?.functionCall).map((p: any) => p.functionCall);
+
+        if (!fnCalls.length) {
+          const reply = String(response?.text || parts.map((p: any) => p?.text || "").join("") || "").trim();
+          if (reply) return { reply, navigation };
+          break;
+        }
+        contents.push({ role: "model", parts });
+        const resultParts: any[] = [];
+        for (const fc of fnCalls) {
+          const def = tools.find((t) => t.name === fc?.name);
+          let result: any;
+          try {
+            result = def ? def.exec(fc.args || {}, req) : { ok: false, error: "Tool tidak dikenal" };
+          } catch (e: any) {
+            result = { ok: false, error: e?.message || "Tool gagal" };
+          }
+          if (result && result.__navigate) {
+            navigation.push(result.route);
+            result = { ok: true, route: result.route, label: result.label, message: "Navigasi dikirim ke browser admin." };
+          }
+          resultParts.push({ functionResponse: { name: fc.name, response: result } });
+        }
+        contents.push({ role: "user", parts: resultParts });
+      }
+    } catch (e: any) {
+      console.warn(`[AIAssistant] Gemini agent ${model} gagal:`, e?.message);
+      continue;
+    }
+  }
+  throw new Error("Semua model Gemini agent gagal");
 }
