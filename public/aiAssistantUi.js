@@ -118,10 +118,11 @@
         box.innerHTML = `<div class="text-center py-8 px-4">
           <div class="w-14 h-14 mx-auto rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center mb-3"><i class="fa-solid fa-robot text-2xl"></i></div>
           <p class="text-sm font-bold text-slate-700">Halo, Admin! 👋</p>
-          <p class="text-xs text-slate-500 mt-1">Saya Asisten Madrasah — saya mengenal aplikasi ini. Tanyakan cara memakai fitur, atau apa saja seperti AI biasa.</p>
+          <p class="text-xs text-slate-500 mt-1">Saya Asisten Madrasah — saya mengenal aplikasi ini, bisa cek data live (siswa, ujian, kehadiran), dan bisa mengantarimu langsung ke halaman tertentu.</p>
           <div class="flex flex-wrap gap-2 justify-center mt-4">
+            <button onclick="window.aiAssistantQuick('Berapa jumlah siswa dan guru saat ini?')" class="text-[11px] px-3 py-1.5 bg-white border border-slate-200 rounded-full hover:border-indigo-300 text-slate-600 cursor-pointer">Berapa siswa & guru?</button>
+            <button onclick="window.aiAssistantQuick('Antar saya ke halaman evaluasi')" class="text-[11px] px-3 py-1.5 bg-white border border-slate-200 rounded-full hover:border-indigo-300 text-slate-600 cursor-pointer">Antar ke Evaluasi</button>
             <button onclick="window.aiAssistantQuick('Bagaimana cara membuat ujian CBT baru?')" class="text-[11px] px-3 py-1.5 bg-white border border-slate-200 rounded-full hover:border-indigo-300 text-slate-600 cursor-pointer">Cara buat ujian?</button>
-            <button onclick="window.aiAssistantQuick('Apa itu Perizinan Guru?')" class="text-[11px] px-3 py-1.5 bg-white border border-slate-200 rounded-full hover:border-indigo-300 text-slate-600 cursor-pointer">Apa itu Perizinan Guru?</button>
           </div></div>`;
         return;
       }
@@ -162,6 +163,15 @@
       hideTyping();
       if (data?.success && data.reply) {
         appendBubble('assistant', data.reply);
+        // Agent: antar admin langsung ke halaman yang diminta
+        if (Array.isArray(data.navigation) && data.navigation.length && typeof window.navigateTo === 'function') {
+          data.navigation.forEach((route) => {
+            if (typeof route === 'string' && route) {
+              try { window.navigateTo(route); } catch (e) {}
+            }
+          });
+          if (typeof showToast === 'function') showToast('Asisten mengantarkanmu ke halaman tujuan.', 'info');
+        }
       } else {
         appendBubble('assistant', data?.message || 'Maaf, terjadi kesalahan. Coba lagi.', { pending: true });
       }

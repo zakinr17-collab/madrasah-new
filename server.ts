@@ -22,6 +22,7 @@ import selfsigned from "selfsigned";
 import { GoogleGenAI } from "@google/genai";
 import { callAI } from "./aiProvider";
 import { registerAiAssistantEndpoints } from "./aiAssistant";
+import { setAssistantDataStore } from "./aiAssistant";
 import { deriveAiProviderCredentialKey, encryptSecret, decryptSecret, sanitizeAiProviderInput, publicAiProviderView, AiProviderConfig, AiProviderProfile, getAiProviderProfiles, publicProfileView, sanitizeProfileInput } from "./aiProviderSettings";
 import { v2 as cloudinary } from "cloudinary";
 import JSZip from "jszip";
@@ -3709,6 +3710,7 @@ app.use((req, res, next) => {
 });
 const requestBodyLimit = isOnlineMode ? '25mb' : '50mb';
 app.use(express.json({ limit: requestBodyLimit }));
+setAssistantDataStore({ get students(){ return students; }, get teachers(){ return teachers; }, get classes(){ return classes; }, get subjects(){ return subjects; }, get exams(){ return exams; }, get questions(){ return questions; }, get lessonPlans(){ return lessonPlans; }, get attendance(){ return attendance; } });
 registerAiAssistantEndpoints(app, { requireAuth, requireRole, getAuthUser, callAI });
 
 // Middleware AI per-guru: jalankan handler dalam ALS context berisi kredensial guru (jika diizinkan).
