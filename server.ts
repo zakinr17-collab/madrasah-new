@@ -10311,12 +10311,21 @@ app.post('/api/boss/generate-offline-madrasah-license', requireAuth, requireRole
     });
   }
   if (duplicateMadrasah) {
-    return res.status(409).json({
-      success: false,
-      message: 'Installation ID ini sudah terikat pada madrasah tetapi record lisensinya tidak lengkap. Periksa data lisensi sebelum membuat key baru.',
-      licenseId: duplicateMadrasah.offlineLicenseId || null,
-      madrasahId: duplicateMadrasah.id || null
-    });
+    const hasLiveLicense = (offlineLicenses || []).some((x: any) => String(x.licenseId || '') === String(duplicateMadrasah.offlineLicenseId || ''));
+    if (hasLiveLicense) {
+      return res.status(409).json({
+        success: false,
+        message: 'Installation ID ini sudah terikat pada madrasah tetapi record lisensinya tidak lengkap. Periksa data lisensi sebelum membuat key baru.',
+        licenseId: duplicateMadrasah.offlineLicenseId || null,
+        madrasahId: duplicateMadrasah.id || null
+      });
+    }
+    // Madrasah ada tapi lisensinya sudah hilang -> lepas binding agar bisa dibuat ulang.
+    const repaired = (madrasahs || []).map((m: any) => String(m.id || '') === String(duplicateMadrasah.id || '')
+      ? { ...m, offlineLicenseId: null, offlineInstallationId: null, offlineActivationStatus: null }
+      : m);
+    await saveData('madrasahs', repaired, true);
+    console.log(`[Offline License] Binding lisensi yatim pada madrasah ${duplicateMadrasah.id} dilepas.`);
   }
 
   try {
@@ -11345,7 +11354,18 @@ app.delete("/api/madrasahs/:id", requireAuth, requireRole(['bos', 'superadmin'])
     return res.status(404).json({ success: false, message: "Madrasah tidak ditemukan." });
   }
   const deletedName = madrasahs[index].name;
+  const deletedMadrasah = madrasahs[index];
   madrasahs.splice(index, 1);
+  // Cleanup lisensi offline yang terikat madrasah ini (bug fix: sebelumnya
+  // record lisensi tertinggal sehingga generate ulang selalu 409 conflict).
+  const orphanedLicenseIds = (offlineLicenses || [])
+    .filter((lic: any) => String(lic.madrasahId || '') === String(deletedMadrasah.id || '') || String(lic.installationId || '') === String(deletedMadrasah.offlineInstallationId || ''))
+    .map((lic: any) => String(lic.licenseId || ''));
+  if (orphanedLicenseIds.length > 0) {
+    offlineLicenses = (offlineLicenses || []).filter((lic: any) => !orphanedLicenseIds.includes(String(lic.licenseId || '')));
+    await saveData('offlineLicenses', offlineLicenses, true);
+    console.log(`[Offline License] ${orphanedLicenseIds.length} lisensi ikut dihapus bersama madrasah "${deletedName}".`);
+  }
   if (madrasahs.length === 0) {
     madrasahs.push({
       id: "default",
