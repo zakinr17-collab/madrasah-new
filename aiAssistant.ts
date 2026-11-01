@@ -226,7 +226,7 @@ function makeWriteTools(): ToolDef[] {
     {
       name: "prepare_write_action",
       description:
-        "SIAPKAN aksi tulis (mengubah data aplikasi) ATAS PERMINTAAN EKSPLISIT admin. Jangan panggil kecuali admin jelas meminta membuat/mengubah sesuatu. Aksi TIDAK langsung dijalankan — server membuat rencana + token konfirmasi; admin harus menyetujui via tombol di chat. Aksi tersedia: create_student (nama, nis, username, password, classId), create_exam (judul, classId, subjectName, tanggal), set_running_text (teks). Untuk classId gunakan hasil list_classes.",
+        "WAJIB dipanggil setiap kali admin meminta MEMBUAT/MENGUBAH data (tambah siswa, buat ujian, ubah teks berjalan, dsb). PANGGIL TOOL INI DULU sebelum menulis jawaban — JANGAN hanya mengklaim rencana siap tanpa memanggil tool. Aksi TIDAK langsung dijalankan: server membuat rencana + tombol konfirmasi muncul otomatis di chat. Aksi tersedia: create_student (args: nama|name, nis, username, password, classId), create_exam (args: judul, classId, subjectName, tanggal), set_running_text (args: text). Untuk classId gunakan hasil list_classes.",
       parameters: {
         type: "object",
         properties: {
@@ -427,7 +427,8 @@ ATURAN JAWABAN:
 - Selalu Bahasa Indonesia, ramah, terstruktur (poin/strip, TANPA markdown ** atau #).
 - Pertanyaan data ("berapa siswa", "siapa guru X", "kelas mana paling ramai") → panggil tool dulu.
 - Pertanyaan umum non-aplikasi → jawab seperti asisten AI biasa tanpa tool.
-- Jangan menyebut nama tool secara teknis; sebutkan natural ("saya cek dulu datanya…", "sudah saya antarkan ke halamannya…").`;
+- Jangan menyebut nama tool secara teknis; sebutkan natural ("saya cek dulu datanya…", "sudah saya antarkan ke halamannya…").
+- PERMINTAAN TULIS (tambah siswa, buat ujian, ubah teks berjalan, dll): WAJIB memanggil tool persiapan aksi DULU — dilarang keras menulis "rencana sudah siap, tekan tombol konfirmasi" tanpa memanggil tool itu. Setelah tool dipanggil, katakan bahwa tombol konfirmasi sudah muncul di chat.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -514,6 +515,46 @@ function detectNavigationIntent(userText: string): string[] {
     if (p.re.test(userText)) { nav.push(p.route); break; }
   }
   return nav;
+}
+
+
+// ---------------------------------------------------------------------------
+// RECONCILE PENDING WRITE: model kadang MENYATAKAN "tombol konfirmasi muncul"
+// tanpa memanggil prepare_write_action (pitfall model 'auto'). Bila reply
+// mengklaim konfirmasi tapi tidak ada rencana, buat rencana deterministik
+// dari teks user (urutan: set_running_text > create_student > create_exam).
+// ---------------------------------------------------------------------------
+const WRITE_CLAIM_RE = /(tombol konfirmasi|menunggu konfirmasi|tekan (tombol )?(untuk )?konfirmasi)/i;
+
+function buildDeterministicPendingWrite(userText: string, req: any): { id: string; summary: string } | null {
+  const g: any = globalThis as any;
+  const authUser: any = g.__assistantAuthUser || {};
+  const uid = String(authUser?.id || "");
+  let action = ""; let args: any = null; let summary = "";
+  const rt = userText.match(/(?:ubah(?:kan)?|ganti)\s+(?:teks\s+berjalan\s+(?:menjadi|jadi|ke)\s+|running\s*text\s*(?:menjadi|jadi)?\s*)(["“']?)(.+?)\1?\s*(?:[.,]|$)/i);
+  if (rt && rt[2]) {
+    action = "set_running_text"; args = { text: rt[2].trim() };
+    summary = `Ubah teks berjalan menjadi: "${rt[2].trim().slice(0, 80)}".`;
+  } else {
+    const cs = userText.match(/(?:tambah(?:kan)?|buat)\s+(?:siswa|data siswa)\s*(?:baru)?\s*(?:nama)?\s*([^,.;\n]+?)(?:\s+(?:dengan\s+)?(?:NIS|nis)\s*([A-Za-z0-9_-]+))?(?:[,\s]+username\s*([A-Za-z0-9_.-]+))?(?:[,\s]+password\s*([^,;\s]+))?(?:[,\s]+(?:kelas|di kelas|ke kelas)\s*([A-Za-z0-9_-]+))?/i);
+    if (cs && cs[1]) {
+      const nama = cs[1].trim(); const nis = cs[2] || String(Date.now()).slice(-6);
+      const username = cs[3] || ("siswa" + Date.now().toString().slice(-6));
+      const password = cs[4] || "siswa12345"; const classId = cs[5] || "";
+      action = "create_student"; args = { nama, nis, username, password, classId };
+      summary = `Tambah siswa baru "${nama}" (NIS ${nis})${classId ? ` ke kelas ${classId}` : ""} dengan username ${username}.`;
+    } else {
+      const ce = userText.match(/(?:buat|tambah(?:kan)?)\s+(?:ujian|exam)\s*(?:baru)?\s*(?:judul|berjudul|nama)?\s*["“']?([^,"“'\n]+?)["”']?\s*(?:,|untuk|kelas|mapel|$)/i);
+      if (ce && ce[1]) {
+        action = "create_exam"; args = { judul: ce[1].trim() };
+        summary = `Buat ujian "${ce[1].trim().slice(0, 60)}".`;
+      }
+    }
+  }
+  if (!action) return null;
+  const id = newPendingId();
+  pendingWrites.set(id, { id, action, summary, args, userId: uid, createdAt: Date.now() });
+  return { id, summary };
 }
 
 // Klaim navigasi tanpa aksi: reply menyebut mengantar tetapi tidak ada tool call
@@ -621,9 +662,10 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
         if (!msg) throw new Error("Respons provider tidak dikenal");
 
         const toolCalls = msg.tool_calls || [];
+        if (toolCalls.length) console.log("[AIAssistant] tool calls ronde", round + 1, ":", toolCalls.map((t: any) => t?.function?.name).join(","));
         if (!toolCalls.length) {
           const reply = String(msg.content || "").trim();
-          if (reply) return { reply, navigation, highlights, pendingWrites: pendingWritesOut };
+          if (reply) return { reply, navigation, highlights, pendingWrites: pendingWritesOut.length ? pendingWritesOut : (WRITE_CLAIM_RE.test(reply) ? [buildDeterministicPendingWrite(text, req)].filter(Boolean) as any : pendingWritesOut) };
           break;
         }
         messages.push(msg);
@@ -641,6 +683,7 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
             result = { ok: true, route: result.route, label: result.label, message: "Navigasi dikirim ke browser admin." };
           }
           if (result && result.__pendingWrite) {
+            console.log("[AIAssistant] pendingWrite dibuat:", result.__pendingWrite, "->", pendingWritesOut.length + 1);
             pendingWritesOut.push({ id: result.__pendingWrite, summary: result.__summary || result.summary || "Aksi tulis" });
             result = { ok: true, status: "menunggu_konfirmasi", summary: result.__summary || result.summary, message: "Rencana dibuat. Menunggu admin menekan tombol konfirmasi di chat." };
           }
@@ -886,7 +929,7 @@ export async function runGeminiAgent(text: string, session: any, req: any, histo
 
         if (!fnCalls.length) {
           const reply = String(response?.text || parts.map((p: any) => p?.text || "").join("") || "").trim();
-          if (reply) return { reply, navigation, highlights, pendingWrites: pendingWritesOut };
+          if (reply) return { reply, navigation, highlights, pendingWrites: pendingWritesOut.length ? pendingWritesOut : (WRITE_CLAIM_RE.test(reply) ? [buildDeterministicPendingWrite(text, req)].filter(Boolean) as any : pendingWritesOut) };
           break;
         }
         contents.push({ role: "model", parts });
