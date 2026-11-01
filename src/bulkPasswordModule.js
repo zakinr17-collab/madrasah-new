@@ -235,3 +235,56 @@ window.printCheatingReport = function () {
   <script>window.print();<\/script></body></html>`);
   w.document.close();
 };
+
+// ===========================================================================
+// BAGIKAN BANK SOAL ke guru lain (admin) — guru yang dibagikan bisa melihat
+// dan memakai bank soal tersebut (via sharedTeacherIds di group).
+// ===========================================================================
+window.openShareBankModal = function (groupId, code, sharedIdsJson) {
+  document.getElementById('share-bank-modal')?.remove();
+  let sharedIds = [];
+  try { sharedIds = JSON.parse(sharedIdsJson || '[]'); } catch (e) {}
+  const teachers = window.appState?.teachers || [];
+  const rows = teachers.map(t => `
+    <label class="flex items-center gap-3 p-2.5 hover:bg-slate-50 rounded-xl cursor-pointer border border-transparent hover:border-slate-200">
+      <input type="checkbox" class="share-bank-tcb w-4 h-4" value="${t.id}" ${sharedIds.includes(String(t.id)) ? 'checked' : ''}>
+      <div class="flex-1">
+        <p class="text-xs font-bold text-slate-700">${t.name || t.username}</p>
+        <p class="text-[10px] text-slate-400">${t.mapel || ''} ${t.username ? '• @' + t.username : ''}</p>
+      </div>
+    </label>`).join('');
+  const modal = document.createElement('div');
+  modal.id = 'share-bank-modal';
+  modal.className = 'fixed inset-0 z-[80] bg-black/50 flex items-center justify-center p-4';
+  modal.innerHTML = `
+    <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl p-5 space-y-3 max-h-[90vh] flex flex-col">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-extrabold text-slate-800"><i class="fa-solid fa-share-nodes mr-2 text-violet-600"></i>Bagikan Bank "${code}"</h3>
+        <button onclick="document.getElementById('share-bank-modal').remove()" class="w-8 h-8 rounded-lg hover:bg-slate-100 text-slate-500 cursor-pointer"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <p class="text-xs text-slate-500">Centang guru yang boleh <b>melihat & memakai</b> bank soal ini. Guru lain tidak melihat bank ini.</p>
+      <div class="flex-1 overflow-y-auto border border-slate-200 rounded-xl p-2 max-h-[45vh]">${rows || '<p class="text-xs text-slate-400 text-center py-6">Belum ada data guru.</p>'}</div>
+      <div class="flex justify-end gap-2">
+        <button onclick="document.getElementById('share-bank-modal').remove()" class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold cursor-pointer">Batal</button>
+        <button onclick="window.saveBankShare('${groupId}')" class="px-4 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold cursor-pointer"><i class="fa-solid fa-check mr-1"></i>Simpan</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+};
+
+window.saveBankShare = async function (groupId) {
+  const ids = Array.from(document.querySelectorAll('.share-bank-tcb:checked')).map(cb => cb.value);
+  try {
+    const res = await fetch(`/api/question-bank-groups/${encodeURIComponent(groupId)}/share`, {
+      method: 'PUT', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ teacherIds: ids }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.message || 'Gagal menyimpan berbagi.');
+    document.getElementById('share-bank-modal')?.remove();
+    showToast(`Berbagi bank soal disimpan (${ids.length} guru).`, 'success');
+    loadQuestionBankFromServer?.().then(() => renderQuestionBankModule(document.getElementById('view-container')));
+  } catch (e) {
+    showToast(e.message || 'Gagal menyimpan berbagi.', 'error');
+  }
+};

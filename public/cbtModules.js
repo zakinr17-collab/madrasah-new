@@ -291,6 +291,7 @@ function renderQuestionBankModule(container) {
                                         <h3 class="font-black text-slate-900 text-xl sm:text-2xl tracking-tight font-mono break-all leading-tight">${qbEscapeHtml(bg.code)}</h3>
                                         <div class="flex items-center space-x-1 shrink-0">
                                             <button type="button" onclick="openQuestionBankGroupModal(${qbInlineArg(bg.id)})" class="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl transition cursor-pointer" title="Edit Bank Soal (kode/mapel/kelas)"><i class="fa-solid fa-pen-to-square text-xs"></i></button>
+                                            ${!isTeacher ? `<button type="button" onclick="window.openShareBankModal(${qbInlineArg(bg.id)}, ${qbInlineArg(bg.code)}, ${qbInlineArg(JSON.stringify(bg.sharedTeacherIds || []))})" class="p-1.5 bg-violet-50 hover:bg-violet-100 text-violet-600 rounded-xl transition cursor-pointer" title="Bagikan ke guru"><i class="fa-solid fa-share-nodes text-xs"></i></button>` : ''}
                                             <button type="button" onclick="deleteQuestionBankGroup(${qbInlineArg(bg.id)})" class="text-rose-400 hover:text-rose-600 p-1 cursor-pointer"><i class="fa-solid fa-trash"></i></button>
                                         </div>
                                     </div>
@@ -825,6 +826,27 @@ async function executeAIGenerator(e, code) {
                 explanation: 'Penjelasan materi madrasah.'
             }));
         }
+
+        // ANTI-DUPLIKAT: cek kemiripan dgn soal yang sudah ada sebelum simpan
+        try {
+            const dupRes = await fetch('/api/questions/duplicate-check', {
+                method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ questions: generatedItems })
+            });
+            const dupData = await dupRes.json();
+            if (dupData.success && Array.isArray(dupData.duplicates) && dupData.duplicates.length) {
+                const proceed = window.confirm(
+                    dupData.duplicates.length + ' soal terdeteksi MIRIP dengan soal yang sudah ada di bank:\n\n' +
+                    dupData.duplicates.slice(0, 3).map(d => '• "' + d.newQuestion.slice(0, 60) + '..." (mirip ' + d.similarity + ')').join('\n') +
+                    (dupData.duplicates.length > 3 ? '\n… dan ' + (dupData.duplicates.length - 3) + ' lagi' : '') +
+                    '\n\nLanjutkan simpan? (Batal = soal mirip tidak disimpan semua)'
+                );
+                if (!proceed) {
+                    showToast('Simpan dibatalkan — soal mirip terdeteksi. Ubah topik/materi lalu generate ulang.', 'warning');
+                    return;
+                }
+            }
+        } catch (dupErr) { console.warn('duplicate-check gagal (abaikan):', dupErr); }
 
         generatedItems.forEach((item, idx) => {
             const qId = 'Q_' + Date.now() + '_' + idx;

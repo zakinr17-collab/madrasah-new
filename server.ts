@@ -6051,6 +6051,9 @@ function questionBankGroupAllowedForTeacher(req: any, group: any): boolean {
   if (!isTeacherRequest(req)) return true;
   if (!group || !isItemForCurrentMadrasah(group, req)) return false;
   if (teacherCanAccessSubjectRef(req, group.subjectId)) return true;
+  const sharedList = Array.isArray(group.sharedTeacherIds) ? group.sharedTeacherIds.map(String) : [];
+  const authId = String((req.user || getAuthUser(req))?.id || '');
+  if (authId && sharedList.includes(authId)) return true;
 
   const groupCode = String(group.code || '').trim().toLowerCase();
   if (!groupCode) return false;
@@ -14531,6 +14534,72 @@ app.post("/api/questions/batch", requireAuth, requireRole(['teacher', 'guru', 'a
     mode: isOnlineMode ? 'merge-non-destructive' : 'replace-offline',
     answerKeySync
   });
+});
+
+// ---- CEK DUPLIKAT SOAL (bandingkan teks soal, normalisasi) ----
+function normalizeQuestionText(t: any): string {
+  return String(t || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+app.post("/api/questions/duplicate-check", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    const incoming = Array.isArray(req.body?.questions) ? req.body.questions : [];
+    if (!incoming.length) return res.json({ success: true, duplicates: [] });
+    const tenantQuestions = filterByMadrasah(questions || [], req);
+    const duplicates: Array<{ newQuestion: string; matchedWith: string; code: string; similarity: string }> = [];
+    for (const q of incoming) {
+      const norm = normalizeQuestionText(q.question);
+      if (!norm || norm.length < 10) continue;
+      const normWords = new Set(norm.split(' '));
+      for (const ex of tenantQuestions) {
+        const exNorm = normalizeQuestionText(ex.question);
+        if (!exNorm) continue;
+        // cepat: cocok persis, atau Jaccard kata
+        let score = exNorm === norm ? 1 : 0;
+        if (score < 1) {
+          const exWords = new Set(exNorm.split(' '));
+          let inter = 0;
+          for (const w of normWords) if (exWords.has(w)) inter++;
+          const union = normWords.size + exWords.size - inter;
+          score = union > 0 ? inter / union : 0;
+        }
+        if (score >= 0.85) {
+          duplicates.push({
+            newQuestion: String(q.question || '').slice(0, 120),
+            matchedWith: String(ex.question || '').slice(0, 120),
+            code: String(ex.code || ''),
+            similarity: Math.round(score * 100) + '%'
+          });
+          break; // satu kecocokan cukup per soal baru
+        }
+      }
+    }
+    return res.json({ success: true, duplicates });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Gagal memeriksa duplikat.' });
+  }
+});
+
+// ---- BAGIKAN BANK SOAL ke guru lain (admin) ----
+app.put("/api/question-bank-groups/:id/share", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    const { id } = req.params;
+    const teacherIds = Array.isArray(req.body?.teacherIds) ? req.body.teacherIds.map(String) : null;
+    if (!teacherIds) return res.status(400).json({ success: false, message: "teacherIds wajib array." });
+    const resolved = resolveTenantItemIndexById(questionBankGroups, id, req, false);
+    if (resolved.ambiguous) return res.status(409).json({ success: false, message: "ID bank soal ambigu lintas tenant." });
+    if (resolved.index < 0) return res.status(404).json({ success: false, message: "Bank soal tidak ditemukan." });
+    const g = questionBankGroups[resolved.index];
+    g.sharedTeacherIds = teacherIds;
+    await saveData('questionBankGroups', questionBankGroups);
+    return res.json({ success: true, group: { id: g.id, code: g.code, sharedTeacherIds: g.sharedTeacherIds } });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || 'Gagal memperbarui berbagi.' });
+  }
 });
 
 app.post("/api/questions", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
