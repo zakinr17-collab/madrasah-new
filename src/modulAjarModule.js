@@ -3174,7 +3174,9 @@ window.structureImportedModulWithAI = async function(subjectId, subjectName) {
             ...mergedData
         });
         showToast('Naskah dokumen berhasil distrukturkan ke 21 Komponen Kurikulum Merdeka! Silakan review & simpan.', 'success');
+        window.genGuardRelease('device:' + deviceType);
     } catch(err) {
+        window.genGuardRelease('device:' + deviceType);
         showToast(err.message, 'error');
         btn.disabled = false;
         btn.innerHTML = origHtml;
@@ -3545,7 +3547,27 @@ function ensureModulProgressBar(anchorEl, label) {
     };
 }
 
+// ============================================================
+// ANTI-DOUBLE-GENERATE GUARD: cegah klik berulang menghabiskan token.
+// Dipasang di SEMUA fungsi generate AI. Kunci per (fungsi+target).
+// ============================================================
+window.__genGuardActive = window.__genGuardActive || {};
+window.genGuardCheck = function (key, ttlMs) {
+    if (window.__genGuardActive[key]) {
+        showToast('Sedang diproses! Tunggu proses sebelumnya selesai — jangan klik berulang, token bisa terbuang.', 'error');
+        return false;
+    }
+    window.__genGuardActive[key] = true;
+    setTimeout(() => { delete window.__genGuardActive[key]; }, ttlMs || 10 * 60 * 1000);
+    return true;
+};
+window.genGuardRelease = function (key) {
+    delete window.__genGuardActive[key];
+};
+
 async function generateEntireModulAjarWithAI(event, subjectId, subjectName) {
+    const __gk = "modul:" + subjectId; const __ttl = 15 * 60 * 1000;
+    if (!window.genGuardCheck(__gk, __ttl)) { if (event) event.preventDefault(); return; }
     event.preventDefault();
     const topic = document.getElementById('ai-modul-topic').value;
     const materiDetail = document.getElementById('ai-modul-materi-detail')?.value || '';
@@ -3622,6 +3644,8 @@ async function generateEntireModulAjarWithAI(event, subjectId, subjectName) {
 }
 
 async function generateAIField(fieldName, subjectName) {
+    const __gk = "field:" + fieldName; const __ttl = 8 * 60 * 1000;
+    if (!window.genGuardCheck(__gk, __ttl)) { return; }
     const topicInput = document.getElementById('lp-topic');
     const textarea = document.getElementById(`lp-${fieldName}`);
 
@@ -4823,6 +4847,8 @@ function renderGeneratedExamResultModal(data, subjectName) {
 window.renderGeneratedExamResultModal = renderGeneratedExamResultModal;
 
 async function generateSoalKisi(event, subjectId, subjectName) {
+    const __gk = "soalkisi:" + subjectId; const __ttl = 15 * 60 * 1000;
+    if (!window.genGuardCheck(__gk, __ttl)) { if (event) event.preventDefault(); return; }
     if (event) event.preventDefault();
 
     const mcCount = parseInt(document.getElementById('g-mc-count').value) || 10;
@@ -5137,8 +5163,10 @@ async function generateSoalKisi(event, subjectId, subjectName) {
         }
 
         showToast('Soal & Kisi-Kisi Ujian berhasil di-generate!', 'success');
+        window.genGuardRelease('soalkisi:' + subjectId);
     } catch (err) {
         showToast(err.message, 'error');
+        window.genGuardRelease('soalkisi:' + subjectId);
         openGenerateSoalKisiModal(subjectId);
     }
 }
@@ -6829,6 +6857,15 @@ window.printPreviewModul = printPreviewModul;
 window.downloadModulAsWord = downloadModulAsWord;
 window.openGenerateSoalKisiModal = openGenerateSoalKisiModal;
 window.generateSoalKisi = generateSoalKisi;
+
+// AUTO-RELEASE guard saat modal ditutup/diganti — proses dibatalkan user = guard lepas.
+(function () {
+    const origClose = window.closeModal;
+    window.closeModal = function (...args) {
+        try { window.__genGuardActive = {}; } catch (e) {}
+        return origClose ? origClose.apply(this, args) : undefined;
+    };
+})();
 window.switchGenerateResultTab = switchGenerateResultTab;
 window.printKisiKisiLandscape = printKisiKisiLandscape;
 window.printNaskahSoalPortrait = printNaskahSoalPortrait;
@@ -6992,6 +7029,8 @@ function generateDeviceDocumentNonAI(event, deviceType, subjectId, subjectName) 
 window.generateDeviceDocumentNonAI = generateDeviceDocumentNonAI;
 
 async function generateDeviceDocument(event, deviceType, subjectId, subjectName) {
+    const __gk = "device:" + deviceType; const __ttl = 10 * 60 * 1000;
+    if (!window.genGuardCheck(__gk, __ttl)) { if (event) event.preventDefault(); return; }
     event.preventDefault();
     const btn = document.getElementById('btn-submit-device');
     if (btn) {
@@ -7314,6 +7353,8 @@ function generateRPPLengkapNonAI(event, subjectId, subjectName) {
 window.generateRPPLengkapNonAI = generateRPPLengkapNonAI;
 
 async function generateRPPLengkap(event, subjectId, subjectName) {
+    const __gk = "rpp:" + subjectId; const __ttl = 10 * 60 * 1000;
+    if (!window.genGuardCheck(__gk, __ttl)) { if (event) event.preventDefault(); return; }
     event.preventDefault();
     const btn = document.getElementById('btn-submit-rpp');
     if (btn) {
@@ -7364,8 +7405,10 @@ async function generateRPPLengkap(event, subjectId, subjectName) {
         window.lastGeneratedRPPSubjectId = subjectId;
         window.lastGeneratedRPPSubjectName = subjectName;
 
+        window.genGuardRelease('rpp:' + subjectId);
         renderGeneratedRPPResultModal(0);
     } catch (err) {
+        window.genGuardRelease('rpp:' + subjectId);
         showToast('Gagal generate RPP: ' + err.message, 'error');
         if (btn) {
             btn.disabled = false;

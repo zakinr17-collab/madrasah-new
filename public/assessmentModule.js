@@ -8663,6 +8663,7 @@ async function runAutoKoreksiPerStudent(classId, examId, method) {
     const msg = (isAi ? 'Koreksi AI' : 'Koreksi Non-AI') + ' selesai: ' + ok + ' berhasil' + (fail ? ', ' + fail + ' gagal' : '') + '.';
     try { await refreshEvaluasiData(classId, examId); } catch (_) {}
     showToast(msg, fail ? 'warning' : 'success');
+    window.genGuardRelease && window.genGuardRelease('koreksi:' + classId + ':' + examId);
 }
 
 async function runAutoKoreksiNonAI(classId, examId) {
@@ -8670,6 +8671,7 @@ async function runAutoKoreksiNonAI(classId, examId) {
 }
 
 async function runAutoKoreksiAI(classId, examId) {
+    if (!window.genGuardCheck('koreksi:' + classId + ':' + examId, 15 * 60 * 1000)) { return; }
     return runAutoKoreksiPerStudent(classId, examId, 'ai');
 }
 

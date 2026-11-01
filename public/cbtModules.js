@@ -780,6 +780,7 @@ function executeNonAIGenerator(e, code) {
 }
 
 async function executeAIGenerator(e, code) {
+    if (!window.genGuardCheck('bankgen:' + (code || ''), 10 * 60 * 1000)) { if (e) e.preventDefault(); return; }
     if (e) e.preventDefault();
     const topicInput = document.getElementById('ai-gen-topic');
     const topic = topicInput ? topicInput.value.trim() : '';
@@ -849,6 +850,7 @@ async function executeAIGenerator(e, code) {
         console.error('Error generating:', err);
         showToast('Terjadi kesalahan saat generate AI.', 'error');
     } finally {
+        window.genGuardRelease('bankgen:' + (code || ''));
         if (submitBtn) {
             submitBtn.disabled = false;
             submitBtn.innerHTML = origHtml;
@@ -2598,7 +2600,21 @@ function deleteJournal(id) {
     });
 }
 
+// ANTI-DOUBLE-GENERATE GUARD (sama dgn modulAjarModule)
+window.__genGuardActive = window.__genGuardActive || {};
+window.genGuardCheck = window.genGuardCheck || function (key, ttlMs) {
+    if (window.__genGuardActive[key]) {
+        showToast('Sedang diproses! Tunggu proses sebelumnya selesai — jangan klik berulang, token bisa terbuang.', 'error');
+        return false;
+    }
+    window.__genGuardActive[key] = true;
+    setTimeout(() => { delete window.__genGuardActive[key]; }, ttlMs || 10 * 60 * 1000);
+    return true;
+};
+window.genGuardRelease = window.genGuardRelease || function (key) { delete window.__genGuardActive[key]; };
+
 async function generateEnrichmentAI(e) {
+    if (!window.genGuardCheck('enrichment', 8 * 60 * 1000)) { if (e) e.preventDefault(); return; }
     const matInput = document.getElementById('j-mat');
     const topic = matInput ? matInput.value.trim() : '';
     if (!topic) {
