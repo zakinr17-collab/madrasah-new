@@ -800,11 +800,25 @@ async function executeAIGenerator(e, code) {
 
     const group = appState.questionBankGroups.find(bg => String(bg.code) === String(code));
 
-    const submitBtn = e ? (e.target.tagName === 'BUTTON' ? e.target : e.target.querySelector('button[type="submit"]')) : null;
+    const submitBtn = e ? (e.target.closest ? e.target.closest('button') : null) : null;
     const origHtml = submitBtn ? submitBtn.innerHTML : '';
     if (submitBtn) {
         submitBtn.disabled = true;
         submitBtn.innerHTML = `<i class="fa-solid fa-spinner fa-spin mr-1"></i> Generating AI...`;
+    }
+    // Overlay loading jelas di tengah modal — user tahu proses berjalan & tombol tak bisa diklik dobel
+    const modalBox = document.getElementById('modal-content-box');
+    if (modalBox) {
+        const ov = document.createElement('div');
+        ov.id = 'ai-gen-loading-overlay';
+        ov.style.cssText = 'position:absolute;inset:0;z-index:60;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(15,23,42,.45);backdrop-filter:blur(2px);border-radius:inherit;';
+        ov.innerHTML = `<div class="bg-white rounded-2xl px-6 py-5 shadow-2xl flex flex-col items-center space-y-3">
+            <i class="fa-solid fa-spinner fa-spin text-2xl text-purple-600"></i>
+            <p class="text-sm font-bold text-slate-800">Sedang membuat soal dengan AI…</p>
+            <p class="text-[11px] text-slate-500">Biasanya 15–60 detik. Jangan tutup halaman ini.</p>
+        </div>`;
+        modalBox.style.position = 'relative';
+        modalBox.appendChild(ov);
     }
 
     try {
@@ -873,6 +887,7 @@ async function executeAIGenerator(e, code) {
         showToast('Terjadi kesalahan saat generate AI.', 'error');
     } finally {
         window.genGuardRelease('bankgen:' + (code || ''));
+        document.getElementById('ai-gen-loading-overlay')?.remove();
         if (submitBtn) {
             submitBtn.disabled = false;
             submitBtn.innerHTML = origHtml;
