@@ -1688,7 +1688,7 @@ function renderGradesModule(container) {
                                         <th class="p-3 w-16 text-center sticky left-0 z-20 bg-slate-50">No</th>
                                         <th class="p-3 w-[100px] sticky left-[64px] z-20 bg-slate-50">NIS</th>
                                         <th class="p-3 text-center w-16 sticky left-[164px] z-20 bg-slate-50">Foto Profil</th>
-                                        <th class="p-3 min-w-[120px] sticky left-[228px] z-20 bg-slate-50 shadow-sm">Nama Murid</th>
+                                        <th class="p-3 min-w-[120px] max-w-[220px] sticky left-[228px] z-20 bg-slate-50 shadow-sm"><div class="truncate" title="Nama Murid">Nama Murid</div></th>
                                         ${categories.map(cat => {
                                             const catName = typeof cat === 'string' ? cat : (cat && (cat.name || cat.title || cat.category) ? (cat.name || cat.title || cat.category) : String(cat));
                                             const safeCatAttr = String(catName).replace(/'/g, "\\'").replace(/"/g, '&quot;');
@@ -1727,7 +1727,7 @@ function renderGradesModule(container) {
                                                 <td class="p-3 text-center font-mono text-xs text-slate-500 sticky left-0 z-10 bg-white">${idx + 1}</td>
                                                 <td class="p-3 font-mono text-xs font-bold text-emerald-700 sticky left-[64px] z-10 bg-white whitespace-nowrap">${st.nis}</td>
                                                 <td class="p-3 text-center sticky left-[164px] z-10 bg-white">${photoHtml}</td>
-                                                <td class="p-3 font-semibold text-slate-800 sticky left-[228px] z-10 bg-white shadow-sm whitespace-nowrap">${st.name}</td>
+                                                <td class="p-3 font-semibold text-slate-800 sticky left-[228px] z-10 bg-white shadow-sm"><div class="max-w-[220px] truncate" title="${st.name}">${st.name}</div></td>
                                                 ${categories.map(cat => {
                                                     const g = (appState.grades || []).find(item => {
                                                         if (!item) return false;
