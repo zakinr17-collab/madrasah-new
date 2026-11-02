@@ -2693,11 +2693,7 @@ function buildSidebar() {
                 <i class="fa-regular fa-calendar-days w-5 text-emerald-400"></i>
                 <span>Kalender Akademik</span>
             </button>
-            <button type="button" onclick="navigateTo('game_edukasi')" class="w-full flex items-center space-x-3 px-3.5 py-3 rounded-2xl hover:bg-slate-800 transition text-left">
-                <i class="fa-solid fa-gamepad w-5 text-emerald-400"></i>
-                <span>Game Edukasi</span>
-            </button>
-            ${(role === 'teacher' || role === 'guru') ? `
+                        ${(role === 'teacher' || role === 'guru') ? `
             <button type="button" onclick="navigateTo('profil_guru')" class="w-full flex items-center space-x-3 px-3.5 py-3 rounded-2xl hover:bg-slate-800 transition text-left">
                 <i class="fa-solid fa-id-badge w-5 text-emerald-400"></i>
                 <span>Profil & Akun Guru</span>
@@ -2741,10 +2737,7 @@ function buildSidebar() {
                 <span>CBT / Ujian Online</span>
             </button>` : ''}
             ${isGameEnabled ? `
-            <button type="button" onclick="navigateTo('game_edukasi_siswa')" class="w-full flex items-center space-x-3 px-3.5 py-3 rounded-2xl hover:bg-slate-800 transition text-left">
-                <i class="fa-solid fa-gamepad w-5 text-blue-400"></i>
-                <span>Game Edukasi</span>
-            </button>` : ''}
+            ` : ''}
             <button type="button" onclick="navigateTo('kalender')" class="w-full flex items-center space-x-3 px-3.5 py-3 rounded-2xl hover:bg-slate-800 transition text-left">
                 <i class="fa-regular fa-calendar-days w-5 text-blue-400"></i>
                 <span>Kalender Akademik</span>
@@ -2786,10 +2779,7 @@ function buildSidebar() {
                 <span>CBT / Ujian Online</span>
             </button>` : ''}
             ${isGameEnabled ? `
-            <button type="button" onclick="navigateTo('game_edukasi_siswa')" class="w-full flex items-center space-x-3 px-3.5 py-3 rounded-2xl hover:bg-slate-800 transition text-left">
-                <i class="fa-solid fa-gamepad w-5 text-amber-400"></i>
-                <span>Game Edukasi</span>
-            </button>` : ''}
+            ` : ''}
             <button type="button" onclick="navigateTo('kalender')" class="w-full flex items-center space-x-3 px-3.5 py-3 rounded-2xl hover:bg-slate-800 transition text-left">
                 <i class="fa-regular fa-calendar-days w-5 text-amber-400"></i>
                 <span>Kalender Akademik</span>
@@ -2974,17 +2964,10 @@ function navigateTo(route, options = {}) {
     else if (route === 'absen_kelas') renderClassLeaderAttendance(container);
     else if (route === 'absen_guru_self') renderTeacherAttendance(container);
     else if (route === 'absen_guru_admin') renderTeacherAttendanceAdmin(container);
-    else if (route === 'game_edukasi') {
-        if (window.renderGameAdminModule) window.renderGameAdminModule(container);
-    }
-    else if (route === 'game_edukasi_siswa') {
-        const isGameEnabled = appState.settings?.gameModuleEnabled !== false;
-        if (!isGameEnabled && (appState.role === 'student' || appState.role === 'murid' || appState.role === 'class_leader' || appState.role === 'ketua_kelas')) {
-            showToast('Modul Game Edukasi sedang dinonaktifkan oleh administrator.', 'info');
-            navigateTo(appState.role === 'class_leader' || appState.role === 'ketua_kelas' ? 'profil_ketua' : 'profil_siswa');
-            return;
-        }
-        if (window.renderGameStudentModule) window.renderGameStudentModule(container);
+    else if (route === 'game_edukasi' || route === 'game_edukasi_siswa') {
+        showToast('Modul Game Edukasi telah dihapus.', 'info');
+        navigateTo(appState.role === 'student' || appState.role === 'murid' ? 'profil_siswa' : 'profil_guru');
+        return;
     }
 }
 

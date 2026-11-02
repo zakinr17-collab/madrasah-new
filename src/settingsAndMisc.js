@@ -986,7 +986,6 @@ function renderSettingModule(container) {
                                 ['set-student-attendance-enabled', 'attendance', 'Absensi Siswa', 'Absen selfie/GPS dan absensi kelas ketua kelas.'],
                                 ['set-learning-enabled', 'learning', 'Belajar / Materi', 'Materi pembelajaran yang dipublikasikan guru.'],
                                 ['set-student-cbt-enabled', 'cbt', 'CBT dan LKPD', 'Jadwal ujian, asesmen CBT, dan LKPD interaktif.'],
-                                ['set-student-games-enabled', 'games', 'Game Edukasi', 'Game pembelajaran untuk siswa.'],
                                 ['set-exam-focus-mode', '__examfocus', 'Mode Fokus Ujian (Tampilan Ringkas)', 'Siswa login langsung masuk ke daftar jadwal ujian tanpa menu lain. Profil hanya nama & kelas.']
                             ].map(([id, key, title, desc]) => {
                                 const featureMap = appState.settings.studentFeatures || {};

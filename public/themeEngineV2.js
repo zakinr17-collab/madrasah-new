@@ -36,7 +36,6 @@ const ICONS = Object.freeze({
     lesson:'fa-solid fa-scroll',
     journal:'fa-solid fa-book-bookmark',
     calendar:'fa-regular fa-calendar-days',
-    game:'fa-solid fa-gamepad',
     profile:'fa-solid fa-id-badge',
     settings:'fa-solid fa-sliders',
     chat:'fa-regular fa-comment-dots',

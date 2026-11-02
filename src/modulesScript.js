@@ -263,17 +263,6 @@ function renderStudentProfile(container) {
                 description: 'Akses daftar ujian, asesmen, atau penilaian madrasah online yang sedang aktif dan kerjakan langsung di sini.',
                 action: 'Buka CBT'
             }) : '',
-            isStudentDashboardFeatureEnabled('games') ? renderStudentDashboardCard({
-                route: 'game_edukasi_siswa',
-                buttonClass: 'group p-6 bg-white hover:bg-slate-50 border border-slate-200 hover:border-emerald-500 rounded-3xl text-left transition-all duration-300 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 cursor-pointer',
-                iconClass: 'w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform duration-300',
-                titleClass: 'font-bold text-lg text-slate-850 leading-snug group-hover:text-emerald-600 transition-colors',
-                actionClass: 'mt-4 flex items-center gap-1.5 text-xs font-bold text-emerald-600',
-                icon: 'fa-gamepad',
-                title: 'Game Edukasi',
-                description: 'Mainkan 15 tantangan game interaktif, petualangan belajar, dan tingkatkan poin XP & peringkat madrasah.',
-                action: 'Mulai Mainkan'
-            }) : ''
         ].filter(Boolean);
         
         container.innerHTML = `
