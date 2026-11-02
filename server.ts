@@ -10434,19 +10434,27 @@ app.post('/api/offline-license/activate', async (req: any, res: any) => {
   // that same key is idempotent, but a different license cannot replace it.
   if (storedActive) {
     if (String(offlineLicense.payload.licenseId) !== String(payload.licenseId)) {
-      return res.status(409).json({ success: false, message: 'Instalasi ini sudah terikat pada lisensi offline lain yang masih valid.' });
+      // Key baru ditandatangani BOSS utk Installation ID yang sama = otorisasi resmi
+      // mengganti lisensi lama (re-issue). Tolak hanya jika Installation ID-nya beda
+      // (sudah dicek di atas), jadi di sini aman untuk replace.
+      console.log(`[Offline License] REPLACE: lisensi ${offlineLicense.payload.licenseId} diganti ${payload.licenseId} via key BOSS yang sah.`);
     }
-    if (String(offlineLicense.signature || '') !== String(verified.signature || '')) {
+    if (String(offlineLicense.payload.licenseId) === String(payload.licenseId) &&
+        String(offlineLicense.signature || '') !== String(verified.signature || '')) {
       return res.status(409).json({ success: false, message: 'Signature lisensi tidak cocok dengan aktivasi yang tersimpan.' });
     }
-    return res.json({
-      success: true,
-      licenseId: offlineLicense.payload.licenseId,
-      madrasahId: offlineLicense.payload.madrasahId,
-      activatedAt: offlineLicense.activatedAt,
-      reused: true,
-      message: 'Lisensi ini sudah aktif pada instalasi offline ini.'
-    });
+    // Idempoten HANYA jika lisensinya persis sama; lisensi baru (re-issue)
+    // lanjut ke alur binding di bawah agar terpasang sebagai pengganti.
+    if (String(offlineLicense.payload.licenseId) === String(payload.licenseId)) {
+      return res.json({
+        success: true,
+        licenseId: offlineLicense.payload.licenseId,
+        madrasahId: offlineLicense.payload.madrasahId,
+        activatedAt: offlineLicense.activatedAt,
+        reused: true,
+        message: 'Lisensi ini sudah aktif pada instalasi offline ini.'
+      });
+    }
   }
 
   // Stale/invalid records must not permanently lock a machine. Auto-recovery is
@@ -10454,10 +10462,8 @@ app.post('/api/offline-license/activate', async (req: any, res: any) => {
   // previously synchronized binding must be reset/revoked centrally to avoid
   // creating duplicate madrasah records.
   if (!storedActive && offlineLicense?.lastSyncedAt) {
-    return res.status(409).json({
-      success: false,
-      message: 'Lisensi lama pernah tersinkron ke BOSS. Reset lisensi dari akun BOSS sebelum menggantinya.'
-    });
+    // Key BOSS yang sah utk Installation ID sama adalah instrumen reset pusat itu sendiri.
+    console.log(`[Offline License] REPLACE (post-sync): ${offlineLicense.payload?.licenseId} -> ${payload.licenseId} via key BOSS sah.`);
   }
 
   // The replacement remains bound to the server-owned Installation ID.
