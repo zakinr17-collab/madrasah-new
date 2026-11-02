@@ -2475,6 +2475,14 @@ function startSession(isRefresh = false) {
         return;
     }
 
+    // BOSS isolation: akun bos tidak boleh mewarisi rute sesi browser sebelumnya
+    // (mis. 'learning_teacher' dari login admin/siswa di perangkat yang sama).
+    const bossRole = String(appState.role || '').toLowerCase();
+    if (bossRole === 'bos' || bossRole === 'boss' || bossRole === 'superadmin') {
+        navigateTo('boss_dashboard');
+        return;
+    }
+
     navigateTo(lastRoute || getDefaultRoute());
 }
 
