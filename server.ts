@@ -3311,6 +3311,7 @@ function updateMemoryKey(key: string, value: any) {
   else if (key === 'usedActivationKeys') usedActivationKeys = value;
   else if (key === 'offlineLicense') offlineLicense = value;
   else if (key === 'offlineLicenses') offlineLicenses = Array.isArray(value) ? value : [];
+  else if (key === 'offlineSyncReports') offlineSyncReports = Array.isArray(value) ? value : [];
 }
 
 function getMemoryKeyValue(key: string) {
@@ -10563,7 +10564,8 @@ app.post('/api/offline-license/sync', requireAuth, requireRole(['admin', 'admini
             tokenState: {
               balance: Math.max(0, Math.trunc(balance)),
               appliedGrantIds: appliedIds
-            }
+            },
+            stats: (req.body && typeof req.body.stats === 'object' && req.body.stats !== null) ? req.body.stats : null
           }),
           signal: controller.signal
         });
@@ -10683,6 +10685,75 @@ app.post('/api/offline-license/sync', requireAuth, requireRole(['admin', 'admini
   }
 });
 
+
+// ============================================================
+// OFFLINE SNAPSHOT SYNC (BOSS side): PC offline melaporkan rekap
+// datanya (token, siswa, guru, soal, ujian, nilai, kehadiran).
+// Disimpan sebagai snapshot laporan per madrasah — BOSS tidak
+// memproses ulang, hanya menyimpan & menampilkan.
+// ============================================================
+let offlineSyncReports: any[] = bootStore['offlineSyncReports'] || [];
+
+function sanitizeOfflineSnapshotValue(v: any): any {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  if (typeof v === 'string') return v.slice(0, 2000);
+  if (typeof v === 'boolean' || v === null || v === undefined) return v ?? null;
+  if (Array.isArray(v)) return v.slice(0, 500).map(sanitizeOfflineSnapshotValue);
+  if (typeof v === 'object') {
+    const out: any = {};
+    const keys = Object.keys(v).slice(0, 60);
+    for (const k of keys) out[k.slice(0, 60)] = sanitizeOfflineSnapshotValue(v[k]);
+    return out;
+  }
+  return null;
+}
+
+app.post('/api/offline-license/report-snapshot', async (req: any, res: any) => {
+  if (!isBossRuntimeEnabled()) return res.status(503).json({ success: false, message: 'Runtime BOSS belum siap menerima laporan offline.' });
+  if (!enforceApiRateLimit(req, res, 'offline-report-snapshot', 20, 60_000)) return;
+
+  const verified = verifyOfflineLicenseEnvelope(req.body?.envelope);
+  if (!verified.valid) return res.status(400).json({ success: false, message: verified.message || 'Lisensi tidak valid.' });
+  const payload: any = verified.payload;
+  const installationId = String(req.body?.installationId || '').trim();
+  if (!/^[A-Za-z0-9_-]{16,160}$/.test(installationId)) {
+    return res.status(400).json({ success: false, message: 'Identitas instalasi tidak valid.' });
+  }
+
+  const stats = sanitizeOfflineSnapshotValue(req.body?.stats) || {};
+  const reportedAt = new Date().toISOString();
+  const report = {
+    licenseId: payload.licenseId,
+    madrasahId: payload.madrasahId,
+    installationId,
+    reportedAt,
+    stats
+  };
+
+  const idx = (offlineSyncReports || []).findIndex((r: any) => String(r.licenseId || '') === String(payload.licenseId || ''));
+  if (idx >= 0) offlineSyncReports[idx] = report;
+  else offlineSyncReports.push(report);
+  if (offlineSyncReports.length > 500) offlineSyncReports = offlineSyncReports.slice(-500);
+
+  // Update juga info terakhir-sync pada record lisensi & madrasah.
+  const licIndex = (offlineLicenses || []).findIndex((lic: any) => String(lic.licenseId || '') === String(payload.licenseId || ''));
+  if (licIndex >= 0) {
+    const nextLicenses = (offlineLicenses || []).map((lic: any, i: number) => i === licIndex ? { ...lic, lastSyncedAt: reportedAt, lastReportedStats: stats } : lic);
+    await saveData('offlineLicenses', nextLicenses, true);
+  }
+  const madIndex = (madrasahs || []).findIndex((m: any) => String(m.id || '') === String(payload.madrasahId || ''));
+  if (madIndex >= 0) {
+    const nextMadrasahs = (madrasahs || []).map((m: any, i: number) => i === madIndex ? { ...m, offlineLastSyncAt: reportedAt } : m);
+    await saveData('madrasahs', nextMadrasahs, true);
+  }
+  await saveData('offlineSyncReports', offlineSyncReports, true);
+
+  return res.json({ success: true, reportedAt, message: 'Snapshot offline diterima.' });
+});
+app.get('/api/boss/offline-sync-reports', requireAuth, requireRole(['bos', 'superadmin']), async (req: any, res: any) => {
+  return res.json({ success: true, reports: offlineSyncReports || [] });
+});
+
 app.post('/api/offline-licenses/register', async (req: any, res: any) => {
   if (!isBossRuntimeEnabled()) return res.status(503).json({ success: false, message: 'Runtime BOSS belum siap menerima sinkronisasi lisensi.' });
   if (!enforceApiRateLimit(req, res, 'offline-license-register', 30, 60_000)) return;
@@ -10710,6 +10781,7 @@ app.post('/api/offline-licenses/register', async (req: any, res: any) => {
   }
 
   const tokenState = req.body?.tokenState && typeof req.body.tokenState === 'object' ? req.body.tokenState : {};
+const reportStats = req.body?.stats && typeof req.body.stats === 'object' ? req.body.stats : null;
   const reportedBalanceRaw = Number(tokenState.balance);
   const hasReportedBalance = Number.isFinite(reportedBalanceRaw) && reportedBalanceRaw >= 0 && reportedBalanceRaw <= 100000000;
   const reportedBalance = hasReportedBalance ? Math.trunc(reportedBalanceRaw) : null;
@@ -10748,6 +10820,7 @@ app.post('/api/offline-licenses/register', async (req: any, res: any) => {
     }
 
     nextList.push({
+      ...(reportStats ? { lastReportedStats: reportStats } : {}),
       type: payload.type,
       licenseId: payload.licenseId,
       madrasahId: payload.madrasahId,
@@ -10902,6 +10975,7 @@ app.get('/api/boss/offline-licenses', requireAuth, requireRole(['bos', 'superadm
       issuedAt: x.issuedAt,
       activatedAt: x.activatedAt,
       lastSyncedAt: x.lastSyncedAt || null,
+      lastReportedStats: x.lastReportedStats || null,
       name: x.name || null
     }))
   });

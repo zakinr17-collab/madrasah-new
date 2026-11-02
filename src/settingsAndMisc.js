@@ -1313,7 +1313,35 @@ function renderSettingModule(container) {
                 </div>
             </div>
 
-            <!-- Backup & Restore System Data Card -->
+            
+<!-- Sinkron ke BOSS (khusus mode offline) -->
+            <div id="offline-boss-sync-card" class="hidden bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-5">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+                    <div>
+                        <h2 class="text-xl sm:text-2xl font-bold text-slate-800 flex items-center gap-2.5">
+                            <i class="fa-solid fa-cloud-arrow-up text-sky-600"></i>
+                            <span>Sinkron ke BOSS</span>
+                        </h2>
+                        <p class="text-xs text-slate-400 mt-0.5">Kirim rekap data madrasah (siswa, guru, soal, ujian, nilai, kehadiran & saldo token) ke akun BOSS. Otomatis tiap 6 jam saat ada internet, atau kirim manual di bawah.</p>
+                    </div>
+                </div>
+                <div class="flex items-center gap-3 flex-wrap">
+                    <button type="button" onclick="pushOfflineSnapshotToBoss(true)" class="px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white rounded-2xl text-xs font-bold shadow-sm inline-flex items-center gap-2">
+                        <i class="fa-solid fa-paper-plane"></i> Sinkron Sekarang
+                    </button>
+                    <span id="offline-boss-sync-status" class="text-[11px] text-slate-500"></span>
+                </div>
+                <p class="text-[10px] text-slate-400">Sinkron tidak mengubah data di PC ini — hanya laporan satu arah ke BOSS.</p>
+            </div>
+            <script>
+                (function () {
+                    const show = (window.isOfflineMode === true) || (window.appState && window.appState.isOfflineMode === true);
+                    const card = document.getElementById('offline-boss-sync-card');
+                    if (card && show) card.classList.remove('hidden');
+                })();
+            </script>
+
+<!-- Backup & Restore System Data Card -->
             <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
                     <div>
