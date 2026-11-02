@@ -2059,7 +2059,7 @@ async function ensureOfflineLicenseActivationUi() {
 async function syncOfflineLicenseToBoss() {
     if (window.isOfflineMode !== true && appState.isOfflineMode !== true) return false;
     try {
-        const res = await fetch('/api/offline-license/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stats: collectOfflineSyncStats() }) });
+        const res = await fetch('/api/offline-license/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
         const data = await res.json().catch(() => ({}));
         if (res.ok && data.success) {
             if (data.madrasah && window.loadDataFromServer) await window.loadDataFromServer();
@@ -2085,72 +2085,6 @@ window.ensureOfflineLicenseActivationUi = ensureOfflineLicenseActivationUi;
 // laporan periodik. Incremental: hash per-koleksi, hanya berubah
 // yang dikirim penuh. Tombol manual + otomatis tiap 6 jam.
 // ============================================================
-function collectOfflineSyncStats() {
-    const count = (arr) => Array.isArray(arr) ? arr.length : 0;
-    const studentsArr = Array.isArray(appState.students) ? appState.students : [];
-    const teachersArr = Array.isArray(appState.teachers) ? appState.teachers : [];
-    const hashList = (arr, fields) => {
-        try {
-            const mini = (Array.isArray(arr) ? arr : []).map(it => fields.map(f => String(it?.[f] ?? '')).join('|')).sort().join('#');
-            let h = 0;
-            for (let i = 0; i < mini.length; i++) { h = ((h << 5) - h + mini.charCodeAt(i)) | 0; }
-            return String(h);
-        } catch (_) { return 'err'; }
-    };
-    const studentSample = studentsArr.slice(0, 3).map(s => ({ name: s.name, nis: s.nis || s.nisNumber || '', className: s.className || s.classId || '' }));
-    const tokenBalance = Number(appState.madrasahs?.[0]?.cbtTokenBalance ?? appState.cbtTokenBalance ?? 0) || 0;
-    return {
-        generatedAt: new Date().toISOString(),
-        tokenBalance,
-        counts: {
-            students: count(studentsArr),
-            teachers: count(teachersArr),
-            classes: count(appState.classes),
-            subjects: count(appState.subjects),
-            questions: count(appState.questions),
-            exams: count(appState.exams),
-            grades: count(appState.grades),
-            attendance: count(appState.attendance),
-            schedules: count(appState.schedules),
-            calendarEvents: count(appState.calendarEvents)
-        },
-        hashes: {
-            students: hashList(studentsArr, ['name', 'nis', 'classId']),
-            teachers: hashList(teachersArr, ['name', 'nip']),
-            questions: hashList(appState.questions, ['question', 'type']),
-            exams: hashList(appState.exams, ['title', 'status'])
-        },
-        samples: { students: studentSample }
-    };
-}
-
-async function pushOfflineSnapshotToBoss(manual = false) {
-    if (window.isOfflineMode !== true && appState.isOfflineMode !== true) return false;
-    try {
-        const res = await fetch('/api/offline-license/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stats: collectOfflineSyncStats() }) });
-        const data = await res.json().catch(() => ({}));
-        if (res.ok && data.success) {
-            if (manual) showToast('Snapshot data madrasah berhasil dilaporkan ke BOSS.', 'success');
-            return true;
-        }
-        if (manual) showToast(data.message || 'BOSS belum menerima laporan. Coba lagi nanti.', 'error');
-        return false;
-    } catch (_) {
-        if (manual) showToast('PC tidak terhubung ke BOSS. Hubungkan internet lalu coba lagi.', 'error');
-        return false;
-    }
-}
-window.pushOfflineSnapshotToBoss = pushOfflineSnapshotToBoss;
-
-let offlineSnapshotTimer = null;
-function startOfflineSnapshotAutoSync() {
-    if (offlineSnapshotTimer) clearInterval(offlineSnapshotTimer);
-    offlineSnapshotTimer = setInterval(() => { pushOfflineSnapshotToBoss(false); }, 6 * 60 * 60 * 1000);
-    // sekali di awal setelah 2 menit (beri waktu app siap & online)
-    setTimeout(() => { pushOfflineSnapshotToBoss(false); }, 2 * 60 * 1000);
-}
-window.startOfflineSnapshotAutoSync = startOfflineSnapshotAutoSync;
-startOfflineSnapshotAutoSync();
 
 window.syncOfflineLicenseToBoss = syncOfflineLicenseToBoss;
 window.activateOfflineMadrasahLicense = activateOfflineMadrasahLicense;

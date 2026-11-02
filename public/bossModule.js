@@ -1217,17 +1217,6 @@ async function renderBossDashboard(container, initialTab = 'tokens') {
             if (data.tokenRequests) appState.tokenRequests = data.tokenRequests;
             if (data.cbtTokenPrice) appState.cbtTokenPrice = data.cbtTokenPrice;
         }
-        // Lampirkan rekap snapshot offline (jika ada) ke madrasah terkait.
-        try {
-            const rres = await fetch('/api/boss/offline-sync-reports');
-            const rdata = await rres.json();
-            if (rdata.success && Array.isArray(rdata.reports)) {
-                (appState.madrasahs || []).forEach(m => {
-                    const rep = rdata.reports.find(r => String(r.madrasahId) === String(m.id));
-                    if (rep) m._offlineStats = rep.stats || null;
-                });
-            }
-        } catch (_) {}
     } catch(e) {}
 
     const madrasahs = appState.madrasahs || [];
@@ -1698,7 +1687,6 @@ function renderBossMadrasahsTab(container) {
                                                 </span>
                                                 <span class="text-[9px] text-slate-400">Tidak memiliki portal Cloud Run</span>
                                                 <span class="text-[9px] text-slate-400">Laporan terakhir: ${lastSyncLabel}</span>
-                                                ${m._offlineStats ? (() => { const st = m._offlineStats; const c = st.counts || {}; return `<div class="mt-1 text-[9px] text-slate-500 leading-relaxed"><b class="text-slate-600">Rekap data lokal:</b> ${c.students ?? 0} siswa · ${c.teachers ?? 0} guru · ${c.questions ?? 0} soal · ${c.exams ?? 0} ujian · ${c.grades ?? 0} nilai</div>`; })() : ''}
                                             </div>
                                         ` : `
                                             <a href="${portalUrl}" target="_blank" class="px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 font-mono font-bold rounded-xl text-[11px] inline-flex items-center gap-1">
