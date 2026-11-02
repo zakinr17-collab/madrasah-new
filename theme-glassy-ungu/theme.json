@@ -1,0 +1,26 @@
+{
+  "format": "madrasah-bisa-theme",
+  "version": 1,
+  "name": "Glassy Ungu — Clay Style",
+  "author": "Madrasah Bisa",
+  "description": "Tema glassmorphism pastel ungu terinspirasi Glassy Dashboard V20: latar lavender lembut, kartu putih mengambang dengan shadow halus, sidebar ungu pekat, sudut sangat membulat, dan aksen emerald untuk indikator positif.",
+  "tokens": {
+    "primary": "#7c3aed",
+    "accent": "#ec4899",
+    "background": "#f3f0fa",
+    "surface": "#ffffff",
+    "muted": "#ede9f7",
+    "text": "#2e1065",
+    "sidebar": "#6d28d9",
+    "sidebarText": "#f5f3ff",
+    "radius": "large",
+    "style": "soft",
+    "font": "jakarta",
+    "iconStyle": "solid"
+  },
+  "assets": {
+    "logo": "",
+    "loginBackground": "",
+    "sidebarBackground": ""
+  }
+}
