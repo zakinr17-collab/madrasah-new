@@ -544,6 +544,11 @@ function escHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&am
 
 function renderSettingModule(container) {
     appState.tempLogo = appState.settings.schoolLogo || 'fa-moon';
+    setTimeout(() => {
+        const show = (window.isOfflineMode === true) || (window.appState && window.appState.isOfflineMode === true);
+        const card = document.getElementById('offline-boss-sync-card');
+        if (card && show) card.classList.remove('hidden');
+    }, 0);
     container.innerHTML = `
         <div class="space-y-6 max-w-4xl pb-8 mx-auto">
             <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6">
@@ -1333,13 +1338,6 @@ function renderSettingModule(container) {
                 </div>
                 <p class="text-[10px] text-slate-400">Sinkron tidak mengubah data di PC ini — hanya laporan satu arah ke BOSS.</p>
             </div>
-            <script>
-                (function () {
-                    const show = (window.isOfflineMode === true) || (window.appState && window.appState.isOfflineMode === true);
-                    const card = document.getElementById('offline-boss-sync-card');
-                    if (card && show) card.classList.remove('hidden');
-                })();
-            </script>
 
 <!-- Backup & Restore System Data Card -->
             <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6">
