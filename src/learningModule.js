@@ -1814,6 +1814,11 @@ if (typeof originalNavigateTo === 'function' && !window.__learningNavigateWrappe
     window.__learningNavigateWrapped = true;
     window.navigateTo = function(route, ...args) {
         const routeText = String(route || '');
+        // BOSS hard-guard: akun bos tidak boleh membuka Materi Pembelajaran sama sekali.
+        const __bossRole = String((window.appState && window.appState.role) || '').toLowerCase();
+        if (routeText === 'learning_teacher' && (__bossRole === 'bos' || __bossRole === 'boss' || __bossRole === 'superadmin')) {
+            return originalNavigateTo.call(this, 'boss_dashboard', ...args);
+        }
         if (routeText === 'learning_student') return window.renderLearningStudent(document.getElementById('view-container'));
         if (routeText === 'learning_teacher') return window.renderLearningTeacher(document.getElementById('view-container'));
         if (STUDENT_ROLES.has(learningRole())) {

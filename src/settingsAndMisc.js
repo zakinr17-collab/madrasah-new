@@ -545,16 +545,91 @@ function escHtml(s) { return String(s || '').replace(/[&<>"']/g, c => ({'&':'&am
 function renderSettingModule(container) {
     appState.tempLogo = appState.settings.schoolLogo || 'fa-moon';
     container.innerHTML = `
-        <div class="space-y-6 max-w-4xl pb-8 mx-auto">
-            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6">
+        <div class="space-y-6 max-w-4xl pb-8 mx-auto" id="settings-root">
+            <!-- ===== HUB: MENU UTAMA PENGATURAN ===== -->
+            <div id="settings-hub" class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-5">
                 <div>
-                    <h1 class="text-xl sm:text-2xl font-bold text-slate-800">Pengaturan Sistem & Konfigurasi</h1>
-                    <p class="text-xs text-slate-400 mt-0.5">Kelola nama sekolah, logo, geotagging, dan akun pengguna</p>
+                    <h1 class="text-xl sm:text-2xl font-bold text-slate-800">Pengaturan Sistem</h1>
+                    <p class="text-xs text-slate-400 mt-0.5">Pilih kategori pengaturan di bawah, atau cari cepat dengan kolom pencarian.</p>
+                </div>
+                <div class="relative">
+                    <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                    <input type="text" id="settings-hub-search" oninput="filterSettingsHub(this.value)" placeholder="Cari pengaturan… (mis. logo, tema, backup, AI, sinkron, absensi)" class="w-full pl-11 pr-4 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-sm focus:bg-white focus:ring-2 focus:ring-emerald-500/40 focus:border-emerald-400 outline-none transition" autocomplete="off">
+                </div>
+                <div id="settings-hub-grid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <button type="button" data-hub-item data-kw="sekolah nama madrasah administrator identitas logo ikon warna bentuk sidebar geotagging lokasi gps radius koordinat latitude longitude" onclick="openSettingsSection('umum')" class="text-left p-5 rounded-2xl border border-slate-200 hover:border-emerald-400 hover:bg-emerald-50/40 transition group">
+                        <div class="flex items-start gap-3.5">
+                            <div class="w-11 h-11 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center shrink-0"><i class="fa-solid fa-school text-lg"></i></div>
+                            <div class="min-w-0">
+                                <h3 class="font-bold text-sm text-slate-800 group-hover:text-emerald-700">🏫 Identitas & Lokasi Madrasah</h3>
+                                <p class="text-[11px] text-slate-500 mt-0.5">Nama madrasah, administrator, logo, bentuk & warna logo, geotagging GPS</p>
+                            </div>
+                        </div>
+                    </button>
+                    <button type="button" data-hub-item data-kw="tema warna tampilan gaya desain radius font custom running text teks berjalan menu siswa toggle dashboard" onclick="openSettingsSection('tampilan')" class="text-left p-5 rounded-2xl border border-slate-200 hover:border-violet-400 hover:bg-violet-50/40 transition group">
+                        <div class="flex items-start gap-3.5">
+                            <div class="w-11 h-11 rounded-2xl bg-violet-100 text-violet-700 flex items-center justify-center shrink-0"><i class="fa-solid fa-palette text-lg"></i></div>
+                            <div class="min-w-0">
+                                <h3 class="font-bold text-sm text-slate-800 group-hover:text-violet-700">🎨 Tampilan & Dashboard</h3>
+                                <p class="text-[11px] text-slate-500 mt-0.5">Tema warna, gaya desain, teks berjalan, tampilan menu siswa</p>
+                            </div>
+                        </div>
+                    </button>
+                    <button type="button" data-hub-item data-kw="login halaman depan kustomisasi logo posisi ukuran background tema kartu teks judul panel showcase pengumuman" onclick="openSettingsSection('login')" class="text-left p-5 rounded-2xl border border-slate-200 hover:border-sky-400 hover:bg-sky-50/40 transition group">
+                        <div class="flex items-start gap-3.5">
+                            <div class="w-11 h-11 rounded-2xl bg-sky-100 text-sky-700 flex items-center justify-center shrink-0"><i class="fa-solid fa-door-open text-lg"></i></div>
+                            <div class="min-w-0">
+                                <h3 class="font-bold text-sm text-slate-800 group-hover:text-sky-700">🚪 Halaman Login</h3>
+                                <p class="text-[11px] text-slate-500 mt-0.5">Logo, ukuran & posisi, background, teks, panel samping, pengumuman</p>
+                            </div>
+                        </div>
+                    </button>
+                    <button type="button" data-hub-item data-kw="ai kecerdasan api key provider hubungkan drive google drive perizinan guru oauth sinkron materi" onclick="openSettingsSection('ai')" class="text-left p-5 rounded-2xl border border-slate-200 hover:border-pink-400 hover:bg-pink-50/40 transition group">
+                        <div class="flex items-start gap-3.5">
+                            <div class="w-11 h-11 rounded-2xl bg-pink-100 text-pink-700 flex items-center justify-center shrink-0"><i class="fa-solid fa-brain text-lg"></i></div>
+                            <div class="min-w-0">
+                                <h3 class="font-bold text-sm text-slate-800 group-hover:text-pink-700">🤖 AI & Integrasi</h3>
+                                <p class="text-[11px] text-slate-500 mt-0.5">Hubungkan AI, Google Drive, perizinan guru (AI & Drive)</p>
+                            </div>
+                        </div>
+                    </button>
+                    <button type="button" data-hub-item data-kw="data backup restore database sql cloud penyimpanan cloudinary sinkron foto cleanup pembersihan akun pengguna peran password reset guru murid" onclick="openSettingsSection('data')" class="text-left p-5 rounded-2xl border border-slate-200 hover:border-amber-400 hover:bg-amber-50/40 transition group">
+                        <div class="flex items-start gap-3.5">
+                            <div class="w-11 h-11 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0"><i class="fa-solid fa-database text-lg"></i></div>
+                            <div class="min-w-0">
+                                <h3 class="font-bold text-sm text-slate-800 group-hover:text-amber-700">💾 Data, Akun & Pemeliharaan</h3>
+                                <p class="text-[11px] text-slate-500 mt-0.5">Backup & restore, sinkron SQL/Cloudinary, status koneksi, akun & peran, cleanup foto</p>
+                            </div>
+                        </div>
+                    </button>
+                    <button type="button" data-hub-item data-kw="absensi keamanan gps selfie geofencing chat livekit monitoring video streaming turn stun webrtc spotlight" onclick="openSettingsSection('keamanan')" class="text-left p-5 rounded-2xl border border-slate-200 hover:border-rose-400 hover:bg-rose-50/40 transition group">
+                        <div class="flex items-start gap-3.5">
+                            <div class="w-11 h-11 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0"><i class="fa-solid fa-shield-halved text-lg"></i></div>
+                            <div class="min-w-0">
+                                <h3 class="font-bold text-sm text-slate-800 group-hover:text-rose-700">🛡️ Keamanan & Live Monitoring</h3>
+                                <p class="text-[11px] text-slate-500 mt-0.5">GPS & selfie absensi, chat, LiveKit SFU, TURN/STUN, spotlight video</p>
+                            </div>
+                        </div>
+                    </button>
+                </div>
+                <div id="settings-hub-empty" class="hidden text-center py-6 text-xs text-slate-400 bg-slate-50 rounded-2xl border border-slate-100">
+                    Tidak ada pengaturan yang cocok dengan pencarian itu.
+                </div>
+            </div>
+
+            <div id="settings-sections">
+            <!-- ===== SECTION KARTU: AI & INTEGRASI ===== -->
+            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 settings-section hidden" data-setting-section="ai">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-bold text-slate-800">🤖 AI & Integrasi</h1>
+                        <p class="text-xs text-slate-400 mt-0.5">Hubungkan AI, Google Drive, dan perizinan guru</p>
+                    </div>
+                    <button type="button" onclick="backToSettingsHub()" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold cursor-pointer transition"><i class="fa-solid fa-arrow-left mr-1"></i>Kembali</button>
                 </div>
 
-
-                <!-- Google Drive OAuth: canonical connection surface for online PDF storage -->
-                <div class="border-t border-slate-100 pt-6 admin-ai-config-card">
+                <!-- SECTION AI: Google Drive -->
+                <div class="admin-ai-config-card">
                     <div id="google-drive-settings-card" class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 rounded-2xl border border-blue-100 bg-blue-50/60">
                         <div class="flex items-start gap-3 min-w-0">
                             <div class="w-10 h-10 rounded-xl bg-white border border-blue-100 flex items-center justify-center text-blue-600 shrink-0">
@@ -649,7 +724,18 @@ function renderSettingModule(container) {
                         <span id="ai-provider-status" class="text-xs font-semibold"></span>
                     </div>
                 </div>
-                <div class="border-t border-slate-100 pt-6">
+            </div>
+
+            <!-- ===== SECTION KARTU: IDENTITAS & LOKASI (lanjutan: geotagging, logo, nama) ===== -->
+            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 settings-section hidden" data-setting-section="umum">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-bold text-slate-800">🏫 Identitas & Lokasi Madrasah</h1>
+                        <p class="text-xs text-slate-400 mt-0.5">Geotagging, logo, nama madrasah & administrator</p>
+                    </div>
+                    <button type="button" onclick="backToSettingsHub()" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold cursor-pointer transition"><i class="fa-solid fa-arrow-left mr-1"></i>Kembali</button>
+                </div>
+                <div>
                     <h2 class="text-base font-bold text-slate-800 mb-2">Lokasi Geotagging Sekolah</h2>
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div><label class="block text-xs uppercase text-slate-500 mb-1">Latitude</label><input type="number" step="any" id="school-latitude" class="w-full px-4 py-2.5 bg-slate-50 border rounded-2xl text-xs font-mono" placeholder="-6.2000"></div>
@@ -776,7 +862,18 @@ function renderSettingModule(container) {
                     </div>
                 </div>
 
-                <form onsubmit="saveSettings(event)" class="space-y-6 border-t pt-6 text-xs sm:text-sm">
+            </div>
+
+            <!-- ===== SECTION KARTU: TAMPILAN & DASHBOARD ===== -->
+            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 settings-section hidden" data-setting-section="tampilan">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-bold text-slate-800">🎨 Tampilan & Dashboard</h1>
+                        <p class="text-xs text-slate-400 mt-0.5">Tema warna, teks berjalan, dan tampilan menu siswa</p>
+                    </div>
+                    <button type="button" onclick="backToSettingsHub()" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold cursor-pointer transition"><i class="fa-solid fa-arrow-left mr-1"></i>Kembali</button>
+                </div>
+                <form onsubmit="saveSettings(event)" class="space-y-6 text-xs sm:text-sm">
                     <!-- Tema Tampilan & Gaya Desain -->
                     <div class="space-y-4">
                         <div>
@@ -913,43 +1010,6 @@ function renderSettingModule(container) {
                         </div>
                     </div>
 
-                    <div class="border-t border-slate-100 pt-6 space-y-4">
-                        <h3 class="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
-                            <i class="fa-solid fa-shield-halved text-emerald-600"></i>
-                            <span>Pengaturan Wajib Keamanan Absensi (GPS & Foto Selfie)</span>
-                        </h3>
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                            <div class="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-2xl">
-                                <div>
-                                    <span class="block text-xs font-bold text-slate-800">Wajib GPS / Geofencing</span>
-                                    <span class="text-[11px] text-slate-500">Jika wajib, lokasi diluar radius gagal absen. Jika tidak, tetap bisa absen.</span>
-                                </div>
-                                <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" id="set-require-gps" ${(appState.settings.requireGps !== false) ? 'checked' : ''} class="sr-only peer">
-                                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                                </label>
-                            </div>
-                            <div class="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-2xl">
-                                <div>
-                                    <span class="block text-xs font-bold text-slate-800">Wajib Foto Selfie</span>
-                                    <span class="text-[11px] text-slate-500">Jika wajib, siswa harus mengambil selfie. Jika tidak, foto opsional.</span>
-                                </div>
-                                <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" id="set-require-selfie" ${(appState.settings.requireSelfie !== false) ? 'checked' : ''} class="sr-only peer">
-                                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                                </label>
-                            </div>
-                            <div class="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-2xl">
-                                <div>
-                                    <span class="block text-xs font-bold text-slate-800">Pilih Tanggal Absensi Guru</span>
-                                    <span class="text-[11px] text-slate-500">Jika aktif, guru bebas memilih tanggal absen manual dari akunnya.</span>
-                                </div>
-                                <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" id="set-teacher-allow-date-picker" ${(appState.settings.teacherAllowDatePicker === true || appState.settings.teacherAllowDatePicker === 'true') ? 'checked' : ''} class="sr-only peer">
-                                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
-                                </label>
-                            </div>
-                        </div>
                     </div>
 
                     <div class="border-t border-slate-100 pt-6 space-y-2">
@@ -1083,8 +1143,62 @@ function renderSettingModule(container) {
                 </form>
             </div>
 
+            <!-- ===== SECTION KARTU: KEAMANAN & MONITORING ===== -->
+            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 settings-section hidden" data-setting-section="keamanan">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-bold text-slate-800">🛡️ Keamanan & Monitoring</h1>
+                        <p class="text-xs text-slate-400 mt-0.5">Absensi GPS & selfie, chat, LiveKit SFU, TURN/STUN, spotlight video</p>
+                    </div>
+                    <button type="button" onclick="backToSettingsHub()" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-bold cursor-pointer transition"><i class="fa-solid fa-arrow-left mr-1"></i>Kembali</button>
+                </div>
+                <form onsubmit="saveSettings(event)" class="space-y-6 text-xs sm:text-sm">
+                    <div class="border-t border-slate-100 pt-6 space-y-4">
+                        <h3 class="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                            <i class="fa-solid fa-shield-halved text-emerald-600"></i>
+                            <span>Pengaturan Wajib Keamanan Absensi (GPS & Foto Selfie)</span>
+                        </h3>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                                <div>
+                                    <span class="block text-xs font-bold text-slate-800">Wajib GPS / Geofencing</span>
+                                    <span class="text-[11px] text-slate-500">Jika wajib, lokasi diluar radius gagal absen. Jika tidak, tetap bisa absen.</span>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="set-require-gps" ${(appState.settings.requireGps !== false) ? 'checked' : ''} class="sr-only peer">
+                                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                                </label>
+                            </div>
+                            <div class="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                                <div>
+                                    <span class="block text-xs font-bold text-slate-800">Wajib Foto Selfie</span>
+                                    <span class="text-[11px] text-slate-500">Jika wajib, siswa harus mengambil selfie. Jika tidak, foto opsional.</span>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="set-require-selfie" ${(appState.settings.requireSelfie !== false) ? 'checked' : ''} class="sr-only peer">
+                                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                                </label>
+                            </div>
+                            <div class="flex items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+                                <div>
+                                    <span class="block text-xs font-bold text-slate-800">Pilih Tanggal Absensi Guru</span>
+                                    <span class="text-[11px] text-slate-500">Jika aktif, guru bebas memilih tanggal absen manual dari akunnya.</span>
+                                </div>
+                                <label class="relative inline-flex items-center cursor-pointer">
+                                    <input type="checkbox" id="set-teacher-allow-date-picker" ${(appState.settings.teacherAllowDatePicker === true || appState.settings.teacherAllowDatePicker === 'true') ? 'checked' : ''} class="sr-only peer">
+                                    <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end pt-3">
+                        <button type="submit" class="px-6 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-2xl shadow transition text-xs sm:text-sm">Simpan Pengaturan Utama</button>
+                    </div>
+                </form>
+            </div>
             <!-- Login Page Customization Card -->
-            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6">
+            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 settings-section hidden" data-setting-section="login">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
                     <div>
                         <h2 class="text-xl sm:text-2xl font-bold text-slate-800 flex items-center gap-2.5">
@@ -1256,7 +1370,7 @@ function renderSettingModule(container) {
             </div>
 
             <!-- Account Settings Card -->
-            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6">
+            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 settings-section hidden" data-setting-section="data"
                 <div>
                     <h2 class="text-xl sm:text-2xl font-bold text-slate-800">Pengaturan Akun & Peran Pengguna</h2>
                     <p class="text-xs text-slate-400 mt-0.5">Cari akun guru atau murid untuk mengubah peran (Guru, Murid, Ketua Kelas)</p>
@@ -1277,7 +1391,7 @@ function renderSettingModule(container) {
             </div>
 
             <!-- Database Connection Test Card -->
-            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-4">
+            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-4 settings-section hidden" data-setting-section="data"
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
                     <div>
                         <h2 class="text-xl sm:text-2xl font-bold text-slate-800 flex items-center gap-2.5">
@@ -1314,7 +1428,7 @@ function renderSettingModule(container) {
 
             
 <!-- Backup & Restore System Data Card -->
-            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6">
+            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 settings-section hidden" data-setting-section="data"
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
                     <div>
                         <h2 class="text-xl sm:text-2xl font-bold text-slate-800 flex items-center gap-2.5">
@@ -1444,7 +1558,7 @@ function renderSettingModule(container) {
             </div>
 
             <!-- Optimasi Penyimpanan Cloud (Pembersihan Foto Pintar) -->
-            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 mt-6">
+            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 mt-6 settings-section hidden" data-setting-section="data"
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
                     <div>
                         <h2 class="text-xl sm:text-2xl font-bold text-slate-800 flex items-center gap-2.5">
@@ -1499,7 +1613,56 @@ renderMyAiDrivePanel();
             loadAiProviderSettings();
         }
     }, 120);
+    // Hub pengaturan: tampilkan hanya hub saat masuk; section kartu tersembunyi sampai dipilih/search.
+    showSettingsHub();
 }
+
+// ===== HUB PENGATURAN: navigasi kartu + pencarian =====
+function showSettingsHub() {
+    if (!document.getElementById('settings-root')) return;
+    document.querySelectorAll('.settings-section').forEach(el => el.classList.add('hidden'));
+    const hub = document.getElementById('settings-hub');
+    if (hub) {
+        hub.classList.remove('hidden');
+        const inp = document.getElementById('settings-hub-search');
+        if (inp) { inp.value = ''; }
+        filterSettingsHub('');
+    }
+}
+
+function backToSettingsHub() {
+    showSettingsHub();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function openSettingsSection(key) {
+    if (!document.getElementById('settings-root')) return;
+    document.querySelectorAll('.settings-section').forEach(el => el.classList.add('hidden'));
+    const hub = document.getElementById('settings-hub');
+    if (hub) hub.classList.add('hidden');
+    const targets = document.querySelectorAll(`.settings-section[data-setting-section="${key}"]`);
+    if (targets.length) {
+        targets.forEach(t => t.classList.remove('hidden'));
+        targets[0].scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+}
+
+function filterSettingsHub(query) {
+    const kw = String(query || '').toLowerCase().trim();
+    const grid = document.getElementById('settings-hub-grid');
+    const empty = document.getElementById('settings-hub-empty');
+    if (!grid) return;
+    let visible = 0;
+    grid.querySelectorAll('[data-hub-item]').forEach(btn => {
+        const hay = ((btn.getAttribute('data-kw') || '') + ' ' + btn.textContent).toLowerCase();
+        const show = kw === '' || hay.includes(kw);
+        btn.classList.toggle('hidden', !show);
+        if (show) visible++;
+    });
+    if (empty) empty.classList.toggle('hidden', visible > 0);
+}
+
+// Deep-link pencarian: klik hasil kartu dari mode pencarian juga membuka section terkait.
 
 function searchUserAccounts(query = '') {
     const resultsContainer = document.getElementById('account-results-list');
@@ -5738,7 +5901,9 @@ async function disconnectMyDrive(btn) {
     }
 }
 window.disconnectMyDrive = disconnectMyDrive;
-window.renderSettingModule = renderSettingModule;
+window.filterSettingsHub = filterSettingsHub;
+window.openSettingsSection = openSettingsSection;
+window.backToSettingsHub = backToSettingsHub;
 window.saveLoginCustomization = saveLoginCustomization;
 window.toggleCustomLoginBgColor = toggleCustomLoginBgColor;
 window.previewLoginPageCustomization = previewLoginPageCustomization;

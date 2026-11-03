@@ -2943,6 +2943,9 @@ function navigateTo(route, options = {}) {
     else if (route === 'jurnal') renderJournalModule(container);
     else if (route === 'setting') renderSettingModule(container);
     else if (route === 'learning_teacher') {
+        // BOSS hard-guard: akun bos tidak punya halaman Materi Pembelajaran
+        const __lr = String(appState.role || '').toLowerCase();
+        if (__lr === 'bos' || __lr === 'boss' || __lr === 'superadmin') { navigateTo('boss_dashboard'); return; }
         if (window.renderLearningTeacher) window.renderLearningTeacher(container);
         else if (container) container.innerHTML = '<div class="p-8 text-center text-slate-400">Modul materi sedang dimuat...</div>';
     }
