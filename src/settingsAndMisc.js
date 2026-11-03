@@ -617,7 +617,7 @@ function renderSettingModule(container) {
                 </div>
             </div>
 
-            <div id="settings-sections">
+            <!-- (wrapper sections dihapus: kartu langsung di root) -->
             <!-- ===== SECTION KARTU: AI & INTEGRASI ===== -->
             <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 settings-section hidden" data-setting-section="ai">
                 <div class="flex items-center justify-between gap-3 flex-wrap">
@@ -724,7 +724,6 @@ function renderSettingModule(container) {
                         <span id="ai-provider-status" class="text-xs font-semibold"></span>
                     </div>
                 </div>
-            </div>
 
             <!-- ===== SECTION KARTU: IDENTITAS & LOKASI (lanjutan: geotagging, logo, nama) ===== -->
             <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 settings-section hidden" data-setting-section="umum">
@@ -1010,7 +1009,6 @@ function renderSettingModule(container) {
                         </div>
                     </div>
 
-                    </div>
 
                     <div class="border-t border-slate-100 pt-6 space-y-2">
                         <label class="block text-xs font-bold text-slate-700 uppercase tracking-wider">Teks Berjalan (Running Text Dashboard)</label>
@@ -1370,7 +1368,7 @@ function renderSettingModule(container) {
             </div>
 
             <!-- Account Settings Card -->
-            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 settings-section hidden" data-setting-section="data"
+            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 settings-section hidden" data-setting-section="data">
                 <div>
                     <h2 class="text-xl sm:text-2xl font-bold text-slate-800">Pengaturan Akun & Peran Pengguna</h2>
                     <p class="text-xs text-slate-400 mt-0.5">Cari akun guru atau murid untuk mengubah peran (Guru, Murid, Ketua Kelas)</p>
@@ -1391,7 +1389,7 @@ function renderSettingModule(container) {
             </div>
 
             <!-- Database Connection Test Card -->
-            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-4 settings-section hidden" data-setting-section="data"
+            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-4 settings-section hidden" data-setting-section="data">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
                     <div>
                         <h2 class="text-xl sm:text-2xl font-bold text-slate-800 flex items-center gap-2.5">
@@ -1428,7 +1426,7 @@ function renderSettingModule(container) {
 
             
 <!-- Backup & Restore System Data Card -->
-            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 settings-section hidden" data-setting-section="data"
+            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 settings-section hidden" data-setting-section="data">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
                     <div>
                         <h2 class="text-xl sm:text-2xl font-bold text-slate-800 flex items-center gap-2.5">
@@ -1558,7 +1556,7 @@ function renderSettingModule(container) {
             </div>
 
             <!-- Optimasi Penyimpanan Cloud (Pembersihan Foto Pintar) -->
-            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 mt-6 settings-section hidden" data-setting-section="data"
+            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-6 mt-6 settings-section hidden" data-setting-section="data">
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
                     <div>
                         <h2 class="text-xl sm:text-2xl font-bold text-slate-800 flex items-center gap-2.5">

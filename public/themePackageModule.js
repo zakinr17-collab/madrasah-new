@@ -247,7 +247,7 @@ function mountThemePanel(container) {
     if (!container || document.getElementById('mbtheme-panel')) return;
     const root = container.querySelector('.space-y-6') || container;
     const current = window.appState?.settings?.themePackage;
-    const panel = document.createElement('div'); panel.id='mbtheme-panel'; panel.className='bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-4';
+    const panel = document.createElement('div'); panel.id='mbtheme-panel'; panel.className='bg-white p-6 sm:p-8 rounded-3xl shadow-sm border border-slate-100 space-y-4 settings-section hidden'; panel.setAttribute('data-setting-section','tampilan');
     panel.innerHTML = `
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div><h2 class="text-base font-bold text-slate-800"><i class="fa-solid fa-box-open text-indigo-600 mr-2"></i>Tema Paket (.mbtheme)</h2><p class="text-xs text-slate-500 mt-1">Impor tampilan deklaratif tanpa menjalankan JS/HTML/CSS dari paket. Aset gambar disimpan ke Cloudinary.</p></div>
