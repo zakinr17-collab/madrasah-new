@@ -7013,7 +7013,7 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
                </tr>
                ${(() => {
                   if (window.kartuPesertaConfig.showPassword === false) return '';
-                  let displayPassword = st.password || '';
+                  let displayPassword = st.password || st.passwordDisplay || '';
                   try {
                       const storedCreds = JSON.parse(sessionStorage.getItem('cbt_print_credentials') || '[]');
                       if (Array.isArray(storedCreds)) {
