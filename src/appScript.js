@@ -1097,6 +1097,12 @@ async function syncKeyFromServer(key) {
                 };
                 
                 const targetRoutes = routeMap[key] || [];
+                // Jangan re-render penuh untuk 'grades' saat sedang di halaman nilai:
+                // input nilai sudah menyimpan ke appState.grades lokal; navigateTo akan
+                // me-render ulang halaman (scroll melompat ke atas, input "restart").
+                if (key === 'grades' && String(appState.currentRoute || '') === 'nilai') {
+                    return;
+                }
                 if (targetRoutes.includes(lastRoute) && !isTyping) {
                     if (window.navigateTo) {
                         window.navigateTo(lastRoute);
@@ -2385,6 +2391,10 @@ function startSession(isRefresh = false) {
     }
 
     window.handleTopNameClick = function() {
+        // Mode Fokus Ujian: profil terkunci, klik nama tidak melakukan apa pun
+        if (appState.settings?.studentExamFocusMode === true && (appState.role === 'student' || appState.role === 'murid')) {
+            return;
+        }
         if (appState.role === 'student' || appState.role === 'murid') {
             if (typeof window.toggleStudentDashboardView === 'function') {
                 window.toggleStudentDashboardView('profile');
@@ -2566,6 +2576,13 @@ function renderStudentHeaderProfile() {
     const photo = student.photo || appState.currentUser?.photo || '';
     const photoSrc = photo && window.getPhotoHtmlSrc ? window.getPhotoHtmlSrc(photo) : '';
     if (examFocus) {
+        // Mode Fokus Ujian: kunci UI — sembunyikan hamburger & tutup sidebar/backdrop
+        const toggleBtn = document.getElementById('sidebar-toggle-btn');
+        if (toggleBtn) toggleBtn.style.display = 'none';
+        const sidebarEl = document.getElementById('sidebar');
+        if (sidebarEl) sidebarEl.classList.add('-translate-x-full');
+        const backdropEl = document.getElementById('sidebar-backdrop');
+        if (backdropEl) backdropEl.classList.add('hidden');
         nameEl.innerHTML = `
         <span class="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-2.5 py-1.5 shadow-sm">
             <span class="w-9 h-9 rounded-full overflow-hidden bg-blue-100 text-blue-700 flex items-center justify-center border border-blue-200 shadow-xs">
@@ -2592,6 +2609,9 @@ function renderStudentHeaderProfile() {
         </span>
     `;
     nameEl.setAttribute('title', 'Klik untuk membuka pengaturan profil siswa');
+    // Non-fokus: pulihkan hamburger & sidebar
+    const toggleBtnRestore = document.getElementById('sidebar-toggle-btn');
+    if (toggleBtnRestore) toggleBtnRestore.style.display = '';
     return true;
 }
 window.renderStudentHeaderProfile = renderStudentHeaderProfile;
@@ -2833,6 +2853,9 @@ function navigateTo(route, options = {}) {
     try {
         const _role = String(appState.role || '').toLowerCase();
         if (appState.settings?.studentExamFocusMode === true && (_role === 'student' || _role === 'murid')) {
+            // Pastikan sidebar benar-benar kosong (settings bisa termuat setelah buildSidebar pertama)
+            const _menu = document.getElementById('sidebar-menu');
+            if (_menu && _menu.innerHTML.trim() !== '') buildSidebar();
             const allowed = ['asesmen_siswa', 'lkpd_worksheet'];
             if (!allowed.includes(String(route)) && typeof route === 'string' && !route.startsWith('exam')) {
                 route = 'asesmen_siswa';

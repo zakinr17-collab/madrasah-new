@@ -4158,7 +4158,7 @@ async function renderStudentCBTList(container, isRefresh = false) {
         <div class="space-y-6 pb-8">
             <!-- Back to Dashboard Header -->
             <div class="flex items-center justify-between pb-3 border-b border-slate-200/60 mb-2">
-                <button type="button" onclick="window.studentGoBackToDashboard && window.studentGoBackToDashboard()" class="flex items-center gap-2 text-slate-600 hover:text-slate-850 transition font-bold text-xs sm:text-sm cursor-pointer">
+                <button type="button" ${appState.settings?.studentExamFocusMode === true ? 'style="display:none"' : ''} onclick="window.studentGoBackToDashboard && window.studentGoBackToDashboard()" class="flex items-center gap-2 text-slate-600 hover:text-slate-850 transition font-bold text-xs sm:text-sm cursor-pointer">
                     <i class="fa-solid fa-arrow-left"></i>
                     <span>Kembali ke Dashboard Utama</span>
                 </button>
