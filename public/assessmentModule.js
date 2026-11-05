@@ -4096,7 +4096,26 @@ async function renderStudentCBTList(container, isRefresh = false) {
         }
     });
 
-    const activeSectionHtml = activeCards.length > 0 ? `
+    // Tab switch: 'aktif' (default) vs 'selesai'
+    if (!window.__studentCbtTab) window.__studentCbtTab = 'aktif';
+    const currentTab = window.__studentCbtTab;
+
+    const tabButtonsHtml = `
+        <div class="flex bg-slate-100 p-1 rounded-2xl gap-1 w-fit">
+            <button type="button" onclick="switchStudentCbtTab('aktif')"
+                class="px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-150 cursor-pointer flex items-center gap-2 ${currentTab === 'aktif' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}">
+                <i class="fa-solid fa-calendar-check"></i> Daftar Ujian Aktif
+                ${activeCards.length > 0 ? `<span class="px-1.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-lg text-[10px] font-black">${activeCards.length}</span>` : ''}
+            </button>
+            <button type="button" onclick="switchStudentCbtTab('selesai')"
+                class="px-5 py-2.5 rounded-xl text-xs font-bold transition-all duration-150 cursor-pointer flex items-center gap-2 ${currentTab === 'selesai' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-500 hover:text-slate-700'}">
+                <i class="fa-solid fa-clock-rotate-left"></i> Ujian Dikerjakan / Selesai
+                ${historyCards.length > 0 ? `<span class="px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded-lg text-[10px] font-black">${historyCards.length}</span>` : ''}
+            </button>
+        </div>
+    `;
+
+    const activeSectionHtml = (activeCards.length > 0 && currentTab === 'aktif') ? `
         <div class="space-y-4">
             <h2 class="text-sm font-black text-slate-800 flex items-center gap-2 uppercase tracking-wider">
                 <span class="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center"><i class="fa-solid fa-calendar-check"></i></span>
@@ -4106,10 +4125,16 @@ async function renderStudentCBTList(container, isRefresh = false) {
                 ${activeCards.join('')}
             </div>
         </div>
-    ` : '';
+    ` : (currentTab === 'aktif' ? `
+        <div class="bg-white p-12 rounded-3xl text-center text-slate-400 text-sm border border-slate-100 space-y-3">
+            <i class="fa-solid fa-calendar-check text-4xl text-slate-200"></i>
+            <p class="font-bold text-slate-600">Tidak ada ujian/LKPD aktif saat ini.</p>
+            <p class="text-xs text-slate-400">Jadwal baru dari guru akan tampil di tab ini.</p>
+        </div>
+    ` : '');
 
-    const historySectionHtml = historyCards.length > 0 ? `
-        <div class="space-y-4 pt-6 border-t border-slate-100">
+    const historySectionHtml = (historyCards.length > 0 && currentTab === 'selesai') ? `
+        <div class="space-y-4">
             <div class="flex items-center justify-between">
                 <h2 class="text-sm font-black text-slate-500 flex items-center gap-2 uppercase tracking-wider">
                     <span class="w-8 h-8 rounded-xl bg-slate-100 text-slate-400 flex items-center justify-center"><i class="fa-solid fa-clock-rotate-left"></i></span>
@@ -4121,7 +4146,13 @@ async function renderStudentCBTList(container, isRefresh = false) {
                 ${historyCards.join('')}
             </div>
         </div>
-    ` : '';
+    ` : (currentTab === 'selesai' ? `
+        <div class="bg-white p-12 rounded-3xl text-center text-slate-400 text-sm border border-slate-100 space-y-3">
+            <i class="fa-solid fa-clock-rotate-left text-4xl text-slate-200"></i>
+            <p class="font-bold text-slate-600">Belum ada ujian yang dikerjakan.</p>
+            <p class="text-xs text-slate-400">Ujian yang sudah selesai akan terdata di tab ini.</p>
+        </div>
+    ` : '');
 
     container.innerHTML = `
         <div class="space-y-6 pb-8">
@@ -4139,6 +4170,7 @@ async function renderStudentCBTList(container, isRefresh = false) {
                     <h1 class="text-xl sm:text-2xl font-bold text-slate-800">CBT / Ujian Online & LKPD Murid</h1>
                     <p class="text-xs text-slate-400 mt-0.5">Daftar ujian dan LKPD aktif yang siap dikerjakan untuk kelas: <span class="font-bold text-emerald-600">${assessmentEscapeHtml(stClassName || stClassId || 'Semua Kelas')}</span></p>
                 </div>
+                ${tabButtonsHtml}
                 <button type="button" onclick="renderStudentCBTList(document.getElementById('view-container'))" class="self-start sm:self-auto px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-2xl transition flex items-center gap-2 cursor-pointer">
                     <i class="fa-solid fa-rotate mr-1"></i> Refresh Jadwal
                 </button>
@@ -9530,6 +9562,12 @@ window.sendBroadcastExamMessage = sendBroadcastExamMessage;
 window.dismissStudentExamMessage = dismissStudentExamMessage;
 window.onMonitoringFilterChange = onMonitoringFilterChange;
 window.renderStudentCBTList = renderStudentCBTList;
+
+function switchStudentCbtTab(tab) {
+    window.__studentCbtTab = tab === 'selesai' ? 'selesai' : 'aktif';
+    renderStudentCBTList(document.getElementById('view-container'));
+}
+window.switchStudentCbtTab = switchStudentCbtTab;
 window.startStudentExam = startStudentExam;
 window.saveExamAnswer = saveExamAnswer;
 window.nextExamQuestion = nextExamQuestion;
