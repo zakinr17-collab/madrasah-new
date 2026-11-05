@@ -376,7 +376,7 @@ function decryptStudentAdminPassword(value: any): string {
 
 function canAdminViewStudentPassword(req: any): boolean {
   const role = String(req?.user?.role || getAuthUser(req)?.role || '').trim().toLowerCase();
-  return role === 'admin';
+  return ['admin', 'bos', 'superadmin'].includes(role);
 }
 
 function sanitizeStudentForClient(student: any, includeAdminPassword = false): any {
@@ -6639,7 +6639,7 @@ app.get("/api/all-data", requireAuth, (req, res) => {
     photo: normalizePhotoReferenceForClient(rest.photo),
     photoHistory: normalizePhotoHistoryForClient(rest.photoHistory)
   }));
-  const exposeStudentPasswords = actorRole === 'admin';
+  const exposeStudentPasswords = ['admin', 'bos', 'superadmin'].includes(actorRole);
   const sanitizedStudents = (isStudent ? filteredStudents : sortedStudents).map((st: any) => {
     const rest = sanitizeStudentForClient(st, exposeStudentPasswords);
     return {
