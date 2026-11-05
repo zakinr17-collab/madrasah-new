@@ -5911,14 +5911,20 @@ function openManageRoomModal(roomId) {
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border">
                     <div class="space-y-2">
-                        <label class="block text-xs uppercase font-bold text-slate-600">Tambah Anggota Manual</label>
-                        <div class="flex gap-2">
-                            <select id="room-select-student" class="flex-1 px-3 py-2 bg-white border rounded-xl text-xs">
-                                <option value="">-- Pilih Siswa --</option>
-                                ${students.map(st => `<option value="${assessmentEscapeAttr(st.id)}">${assessmentEscapeHtml(st.name)} (${assessmentEscapeHtml(st.nis || 'Tanpa NIS')})</option>`).join('')}
+                        <label class="block text-xs uppercase font-bold text-slate-600">Tambah Anggota Manual (Centang Siswa)</label>
+                        <div class="flex gap-2 items-center">
+                            <select id="room-filter-class" onchange="filterRoomCandidateList(${assessmentInlineArg(room.id)})" class="flex-1 px-3 py-2 bg-white border rounded-xl text-xs">
+                                <option value="">-- Semua Kelas --</option>
+                                ${(appState.classes || []).map(c => `<option value="${assessmentEscapeAttr(c.id)}">${assessmentEscapeHtml(c.name)}</option>`).join('')}
                             </select>
-                            <button type="button" onclick="addStudentToRoom(${assessmentInlineArg(room.id)})" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold">Tambah</button>
+                            <label class="flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-white border rounded-xl px-3 py-2 cursor-pointer select-none">
+                                <input type="checkbox" id="room-check-all" onchange="toggleRoomCheckAll(${assessmentInlineArg(room.id)})" class="accent-emerald-600"> Centang Semua
+                            </label>
                         </div>
+                        <div id="room-candidate-list" class="max-h-56 overflow-y-auto border rounded-2xl p-2 bg-white space-y-1"></div>
+                        <button type="button" onclick="addCheckedStudentsToRoom(${assessmentInlineArg(room.id)})" class="w-full px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold">
+                            <i class="fa-solid fa-plus"></i> Masukkan Yang Dicentang
+                        </button>
                     </div>
                     <div class="space-y-2">
                         <label class="block text-xs uppercase font-bold text-slate-600">Import Anggota (Excel / Template)</label>
@@ -5960,6 +5966,7 @@ function openManageRoomModal(roomId) {
             </div>
         </div>
     `;
+    setTimeout(() => renderRoomCandidateList(roomId), 50);
 }
 
 function addStudentToRoom(roomId) {
@@ -9451,6 +9458,67 @@ window.saveRoom = saveRoom;
 window.deleteRoom = deleteRoom;
 window.openManageRoomModal = openManageRoomModal;
 window.addStudentToRoom = addStudentToRoom;
+
+function getRoomCandidates(room) {
+    const members = new Set((room.members || []).map(m => String(m)));
+    return (appState.students || []).filter(st => !members.has(String(st.id)));
+}
+
+function renderRoomCandidateList(roomId) {
+    const room = (appState.rooms || []).find(r => String(r.id) === String(roomId));
+    if (!room) return;
+    const listEl = document.getElementById('room-candidate-list');
+    if (!listEl) return;
+    const classSel = document.getElementById('room-filter-class');
+    const classId = classSel ? classSel.value : '';
+    let candidates = getRoomCandidates(room);
+    if (classId) candidates = candidates.filter(st => String(st.classId || st.class_id) === String(classId));
+    if (candidates.length === 0) {
+        listEl.innerHTML = `<div class="text-center py-4 text-[11px] text-slate-400">Tidak ada siswa yang bisa ditambahkan${classId ? ' di kelas ini' : ''}.</div>`;
+        return;
+    }
+    listEl.innerHTML = candidates.map(st => `
+        <label class="flex items-center gap-2 p-2 rounded-xl hover:bg-emerald-50 cursor-pointer text-xs">
+            <input type="checkbox" class="room-candidate-check accent-emerald-600" data-student-id="${assessmentEscapeAttr(st.id)}">
+            <span class="font-semibold text-slate-700">${assessmentEscapeHtml(st.name)}</span>
+            <span class="text-[10px] text-slate-400">NIS: ${assessmentEscapeHtml(st.nis || '-')}</span>
+        </label>
+    `).join('');
+    const checkAll = document.getElementById('room-check-all');
+    if (checkAll) checkAll.checked = false;
+}
+
+function filterRoomCandidateList(roomId) {
+    renderRoomCandidateList(roomId);
+}
+
+function toggleRoomCheckAll(roomId) {
+    const checkAll = document.getElementById('room-check-all');
+    if (!checkAll) return;
+    document.querySelectorAll('#room-candidate-list .room-candidate-check').forEach(cb => { cb.checked = checkAll.checked; });
+}
+
+function addCheckedStudentsToRoom(roomId) {
+    const room = (appState.rooms || []).find(r => String(r.id) === String(roomId));
+    if (!room) return;
+    const checked = [...document.querySelectorAll('#room-candidate-list .room-candidate-check:checked')].map(cb => cb.getAttribute('data-student-id'));
+    if (checked.length === 0) {
+        showToast('Centang dulu siswa yang mau dimasukkan.', 'error');
+        return;
+    }
+    if (!room.members) room.members = [];
+    let added = 0;
+    checked.forEach(id => {
+        if (!room.members.some(m => String(m) === String(id))) { room.members.push(id); added++; }
+    });
+    saveState('rooms');
+    showToast(added + ' siswa berhasil dimasukkan ke ruang!', 'success');
+    openManageRoomModal(roomId);
+    setTimeout(() => renderRoomCandidateList(roomId), 50);
+}
+window.filterRoomCandidateList = filterRoomCandidateList;
+window.toggleRoomCheckAll = toggleRoomCheckAll;
+window.addCheckedStudentsToRoom = addCheckedStudentsToRoom;
 window.removeStudentFromRoom = removeStudentFromRoom;
 window.downloadRoomTemplate = downloadRoomTemplate;
 window.handleRoomExcelImport = handleRoomExcelImport;
