@@ -948,10 +948,6 @@ async function saveStudentProfileUpdate(e, studentId) {
             showToast('Nama dan Username wajib diisi.', 'error');
             return;
         }
-        if (password && password.length < 8) {
-            showToast('Password baru minimal 8 karakter, atau kosongkan jika tidak ingin mengganti.', 'error');
-            return;
-        }
 
         const stIdx = appState.students.findIndex(s => String(s.id) === String(studentId));
         if (stIdx < 0) { showToast('Data siswa tidak ditemukan.', 'error'); return; }

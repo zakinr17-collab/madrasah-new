@@ -45,7 +45,7 @@ window.openBulkResetPasswordModal = function () {
         </div>
       </div>
       <div id="brpw-uniform-wrap">
-        <label class="text-xs font-bold text-slate-600 block mb-1">Password seragam (min. 8 karakter)</label>
+        <label class="text-xs font-bold text-slate-600 block mb-1">Password seragam</label>
         <input id="brpw-password" type="text" placeholder="mis. kelas7aman2026" class="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm font-mono">
       </div>
       <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-[11px] text-amber-800">
@@ -80,7 +80,7 @@ window.runBulkResetPassword = async function () {
     ids = (window.appState?.students || []).filter(s => String(s.classId) === String(classId)).map(s => s.id);
     if (ids.length === 0) { showToast('Kelas itu belum punya siswa.', 'error'); return; }
   }
-  if (mode === 'uniform' && uniformPw.length < 8) { showToast('Password seragam minimal 8 karakter.', 'error'); return; }
+  if (mode === 'uniform' && !uniformPw) { showToast('Password seragam wajib diisi.', 'error'); return; }
   const btn = modal.querySelector('button[onclick="window.runBulkResetPassword()"]');
   btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Memproses…';
   try {

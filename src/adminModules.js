@@ -653,7 +653,7 @@ function openTeacherModal(id = null) {
                         </div>
                         <div>
                             <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Password</label>
-                            <input type="password" id="tch-pass" value="" autocomplete="new-password" minlength="8" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl font-mono" placeholder="${id ? 'Kosongkan jika tidak ingin mengganti password' : 'Kosongkan untuk password sementara otomatis'}">
+                            <input type="password" id="tch-pass" value="" autocomplete="new-password" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl font-mono" placeholder="${id ? 'Kosongkan jika tidak ingin mengganti password' : 'Kosongkan untuk password sementara otomatis'}">
                             <p class="text-[10px] text-slate-400 mt-1">${id ? 'Password lama tersimpan sebagai hash dan tidak ditampilkan.' : 'Jika dikosongkan, sistem membuat password sementara acak dan menampilkannya satu kali.'}</p>
                         </div>
                     </div>

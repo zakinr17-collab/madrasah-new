@@ -1805,10 +1805,6 @@ function openResetPasswordModal(userId, currentType) {
 async function resetAndShowUserPassword(userId, currentType) {
     const input = document.getElementById('admin-reset-password-input');
     const newPassword = input ? String(input.value || '').trim() : '';
-    if (newPassword.length < 8) {
-        showToast('Password baru minimal 8 karakter.', 'error');
-        return;
-    }
     const endpoint = currentType === 'teacher'
         ? `/api/teachers/${encodeURIComponent(userId)}`
         : `/api/students/${encodeURIComponent(userId)}`;

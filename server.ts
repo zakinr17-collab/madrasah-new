@@ -3720,7 +3720,7 @@ setAssistantDataStore({ get students(){ return students; }, get teachers(){ retu
     if (!nis || !name) throw new Error('NIS dan nama siswa wajib diisi.');
     const tenantStudents = filterByMadrasah(students, req);
     if (tenantStudents.some((s: any) => String(s.nis || '').trim() === nis)) throw new Error('NIS ' + nis + ' sudah dipakai siswa lain.');
-    const rawPassword = String(args.password || '').trim().length >= 8 ? String(args.password).trim() : generateTemporaryStudentPassword();
+    const rawPassword = String(args.password || '').trim() || generateTemporaryStudentPassword();
     const newStudent = tagNewRecord({
       id: 'ST_' + Date.now(),
       nis,
@@ -3774,8 +3774,8 @@ setAssistantDataStore({ get students(){ return students; }, get teachers(){ retu
     if (args.nis) { st.nis = String(args.nis).trim(); changes.push('NIS=' + st.nis); }
     if (args.classId !== undefined) { st.classId = String(args.classId); st.class_id = st.classId; changes.push('kelas=' + st.classId); }
     if (args.no_hp !== undefined) { st.no_hp = String(args.no_hp); changes.push('no_hp=' + st.no_hp); }
-    if (args.password && String(args.password).length >= 8) { st.password = hashPassword(String(args.password)); st.passwordAdminCipher = encryptStudentAdminPassword(String(args.password)); changes.push('password=diperbarui'); }
-    else if (args.password) throw new Error('Password siswa minimal 8 karakter.');
+    if (args.password) { st.password = hashPassword(String(args.password)); st.passwordAdminCipher = encryptStudentAdminPassword(String(args.password)); changes.push('password=diperbarui'); }
+    else if (args.password) throw new Error('Password siswa gagal diperbarui.');
     if (!changes.length) throw new Error('Tidak ada perubahan. Isi name/nis/classId/no_hp/password.');
     return { ok: true, message: 'Siswa ' + st.name + ' diperbarui: ' + changes.join(', ') + '.' };
   }
@@ -3789,7 +3789,7 @@ setAssistantDataStore({ get students(){ return students; }, get teachers(){ retu
     if (args.homeroom_class_id !== undefined) { t.homeroom_class_id = String(args.homeroom_class_id); changes.push('wali_kelas=' + (t.homeroom_class_id || '(kosong)')); }
     if (args.phone !== undefined) { t.phone = String(args.phone); t.no_hp = t.phone; changes.push('no_hp=' + t.phone); }
     if (args.password && String(args.password).length >= 8) { t.password = hashPassword(String(args.password)); changes.push('password=diperbarui'); }
-    else if (args.password) throw new Error('Password guru minimal 8 karakter.');
+
     if (!changes.length) throw new Error('Tidak ada perubahan. Isi name/mapel/homeroom_class_id/phone/password.');
     return { ok: true, message: 'Guru ' + t.name + ' diperbarui: ' + changes.join(', ') + '.' };
   }
@@ -3797,8 +3797,8 @@ setAssistantDataStore({ get students(){ return students; }, get teachers(){ retu
     const changes: string[] = [];
     if (args.adminName) { appSettings.adminName = String(args.adminName).trim(); changes.push('nama admin=' + appSettings.adminName); }
     if (args.schoolName) { appSettings.schoolName = String(args.schoolName).trim(); const m0 = madrasahs[0]; if (m0) m0.name = appSettings.schoolName; changes.push('nama madrasah=' + appSettings.schoolName); }
-    if (args.newPassword && String(args.newPassword).length >= 8) { const salt = crypto.randomBytes(16).toString('hex'); appSettings.adminPass = 'scrypt$16384$8$1$' + salt + '$' + crypto.scryptSync(String(args.newPassword), salt, 64).toString('hex'); const m0 = madrasahs[0]; if (m0) m0.adminPass = appSettings.adminPass; changes.push('password admin=diperbarui'); }
-    else if (args.newPassword) throw new Error('Password admin minimal 8 karakter.');
+    if (args.newPassword) { const salt = crypto.randomBytes(16).toString('hex'); appSettings.adminPass = 'scrypt$16384$8$1$' + salt + '$' + crypto.scryptSync(String(args.newPassword), salt, 64).toString('hex'); const m0 = madrasahs[0]; if (m0) m0.adminPass = appSettings.adminPass; changes.push('password admin=diperbarui'); }
+
     if (args.runningText !== undefined) { appSettings.runningText = String(args.runningText); changes.push('teks berjalan=diperbarui'); }
     if (!changes.length) throw new Error('Tidak ada perubahan. Isi adminName/schoolName/newPassword/runningText.');
     await saveData('settings', appSettings); await saveData('madrasahs', madrasahs);
@@ -8033,8 +8033,8 @@ app.post("/api/register-madrasah", async (req: any, res) => {
   if (!/^[A-Za-z0-9._-]{3,64}$/.test(rawAdminUser)) {
     return res.status(400).json({ success: false, message: "Username admin harus 3-64 karakter (huruf, angka, titik, garis bawah, atau tanda minus)." });
   }
-  if (rawAdminPass.length < 8 || rawAdminPass.length > 128) {
-    return res.status(400).json({ success: false, message: "Password admin harus 8-128 karakter." });
+  if (!rawAdminPass || rawAdminPass.length > 128) {
+    return res.status(400).json({ success: false, message: "Password admin wajib diisi (maksimal 128 karakter)." });
   }
   const cleanSlug = String(slug).toLowerCase().trim().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
   if (cleanSlug.length < 3 || cleanSlug.length > 64) {
@@ -9690,7 +9690,7 @@ app.post("/api/madrasahs/:id/update", requireAuth, requireRole(['bos', 'superadm
     }
     if (adminPass && String(adminPass).trim().length > 0) {
       const pass = String(adminPass);
-      if (pass.length < 8 || pass.length > 128) return res.status(400).json({ success: false, message: "Password admin harus 8-128 karakter." });
+      if (pass.length > 128) return res.status(400).json({ success: false, message: "Password admin maksimal 128 karakter." });
       targetM.adminPass = hashPassword(pass);
     }
     if (phone !== undefined) targetM.phone = String(phone).trim().slice(0, 40);
@@ -10490,7 +10490,7 @@ app.post("/api/teachers", requireAuth, requireRole(['admin', 'bos', 'superadmin'
   }
   const newId = "T" + Date.now();
   const requestedPassword = String(password || '').trim();
-  const rawPassword = requestedPassword.length >= 8 ? requestedPassword : generateTemporaryStudentPassword();
+  const rawPassword = requestedPassword || generateTemporaryStudentPassword();
   const hashed = hashPassword(rawPassword);
 
   const newTeacher = tagNewRecord({
@@ -10736,7 +10736,7 @@ app.post("/api/students", requireAuth, requireRole(['admin', 'bos', 'superadmin'
     return res.status(409).json({ success: false, message: "ID siswa sudah digunakan. Gunakan ID lain agar state CBT dan realtime tetap unik." });
   }
   const requestedPassword = String(password || '').trim();
-  const rawPassword = requestedPassword.length >= 8 ? requestedPassword : generateTemporaryStudentPassword();
+  const rawPassword = requestedPassword || generateTemporaryStudentPassword();
   const hashed = hashPassword(rawPassword);
 
   const newStudent = tagNewRecord({
@@ -10791,7 +10791,7 @@ app.post("/api/students/import", requireAuth, requireRole(['admin', 'bos', 'supe
     existingNisSet.add(itemNis);
 
     const requestedPassword = String(item.password || '').trim();
-    const rawPassword = requestedPassword.length >= 8 ? requestedPassword : generateTemporaryStudentPassword();
+    const rawPassword = requestedPassword || generateTemporaryStudentPassword();
     const hashed = hashPassword(rawPassword);
     const newId = "ST_" + Date.now() + "_" + Math.random().toString(36).substr(2, 4);
 
@@ -10905,8 +10905,8 @@ app.put("/api/student/profile", requireAuth, requireRole(['student', 'siswa', 'c
   if (!/^[A-Za-z0-9._-]{3,64}$/.test(username)) {
     return res.status(400).json({ success: false, message: "Username harus 3-64 karakter (huruf, angka, titik, garis bawah, atau tanda minus)." });
   }
-  if (password && (password.length < 8 || password.length > 128)) {
-    return res.status(400).json({ success: false, message: "Password baru harus 8-128 karakter." });
+  if (password && password.length > 128) {
+    return res.status(400).json({ success: false, message: "Password maksimal 128 karakter." });
   }
   if (noHp.length > 40 || /[<>\u0000-\u001F\u007F]/.test(noHp)) {
     return res.status(400).json({ success: false, message: "Nomor HP tidak valid." });
@@ -23566,7 +23566,7 @@ app.post("/api/admin/reset-student-passwords-bulk", requireAuth, requireRole(['a
   const uniformPassword = String(req.body?.password || '').trim();
   if (ids.length === 0) return res.status(400).json({ success: false, message: "Daftar ID siswa kosong." });
   if (ids.length > 1000) return res.status(400).json({ success: false, message: "Maksimal 1000 akun per proses." });
-  if (mode === 'uniform' && uniformPassword.length < 8) return res.status(400).json({ success: false, message: "Password baru minimal 8 karakter." });
+  if (mode === 'uniform' && !uniformPassword) return res.status(400).json({ success: false, message: "Password baru wajib diisi." });
 
   const allowedIds = new Set((filterByMadrasah(students, req) || []).map((s: any) => String(s.id)));
   const wanted = new Set(ids);
