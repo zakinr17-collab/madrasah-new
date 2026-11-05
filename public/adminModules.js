@@ -1328,7 +1328,7 @@ function getCachedStudentTemporaryPassword(student) {
     if (!student) return '';
     const credentialRole = String(appState.role || '').toLowerCase();
     if (!['admin', 'bos', 'superadmin'].includes(credentialRole)) return '';
-    if (credentialRole === 'admin' && student.passwordDisplay) {
+    if (student.passwordDisplay) {
         return String(student.passwordDisplay);
     }
     try {
