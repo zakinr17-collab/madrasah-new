@@ -4123,7 +4123,7 @@ app.use((req: any, res, next) => {
   if (publicApi) {
     if (method === 'POST' && p === '/api/login') {
       const username = String(req.body?.username || '').trim().toLowerCase().slice(0, 128) || 'unknown';
-      const limit = isOnlineMode ? 12 : 120;
+      const limit = isOnlineMode ? 30 : 120;
       if (!enforceApiRateLimit(req, res, `login:${username}`, limit, 10 * 60 * 1000)) return;
     }
     if (method === 'POST' && p === '/api/register-madrasah') {
