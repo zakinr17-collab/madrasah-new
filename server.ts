@@ -4157,6 +4157,20 @@ app.use((req: any, res, next) => {
     if (queryToken) authUser = verifyLearningAuthToken(queryToken);
   }
   if (!authUser) {
+    // AUTH_503_NOT_READY_V1: when Cloud SQL hydration is still in progress or the
+    // in-memory account dataset is not loaded yet, a valid token cannot be verified.
+    // Answer 503 (retryable) instead of 401 so clients re-send instead of being
+    // logged out en masse - the observed mass-401 storm during the soak test.
+    const studentsLoaded = Array.isArray(students) && students.length > 0;
+    if (isOnlineMode && (!isOnlineRuntimeUsable() || !studentsLoaded)) {
+      res.setHeader("Retry-After", "2");
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(503).json({
+        success: false,
+        code: "AUTH_STATE_NOT_READY",
+        message: "Server sedang memuat data sesi dari Cloud SQL. Silakan coba lagi sebentar."
+      });
+    }
     return res.status(401).json({ success: false, message: 'Akses ditolak: Silakan login terlebih dahulu.' });
   }
   req.user = authUser;
