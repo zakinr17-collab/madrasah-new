@@ -99,6 +99,7 @@ function assessmentLoginResetCard(isAdmin) {
                         </div>`;
 }
 window.assessmentResetLoginRateLimit = assessmentResetLoginRateLimit;
+window.assessmentShowInlineDialog = assessmentShowInlineDialog;
 window.assessmentLoginResetCard = assessmentLoginResetCard;
 function assessmentEscapeAttr(value) {
     const raw = String(value === undefined || value === null ? '' : value);

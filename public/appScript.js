@@ -1654,6 +1654,22 @@ function showConfirmModal(message, onConfirm) {
 }
 window.showConfirmModal = showConfirmModal;
 
+// ALERT_CLEAN_V1: alert() native dibersihkan dari URL/path API sebelum tampil
+(function () {
+    const nativeAlert = window.alert.bind(window);
+    window.alert = function (msg) {
+        let text = String(msg ?? '');
+        text = text
+            .replace(/https?:\/\/[^\s'"<>]+/gi, '')
+            .replace(/\b(?:GET|POST|PUT|DELETE|PATCH)\s+\/api\/\S*/gi, '')
+            .replace(/\s{2,}/g, ' ')
+            .replace(/^\s*[-\u2013:\u2022]+\s*/, '')
+            .trim();
+        if (!text) text = 'Terjadi kesalahan. Silakan coba lagi.';
+        nativeAlert(text);
+    };
+})();
+
 function showToast(message, type = 'success') {
     const container = document.getElementById('toast-container');
     if (!container) return;

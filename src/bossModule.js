@@ -221,9 +221,17 @@ async function submitRegisterMadrasah(e) {
         closeRegisterMadrasahModal();
         if (window.showToast) window.showToast(data.message || 'Pendaftaran Berhasil!', 'success');
 
-        // Offer prompt to redirect to custom URL /m/slug
+        // BOSS_DIALOG_V2: dialog in-page tanpa link mentah (hindari dialog native browser)
         const targetUrl = `/m/${data.madrasah.slug}`;
-        if (confirm(`Pendaftaran ${data.madrasah.name} Berhasil!\n\nLink Portal Sekolah: ${window.location.origin}${targetUrl}\n\nIngin membuka Portal Sekolah sekarang?`)) {
+        if (window.assessmentShowInlineDialog) {
+            window.assessmentShowInlineDialog({
+                title: 'Pendaftaran Berhasil',
+                message: `Sekolah <b>${data.madrasah.name}</b> berhasil didaftarkan. Portal Sekolah siap dibuka.`,
+                okText: 'Buka Portal Sekolah',
+                cancelText: 'Nanti',
+                onOk: () => { window.location.href = targetUrl; }
+            });
+        } else if (confirm(`Pendaftaran ${data.madrasah.name} Berhasil! Ingin membuka Portal Sekolah sekarang?`)) {
             window.location.href = targetUrl;
         }
     } catch (err) {
