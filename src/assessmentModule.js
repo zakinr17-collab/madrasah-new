@@ -1083,6 +1083,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                         </div>` : ''}
                                     </div>
                                     <div class="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs text-slate-600 bg-slate-50 p-3 rounded-2xl">
+                                        <div><span class="text-slate-400">Exam ID:</span> <b class="block font-mono font-bold text-slate-700 select-all">${assessmentEscapeHtml(ex.id || '')}</b></div>
                                         <div><span class="text-slate-400">Mapel:</span> <b class="block truncate">${assessmentEscapeHtml(ex.subject || '')}</b></div>
                                         <div><span class="text-slate-400">Bank Soal:</span> <b class="block font-mono font-bold">${assessmentEscapeHtml(ex.bankCode || '')}</b></div>
                                         <div><span class="text-slate-400">Tanggal & Jam:</span> <b class="block">${assessmentEscapeHtml(ex.date || '')} (${assessmentEscapeHtml(ex.startTime || '07:30')})</b></div>
