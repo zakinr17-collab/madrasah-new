@@ -20,6 +20,7 @@ const ANSWER_RETRIES = Math.max(0, Number.parseInt(__ENV.ANSWER_RETRIES || '3', 
 const ANSWER_RETRY_BASE_SECONDS = Math.max(0.05, Number.parseFloat(__ENV.ANSWER_RETRY_BASE_SECONDS || '0.5'));
 const VERIFY_RETRIES = Math.max(0, Number.parseInt(__ENV.VERIFY_RETRIES || '3', 10));
 const VERIFY_RETRY_BASE_SECONDS = Math.max(0.05, Number.parseFloat(__ENV.VERIFY_RETRY_BASE_SECONDS || '0.5'));
+const LOGIN_RETRIES = Math.max(0, Number.parseInt(__ENV.LOGIN_RETRIES || '3', 10));
 const ACCOUNTS_FILE = String(__ENV.ACCOUNTS_FILE || './accounts.loadtest.local.json');
 
 if (!EXAM_ID) {
@@ -45,6 +46,8 @@ const recoveryFail = new Rate('recovery_fail');
 const summaryFail = new Rate('summary_fail');
 const violationFail = new Rate('violation_fail');
 const answerTransportFail = new Rate('answer_transport_fail');
+const reloginCount = new Counter('relogin_count');
+const reloginFail = new Rate('relogin_fail');
 const answerVerificationFail = new Rate('answer_verification_fail');
 
 const heartbeatCount = new Counter('heartbeat_count');
@@ -76,6 +79,7 @@ export const options = {
     http_req_failed: ['rate<0.01'],
     checks: ['rate>0.99'],
     login_fail: ['rate<0.01'],
+    relogin_fail: ['rate==0'],
     attempt_start_fail: ['rate<0.01'],
     start_questions_fail: ['rate<0.01'],
     heartbeat_fail: ['rate<0.01'],
@@ -146,6 +150,64 @@ function sameAnswer(a, b) {
   }
 }
 
+// SOAK_RELOGIN_V1: tokens are bound to live in-memory account state on the server
+// (AUTH_SESSION_CREDENTIAL_STAMP_V2). A transient 401 can therefore occur even for a
+// valid, unexpired token. Re-authenticate transparently and retry the request.
+function performLogin(account) {
+  const loginBody = {
+    username: String(account.username),
+    password: String(account.password),
+  };
+  const loginHeaders = { 'Content-Type': 'application/json' };
+  if (TENANT) {
+    loginBody.madrasahId = TENANT;
+    loginBody.madrasahSlug = TENANT;
+    loginHeaders['X-Madrasah-Id'] = TENANT;
+  }
+  let loginRes = null;
+  for (let attempt = 0; attempt <= LOGIN_RETRIES; attempt++) {
+    loginRes = postJson('/api/login', loginBody, loginHeaders, 'POST /api/login [soak relogin]');
+    if (loginRes.status === 200 || !isRetryableResponse(loginRes) || attempt >= LOGIN_RETRIES) break;
+    sleep(retryDelaySeconds(0.5, attempt));
+  }
+  const data = tryJson(loginRes);
+  const token = String(data?.user?.token || data?.token || '');
+  if (loginRes.status !== 200 || !token) {
+    return null;
+  }
+  const effectiveTenant = String(
+    TENANT || data?.user?.madrasahId || data?.user?.madrasahSlug || ''
+  ).trim();
+  return {
+    token,
+    headers: authHeaders(token, effectiveTenant),
+    studentId: String(data?.user?.id || account.studentId || ''),
+    tenantQuery: effectiveTenant ? `?madrasahId=${encodeURIComponent(effectiveTenant)}` : '',
+  };
+}
+
+function isUnauthorized(res) {
+  return Number(res?.status || 0) === 401;
+}
+
+// Executes one request via fn(session, ...args). On 401, re-logins once and retries
+// the same request with the fresh session. Mutates session.token/headers in place.
+function withRelogin(session, account, fn, ...args) {
+  let res = fn(session, ...args);
+  if (!isUnauthorized(res)) return res;
+  reloginCount.add(1);
+  const fresh = performLogin(account);
+  if (!fresh) {
+    reloginFail.add(1);
+    logFailure('relogin', null);
+    return res;
+  }
+  session.token = fresh.token;
+  session.headers = fresh.headers;
+  res = fn(session, ...args);
+  return res;
+}
+
 export default function () {
   const accountIndex = ACCOUNT_OFFSET + (__VU - 1);
   const account = accounts[accountIndex];
@@ -189,14 +251,18 @@ export default function () {
     loginData?.user?.madrasahSlug ||
     ''
   ).trim();
-  const headers = authHeaders(token, effectiveTenant);
-  const studentId = String(loginData?.user?.id || account.studentId || '');
-  const tenantQuery = effectiveTenant ? `?madrasahId=${encodeURIComponent(effectiveTenant)}` : '';
+  const session = {
+    token,
+    headers: authHeaders(token, effectiveTenant),
+    studentId: String(loginData?.user?.id || account.studentId || ''),
+    tenantQuery: effectiveTenant ? `?madrasahId=${encodeURIComponent(effectiveTenant)}` : '',
+  };
+  const studentId = session.studentId;
+  const tenantQuery = session.tenantQuery;
 
-  const startRes = postJson('/api/exam/attempt/start', {
-    studentId,
-    examId: EXAM_ID,
-  }, headers, 'POST /api/exam/attempt/start [soak]');
+  const startRes = withRelogin(session, account, (s) =>
+    postJson('/api/exam/attempt/start', { studentId, examId: EXAM_ID }, s.headers, 'POST /api/exam/attempt/start [soak]')
+  );
   const startOk = check(startRes, { 'soak attempt start 200': (r) => r.status === 200 });
   attemptStartFail.add(!startOk);
   if (!startOk) {
@@ -204,10 +270,9 @@ export default function () {
     return;
   }
 
-  const questionsRes = postJson('/api/exam/attempt/start-questions', {
-    studentId,
-    examId: EXAM_ID,
-  }, headers, 'POST /api/exam/attempt/start-questions [soak]');
+  const questionsRes = withRelogin(session, account, (s) =>
+    postJson('/api/exam/attempt/start-questions', { studentId, examId: EXAM_ID }, s.headers, 'POST /api/exam/attempt/start-questions [soak]')
+  );
   const questionsData = tryJson(questionsRes);
   const questions = Array.isArray(questionsData?.questions) ? questionsData.questions : [];
   const questionsOk = check(questionsRes, {
@@ -221,10 +286,9 @@ export default function () {
   }
 
   // Synchronize authoritative totalQuestions after packet locking.
-  const syncRes = postJson('/api/exam/attempt/start', {
-    studentId,
-    examId: EXAM_ID,
-  }, headers, 'POST /api/exam/attempt/start [soak sync]');
+  const syncRes = withRelogin(session, account, (s) =>
+    postJson('/api/exam/attempt/start', { studentId, examId: EXAM_ID }, s.headers, 'POST /api/exam/attempt/start [soak sync]')
+  );
   const syncOk = check(syncRes, { 'soak attempt sync 200': (r) => r.status === 200 });
   attemptStartFail.add(!syncOk);
   if (!syncOk) {
@@ -251,11 +315,13 @@ export default function () {
     const now = Date.now();
 
     if (now >= nextHeartbeatAt) {
-      const hbRes = postJson('/api/exam/heartbeat', {
-        studentId,
-        examId: EXAM_ID,
-        currentIndex: Math.min(answerIndex, Math.max(0, questions.length - 1)),
-      }, headers, 'POST /api/exam/heartbeat [soak]');
+      const hbRes = withRelogin(session, account, (s) =>
+        postJson('/api/exam/heartbeat', {
+          studentId,
+          examId: EXAM_ID,
+          currentIndex: Math.min(answerIndex, Math.max(0, questions.length - 1)),
+        }, s.headers, 'POST /api/exam/heartbeat [soak]')
+      );
       heartbeatDuration.add(hbRes.timings.duration);
       const hbOk = check(hbRes, { 'soak heartbeat 200': (r) => r.status === 200 });
       heartbeatFail.add(!hbOk);
@@ -286,13 +352,15 @@ export default function () {
         let usedRetry = false;
 
         for (let attempt = 0; attempt <= ANSWER_RETRIES; attempt++) {
-          answerRes = postJson('/api/exam/attempt/answer', {
-            studentId,
-            examId: EXAM_ID,
-            questionId: qId,
-            answer: answerValue,
-            currentIndex: answerIndex,
-          }, headers, 'POST /api/exam/attempt/answer [soak]');
+          answerRes = withRelogin(session, account, (s) =>
+            postJson('/api/exam/attempt/answer', {
+              studentId,
+              examId: EXAM_ID,
+              questionId: qId,
+              answer: answerValue,
+              currentIndex: answerIndex,
+            }, s.headers, 'POST /api/exam/attempt/answer [soak]')
+          );
 
           answerRequestCount.add(1);
           const requestOk = answerRes.status === 200;
@@ -324,9 +392,8 @@ export default function () {
     }
 
     if (now >= nextSummaryAt) {
-      const summaryRes = http.get(
-        `${BASE_URL}/api/exam/my-summary${tenantQuery}`,
-        tagged(headers, 'GET /api/exam/my-summary [soak]')
+      const summaryRes = withRelogin(session, account, (s) =>
+        http.get(`${BASE_URL}/api/exam/my-summary${s.tenantQuery}`, tagged(s.headers, 'GET /api/exam/my-summary [soak]'))
       );
       summaryDuration.add(summaryRes.timings.duration);
       const summaryOk = check(summaryRes, { 'soak my-summary 200': (r) => r.status === 200 });
@@ -337,10 +404,9 @@ export default function () {
 
     // At most one recovery/reconnect simulation per selected VU.
     if (shouldRecover && !recoveryDone && now >= recoveryAt) {
-      const recoveryRes = postJson('/api/exam/attempt/start', {
-        studentId,
-        examId: EXAM_ID,
-      }, headers, 'POST /api/exam/attempt/start [soak recovery]');
+      const recoveryRes = withRelogin(session, account, (s) =>
+        postJson('/api/exam/attempt/start', { studentId, examId: EXAM_ID }, s.headers, 'POST /api/exam/attempt/start [soak recovery]')
+      );
       recoveryDuration.add(recoveryRes.timings.duration);
       const recoveryOk = check(recoveryRes, { 'soak recovery 200': (r) => r.status === 200 });
       recoveryFail.add(!recoveryOk);
@@ -351,12 +417,14 @@ export default function () {
 
     // At most one tab-switch violation per selected VU.
     if (shouldViolate && !violationDone && now >= violationAt) {
-      const violationRes = postJson('/api/exam/violation', {
-        studentId,
-        examId: EXAM_ID,
-        reason: 'Soak test simulated tab switch',
-        clientTimestamp: now,
-      }, headers, 'POST /api/exam/violation [soak]');
+      const violationRes = withRelogin(session, account, (s) =>
+        postJson('/api/exam/violation', {
+          studentId,
+          examId: EXAM_ID,
+          reason: 'Soak test simulated tab switch',
+          clientTimestamp: now,
+        }, s.headers, 'POST /api/exam/violation [soak]')
+      );
       const violationOk = check(violationRes, { 'soak violation 200': (r) => r.status === 200 });
       violationFail.add(!violationOk);
       if (!violationOk) logFailure('violation', violationRes);
@@ -372,10 +440,9 @@ export default function () {
   let verifyRes = null;
   let verifyOk = false;
   for (let attempt = 0; attempt <= VERIFY_RETRIES; attempt++) {
-    verifyRes = postJson('/api/exam/attempt/start', {
-      studentId,
-      examId: EXAM_ID,
-    }, headers, 'POST /api/exam/attempt/start [soak final verify]');
+    verifyRes = withRelogin(session, account, (s) =>
+      postJson('/api/exam/attempt/start', { studentId, examId: EXAM_ID }, s.headers, 'POST /api/exam/attempt/start [soak final verify]')
+    );
 
     if (verifyRes.status === 200) {
       verifyOk = true;
