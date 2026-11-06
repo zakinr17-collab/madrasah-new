@@ -8,6 +8,47 @@ function assessmentEscapeHtml(value) {
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
     }[ch]));
 }
+
+// LOGIN_RATE_RESET_UI_V1: admin reset rate limit login dari halaman jadwal ujian
+async function assessmentResetLoginRateLimit(mode) {
+    try {
+        const token = (typeof appState !== 'undefined' && appState.token) ? appState.token : null;
+        if (!token) { alert('Sesi berakhir, silakan login ulang.'); return; }
+        let body = {};
+        if (mode === 'one') {
+            const username = prompt('Username siswa yang rate limit-nya mau direset:');
+            if (!username || !username.trim()) return;
+            body = { username: username.trim() };
+        } else {
+            if (!confirm('Reset SEMUA rate limit login? Siswa yang sedang ujian tidak terpengaruh.')) return;
+        }
+        const res = await fetch('/api/admin/reset-login-rate-limit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+            body: JSON.stringify(body)
+        });
+        const json = await res.json().catch(() => ({}));
+        alert(json.message || (res.ok ? 'Reset berhasil.' : 'Reset gagal (HTTP ' + res.status + ').'));
+    } catch (e) {
+        alert('Reset gagal: ' + (e && e.message ? e.message : e));
+    }
+}
+function assessmentLoginResetCard(isAdmin) {
+    if (!isAdmin) return '';
+    return `
+                        <div class="col-span-full bg-white p-4 rounded-3xl shadow-sm border border-dashed border-slate-300 flex flex-col sm:flex-row sm:items-center gap-3">
+                            <div class="flex-1">
+                                <h5 class="font-bold text-slate-700 text-sm flex items-center gap-2"><i class="fa-solid fa-unlock-keyhole text-amber-500"></i>Reset Rate Limit Login</h5>
+                                <p class="text-xs text-slate-400 mt-1">Buka kunci siswa yang terlalu banyak salah password. Siswa yang sedang ujian tidak terpengaruh.</p>
+                            </div>
+                            <div class="flex gap-2">
+                                <button type="button" onclick="assessmentResetLoginRateLimit('one')" class="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-2xl text-xs shadow transition flex items-center space-x-2"><i class="fa-solid fa-user-lock"></i><span>Reset 1 Siswa</span></button>
+                                <button type="button" onclick="assessmentResetLoginRateLimit('all')" class="px-4 py-2.5 bg-slate-700 hover:bg-slate-800 text-white font-semibold rounded-2xl text-xs shadow transition flex items-center space-x-2"><i class="fa-solid fa-users"></i><span>Reset Semua</span></button>
+                            </div>
+                        </div>`;
+}
+window.assessmentResetLoginRateLimit = assessmentResetLoginRateLimit;
+window.assessmentLoginResetCard = assessmentLoginResetCard;
 function assessmentEscapeAttr(value) {
     const raw = String(value === undefined || value === null ? '' : value);
     if (typeof window.escapeHtmlAttr === 'function') return window.escapeHtmlAttr(raw);
@@ -1072,6 +1113,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                 ${!isTeacher ? `<button type="button" onclick="openExamModal(null, ${assessmentInlineArg(appState.assessmentEventId)})" class="px-5 py-3 bg-emerald-600 text-white font-semibold rounded-2xl text-xs shadow flex items-center space-x-2"><i class="fa-solid fa-plus"></i><span>Buat Jadwal</span></button>` : ''}
                             </div>
                         </div>
+                        ${assessmentLoginResetCard(!isTeacher)}
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             ${eventExamsList.map(ex => `
                                 <div class="bg-white p-6 rounded-3xl shadow-sm border space-y-3">
