@@ -4053,6 +4053,23 @@ app.post('/api/my/ai-key/test', requireAuth, async (req: any, res) => {
   }
 });
 
+// RATE_LIMIT_RESET_V1: admin bisa mengosongkan bucket rate limit login
+app.post('/api/admin/reset-login-rate-limit', requireAuth, (req: any, res) => {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (!['admin', 'administrator', 'bos', 'superadmin'].includes(role)) {
+    return res.status(403).json({ success: false, message: 'Hanya admin.' });
+  }
+  const username = String(req.body?.username || '').trim().toLowerCase();
+  let removed = 0;
+  for (const key of Array.from(apiRateBuckets.keys())) {
+    if (key.startsWith('login:')) {
+      if (username) {
+        if (key === `login:${username}` || key.startsWith(`login:${username}:`)) { apiRateBuckets.delete(key); removed++; }
+      } else { apiRateBuckets.delete(key); removed++; }
+    }
+  }
+  return res.json({ success: true, message: username ? `Rate limit login untuk '${username}' direset (${removed} bucket).` : `Semua rate limit login direset (${removed} bucket).` });
+});
 app.use(express.urlencoded({ extended: true, limit: requestBodyLimit }));
 
 const apiRateBuckets = new Map<string, { count: number; resetAt: number }>();
