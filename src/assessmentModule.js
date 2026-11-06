@@ -12,7 +12,9 @@ function assessmentEscapeHtml(value) {
 // LOGIN_RATE_RESET_UI_V1: admin reset rate limit login dari halaman jadwal ujian
 async function assessmentResetLoginRateLimit(mode) {
     try {
-        const token = (typeof appState !== 'undefined' && appState.token) ? appState.token : null;
+        const token = (typeof window.getStoredAuthToken === 'function' && window.getStoredAuthToken())
+            || (typeof appState !== 'undefined' && appState.currentUser && appState.currentUser.token)
+            || (typeof appState !== 'undefined' && appState.token) || '';
         if (!token) { alert('Sesi berakhir, silakan login ulang.'); return; }
         let body = {};
         if (mode === 'one') {
