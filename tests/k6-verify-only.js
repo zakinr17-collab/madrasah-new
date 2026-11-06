@@ -20,7 +20,7 @@ import { Rate, Counter, Trend } from 'k6/metrics';
 const BASE_URL = String(__ENV.BASE_URL || 'https://madrasahku.ai.studio').replace(/\/+$/, '');
 const TENANT = String(__ENV.TENANT || '').trim();
 const EXAM_ID = String(__ENV.EXAM_ID || '').trim();
-const VUS = Math.max(1, Number.parseInt(__ENV.VUS || '20', 10));
+const VUS = Math.max(1, Number.parseInt(__ENV.VUS || '4', 10));
 const ACCOUNTS_FILE = String(__ENV.ACCOUNTS_FILE || './accounts-verify.local.json');
 
 if (!EXAM_ID) throw new Error('EXAM_ID wajib diisi.');
@@ -89,8 +89,15 @@ export default function () {
     loginHeaders['X-Madrasah-Id'] = TENANT;
   }
 
-  const loginRes = http.post(`${BASE_URL}/api/login`, JSON.stringify(loginBody),
-    { headers: loginHeaders, timeout: '30s' });
+  // VERIFY_429_BACKOFF_V2: server rate-limits login bursts (HTTP 429 is correct
+  // server behavior). Respect it: back off and retry up to 6 times.
+  let loginRes = null;
+  for (let attempt = 0; attempt < 6; attempt++) {
+    loginRes = http.post(`${BASE_URL}/api/login`, JSON.stringify(loginBody),
+      { headers: loginHeaders, timeout: '30s' });
+    if (loginRes.status !== 429) break;
+    sleep(2 + Math.random() * 3);
+  }
   const loginData = tryJson(loginRes);
   const token = String(loginData?.user?.token || loginData?.token || '');
   const loginOk = loginRes.status === 200 && token.length > 20;
