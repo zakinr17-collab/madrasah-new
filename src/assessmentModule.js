@@ -10,29 +10,78 @@ function assessmentEscapeHtml(value) {
 }
 
 // LOGIN_RATE_RESET_UI_V1: admin reset rate limit login dari halaman jadwal ujian
+// RESET_DIALOG_V2: dialog in-page (tanpa confirm/prompt/alert native agar tidak ada domain "says")
+function assessmentShowInlineDialog({ title, message, inputLabel = null, okText = 'OK', cancelText = 'Batal', danger = false, onOk }) {
+    const existing = document.getElementById('assessment-inline-dialog');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'assessment-inline-dialog';
+    overlay.className = 'fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4';
+    overlay.innerHTML = `
+        <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl border p-6 space-y-4">
+            <h4 class="font-bold text-slate-800 text-base flex items-center gap-2">
+                <i class="fa-solid ${danger ? 'fa-triangle-exclamation text-rose-500' : 'fa-circle-info text-sky-500'}"></i>${title}
+            </h4>
+            <p class="text-xs text-slate-500 leading-relaxed">${message}</p>
+            ${inputLabel ? `<input id="assessment-inline-dialog-input" type="text" placeholder="${inputLabel}" class="w-full px-4 py-2.5 rounded-2xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />` : ''}
+            <div class="flex justify-end gap-2 pt-1">
+                <button id="assessment-inline-dialog-cancel" type="button" class="px-4 py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-semibold transition">${cancelText}</button>
+                <button id="assessment-inline-dialog-ok" type="button" class="px-5 py-2.5 rounded-2xl ${danger ? 'bg-rose-600 hover:bg-rose-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white text-xs font-semibold shadow transition">${okText}</button>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+    const close = () => overlay.remove();
+    const input = overlay.querySelector('#assessment-inline-dialog-input');
+    if (input) setTimeout(() => input.focus(), 50);
+    overlay.querySelector('#assessment-inline-dialog-cancel').onclick = close;
+    overlay.querySelector('#assessment-inline-dialog-ok').onclick = () => {
+        const value = input ? input.value.trim() : '';
+        close();
+        onOk(value);
+    };
+}
+
 async function assessmentResetLoginRateLimit(mode) {
     try {
         const token = (typeof window.getStoredAuthToken === 'function' && window.getStoredAuthToken())
             || (typeof appState !== 'undefined' && appState.currentUser && appState.currentUser.token)
             || (typeof appState !== 'undefined' && appState.token) || '';
-        if (!token) { alert('Sesi berakhir, silakan login ulang.'); return; }
-        let body = {};
-        if (mode === 'one') {
-            const username = prompt('Username siswa yang rate limit-nya mau direset:');
-            if (!username || !username.trim()) return;
-            body = { username: username.trim() };
-        } else {
-            if (!confirm('Reset SEMUA rate limit login? Siswa yang sedang ujian tidak terpengaruh.')) return;
+        const doReset = (username) => (async () => {
+            const res = await fetch('/api/admin/reset-login-rate-limit', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+                body: JSON.stringify(username ? { username } : {})
+            });
+            const json = await res.json().catch(() => ({}));
+            assessmentShowInlineDialog({
+                title: res.ok ? 'Berhasil' : 'Gagal',
+                message: json.message || (res.ok ? 'Reset berhasil.' : 'Reset gagal (HTTP ' + res.status + ').'),
+                okText: 'Tutup'
+            });
+        })().catch(e => assessmentShowInlineDialog({ title: 'Gagal', message: 'Reset gagal: ' + (e && e.message ? e.message : e), okText: 'Tutup' }));
+        if (!token) {
+            assessmentShowInlineDialog({ title: 'Sesi Berakhir', message: 'Silakan login ulang terlebih dahulu.', okText: 'Tutup' });
+            return;
         }
-        const res = await fetch('/api/admin/reset-login-rate-limit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-            body: JSON.stringify(body)
-        });
-        const json = await res.json().catch(() => ({}));
-        alert(json.message || (res.ok ? 'Reset berhasil.' : 'Reset gagal (HTTP ' + res.status + ').'));
+        if (mode === 'one') {
+            assessmentShowInlineDialog({
+                title: 'Reset 1 Siswa',
+                message: 'Masukkan username siswa yang rate limit login-nya mau direset.',
+                inputLabel: 'username siswa',
+                okText: 'Reset',
+                onOk: (username) => { if (username) doReset(username); }
+            });
+        } else {
+            assessmentShowInlineDialog({
+                title: 'Reset Semua Rate Limit Login',
+                message: 'Semua penghitung percobaan login dikosongkan. Siswa yang sedang mengerjakan ujian tidak terpengaruh.',
+                okText: 'Reset Semua',
+                danger: true,
+                onOk: () => doReset(null)
+            });
+        }
     } catch (e) {
-        alert('Reset gagal: ' + (e && e.message ? e.message : e));
+        assessmentShowInlineDialog({ title: 'Gagal', message: 'Reset gagal: ' + (e && e.message ? e.message : e), okText: 'Tutup' });
     }
 }
 function assessmentLoginResetCard(isAdmin) {
