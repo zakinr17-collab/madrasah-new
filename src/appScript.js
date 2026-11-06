@@ -1661,6 +1661,17 @@ function showToast(message, type = 'success') {
     let displayMessage = message || '';
     let displayType = type;
 
+    // TOAST_CLEAN_V1: buang URL/link dari pesan agar toast bersih
+    if (typeof displayMessage === 'string') {
+        displayMessage = displayMessage
+            .replace(/https?:\/\/[^\s'"<>]+/gi, '')
+            .replace(/\b(?:GET|POST|PUT|DELETE|PATCH)\s+\/api\/\S*/gi, '')
+            .replace(/\s{2,}/g, ' ')
+            .replace(/^\s*[-\u2013:\u2022]+\s*/, '')
+            .trim();
+        if (!displayMessage) displayMessage = 'Terjadi kesalahan. Silakan coba lagi.';
+    }
+
     // Check if message is a quota / 429 rate limit error
     if (typeof displayMessage === 'string' && (
         displayMessage.includes('RESOURCE_EXHAUSTED') ||
