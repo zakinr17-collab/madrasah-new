@@ -23567,13 +23567,17 @@ app.post("/api/ai-provider/check-keys", requireAuth, requireRole(["admin", "admi
       const entry: any = { id: prof.id, label: prof.label, status: "unknown", httpStatus: 0, latencyMs: null, detail: "" };
       if (!apiKey) { entry.status = "nokey"; entry.detail = "Profil belum punya API key."; results.push(entry); return; }
       const started = Date.now();
+      // Normalisasi: model tanpa prefix "models/", base Google dijamin berujung /openai.
+      const modelName = String(prof.customModel || "auto").trim().replace(/^models\//, "");
+      let baseUrl = String(prof.customBaseUrl || "").trim().replace(/\/$/, "");
+      if (/generativelanguage\.googleapis\.com/.test(baseUrl) && !/\/openai$/.test(baseUrl)) baseUrl += "/openai";
       try {
         const ctrl = new AbortController();
         const t = setTimeout(() => ctrl.abort(), 20000);
-        const r = await fetch(String(prof.customBaseUrl || "").replace(/\/$/, "") + "/chat/completions", {
+        const r = await fetch(baseUrl + "/chat/completions", {
           method: "POST",
           headers: { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" },
-          body: JSON.stringify({ model: prof.customModel || "auto", messages: [{ role: "user", content: "Balas dengan kata: OK" }], max_tokens: 5 }),
+          body: JSON.stringify({ model: modelName, messages: [{ role: "user", content: "Balas dengan kata: OK" }], max_tokens: 5 }),
           signal: ctrl.signal
         });
         clearTimeout(t);
@@ -23585,10 +23589,10 @@ app.post("/api/ai-provider/check-keys", requireAuth, requireRole(["admin", "admi
           try {
             const ctrl2 = new AbortController();
             const t2 = setTimeout(() => ctrl2.abort(), 20000);
-            const r2 = await fetch(String(prof.customBaseUrl || "").replace(/\/$/, "") + "/chat/completions", {
+            const r2 = await fetch(baseUrl + "/chat/completions", {
               method: "POST",
               headers: { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" },
-              body: JSON.stringify({ model: prof.customModel || "auto", messages: [{ role: "user", content: "Balas dengan kata: OK" }] }),
+              body: JSON.stringify({ model: modelName, messages: [{ role: "user", content: "Balas dengan kata: OK" }] }),
               signal: ctrl2.signal
             });
             clearTimeout(t2);
