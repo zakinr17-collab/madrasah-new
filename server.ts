@@ -23579,11 +23579,15 @@ app.post("/api/ai-provider/check-keys", requireAuth, requireRole(["admin", "admi
         clearTimeout(t);
         entry.httpStatus = r.status;
         entry.latencyMs = Date.now() - started;
+        const errBody = await r.text().catch(() => '');
+        const errMsg = String(errBody || '').slice(0, 200);
         if (r.ok) { entry.status = "ok"; entry.detail = "Key aktif"; }
         else if (r.status === 401 || r.status === 403) { entry.status = "invalid"; entry.detail = "Key tidak sah / dicabut"; }
         else if (r.status === 429) { entry.status = "limited"; entry.detail = "Rate limit / kuota tercapai"; }
         else if (r.status === 402) { entry.status = "limited"; entry.detail = "Kredit habis"; }
-        else { entry.status = "error"; entry.detail = "HTTP " + r.status; }
+        else if (r.status === 400 && /api key|api_key|invalid[_ ]key|unregistered/i.test(errMsg)) { entry.status = "invalid"; entry.detail = "Key tidak sah (provider: " + errMsg.slice(0, 80) + ")"; }
+        else if (r.status === 400 && /quota|billing/i.test(errMsg)) { entry.status = "limited"; entry.detail = "Kuota/billing bermasalah"; }
+        else { entry.status = "error"; entry.detail = "HTTP " + r.status + (errMsg ? ": " + errMsg.slice(0, 100) : ""); }
       } catch (e: any) {
         entry.latencyMs = Date.now() - started;
         entry.status = "unreachable";
