@@ -23607,6 +23607,7 @@ app.post("/api/ai-provider/check-keys", requireAuth, requireRole(["admin", "admi
         else if (r.status === 402) { entry.status = "limited"; entry.detail = "Kredit habis"; }
         else if (r.status === 400 && /api key|api_key|invalid[_ ]key|unregistered/i.test(errMsg)) { entry.status = "invalid"; entry.detail = "Key tidak sah (provider: " + errMsg.slice(0, 80) + ")"; }
         else if (r.status === 400 && /quota|billing/i.test(errMsg)) { entry.status = "limited"; entry.detail = "Kuota/billing bermasalah"; }
+        else if (r.status === 404 && /model|not found/i.test(errMsg)) { entry.status = "error"; entry.detail = "Model tidak ditemukan di provider (cek nama model): " + errMsg.slice(0, 100); }
         else { entry.status = "error"; entry.detail = "HTTP " + r.status + (errMsg ? ": " + errMsg.slice(0, 100) : ""); }
       } catch (e: any) {
         entry.latencyMs = Date.now() - started;

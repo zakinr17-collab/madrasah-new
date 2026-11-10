@@ -358,7 +358,7 @@ function renderAiProviderProfiles(profiles) {
         const isActive = __activeAiProfileId === p.id;
         const st = window.__aiKeyStatus && window.__aiKeyStatus[p.id];
         const stMeta = st ? (statusMeta[st.status] || null) : null;
-        const stBadge = stMeta ? `<span title="${(st.detail || '').replace(/"/g, '&quot;')}" class="shrink-0 px-1.5 py-0.5 rounded-full border text-[10px] font-bold ${stMeta.cls}"><i class="fa-solid ${stMeta.icon} mr-0.5"></i>${stMeta.txt}${st.status === 'ok' && st.latencyMs ? ' \u00b7 ' + st.latencyMs + 'ms' : ''}</span>` : '';
+        const stBadge = stMeta ? `<span title="${(st.detail || '').replace(/"/g, '&quot;')}" class="shrink-0 px-1.5 py-0.5 rounded-full border text-[10px] font-bold ${stMeta.cls}"><i class="fa-solid ${stMeta.icon} mr-0.5"></i>${stMeta.txt}${st.status === 'ok' && st.latencyMs ? ' \u00b7 ' + st.latencyMs + 'ms' : ''}${st.status !== 'ok' && st.detail ? ' \u00b7 ' + escHtml(String(st.detail).slice(0, 60)) : ''}</span>` : '';
         const border = isActive ? 'border-emerald-400 bg-emerald-50/60' : 'border-slate-200 bg-white';
         const badge = isActive
             ? '<span class="shrink-0 px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-bold"><i class="fa-solid fa-bolt mr-0.5"></i>AKTIF</span>'
