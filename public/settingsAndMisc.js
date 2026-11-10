@@ -293,21 +293,23 @@ window.loadAiProviderProfiles = loadAiProviderProfiles;
 
 // KEY_STATUS_V1 (frontend)
 window.__aiKeyStatus = window.__aiKeyStatus || {};   // id -> {status, latencyMs, detail, checkedAt}
-window.checkAllAiKeys = async function(btn) {
+window.checkAllAiKeys = async function(btn, ids) {
     const orig = btn ? btn.innerHTML : '';
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Mengecek...'; }
     try {
-        const res = await fetch('/api/ai-provider/check-keys', { method: 'POST', headers: { 'Authorization': 'Bearer ' + (appState.token || '') } });
+        const payload = Array.isArray(ids) && ids.length ? { ids } : {};
+        const res = await fetch('/api/ai-provider/check-keys', { method: 'POST', headers: { 'Authorization': 'Bearer ' + (appState.token || ''), 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const data = await res.json();
         if (!data.success) { showToast(data.message || 'Gagal cek key.', 'error'); return; }
         (data.results || []).forEach(r => { window.__aiKeyStatus[r.id] = { status: r.status, latencyMs: r.latencyMs, detail: r.detail, checkedAt: Date.now() }; });
         renderAiProviderProfiles(window.__lastProfiles || []);
         const okCount = (data.results || []).filter(r => r.status === 'ok').length;
-        showToast(`Cek selesai: ${okCount}/${(data.results || []).length} key aktif.`, 'success');
+        if (!Array.isArray(ids)) showToast(`Cek selesai: ${okCount}/${(data.results || []).length} key aktif.`, 'success');
     } catch (e) {
         showToast('Gagal cek key: ' + (e.message || e), 'error');
     } finally { if (btn) { btn.disabled = false; btn.innerHTML = orig; } }
 };
+window.checkOneAiKey = function(id, btn) { window.checkAllAiKeys(btn, [id]); };
 window.__aiFallbackEnabled = window.__aiFallbackEnabled || false;
 window.__aiFallbackOrder = window.__aiFallbackOrder || [];
 function toggleAiFallback(btn) {
@@ -377,6 +379,7 @@ function renderAiProviderProfiles(profiles) {
                 ${stBadge}
             </div>
             <div class="flex items-center gap-1 shrink-0">
+                <button type="button" onclick="checkOneAiKey('${p.id}', this)" title="Cek key ini saja" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-emerald-300 text-emerald-600 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-satellite-dish"></i></button>
                 ${fb ? `<button type="button" onclick="moveAiProfileOrder('${p.id}', -1)" title="Naikkan urutan fallback" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-slate-400 text-slate-600 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-arrow-up"></i></button>
                 <button type="button" onclick="moveAiProfileOrder('${p.id}', 1)" title="Turunkan urutan fallback" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-slate-400 text-slate-600 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-arrow-down"></i></button>` : ''}
                 ${btnAktifkan}

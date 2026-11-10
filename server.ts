@@ -23561,8 +23561,10 @@ app.delete("/api/ai-provider/profiles/:id", requireAuth, requireRole(['admin', '
 app.post("/api/ai-provider/check-keys", requireAuth, requireRole(["admin", "administrator", "bos", "superadmin"]), async (req: any, res) => {
   try {
     const profiles = getAiProviderProfiles(appSettings);
+    const onlyIds: string[] = Array.isArray((req.body || {}).ids) ? (req.body.ids.map((x: any) => String(x)).filter(Boolean)) : [];
+    const targets = onlyIds.length ? profiles.filter((p) => onlyIds.includes(p.id)) : profiles;
     const results: any[] = [];
-    await Promise.all(profiles.map(async (prof) => {
+    await Promise.all(targets.map(async (prof) => {
       const apiKey = decryptSecret(prof.customApiKeyEnc || "", AI_PROVIDER_CREDENTIAL_KEY);
       const entry: any = { id: prof.id, label: prof.label, status: "unknown", httpStatus: 0, latencyMs: null, detail: "" };
       if (!apiKey) { entry.status = "nokey"; entry.detail = "Profil belum punya API key."; results.push(entry); return; }
