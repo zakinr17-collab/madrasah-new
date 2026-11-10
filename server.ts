@@ -18481,7 +18481,11 @@ ${NO_DASHES_PROMPT}
       model: "gemini-3.7-flash",
       contents: prompt,
       config: {
-        responseMimeType: "application/json"
+        responseMimeType: "application/json",
+        // GEMINI_BUDGET_FIX: beri budget output besar + minimalkan reasoning agar
+        // field akhir JSON (answer/explanation) tidak terpotong/dikosongkan
+        maxOutputTokens: 32768,
+        thinkingConfig: { thinkingBudget: 0 }
       }
     });
 
@@ -18489,6 +18493,11 @@ ${NO_DASHES_PROMPT}
     const rawData = safeParseGeminiJSON(resultText, null);
     if (!rawData) throw new Error("Invalid JSON from Gemini response: " + resultText);
     const data = sanitizeGeneratedData(rawData);
+    // GEMINI_BUDGET_FIX: audit field kosong utk diagnosa
+    try {
+      const missing = (Array.isArray(data) ? data : []).filter((q: any) => q && (!String(q.answer || '').trim() || !String(q.explanation || '').trim()));
+      if (missing.length) console.warn(`[GenerateQuestions] ${missing.length} soal tanpa answer/explanation dari provider`);
+    } catch (_) {}
     res.json({ success: true, data });
   } catch (error: any) {
     console.error("Gemini AI error (using fallback):", error);
