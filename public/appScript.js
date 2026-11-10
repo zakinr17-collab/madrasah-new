@@ -1103,6 +1103,11 @@ async function syncKeyFromServer(key) {
                 if (key === 'grades' && String(appState.currentRoute || '') === 'nilai') {
                     return;
                 }
+                // SETTINGS_STAY_V1: jangan re-render halaman setting saat sinkron 'settings'
+                // (dulu: simpan -> re-render -> kembali ke hub pengaturan). State sudah di-update di atas.
+                if (key === 'settings' && String(appState.currentRoute || '') === 'setting') {
+                    return;
+                }
                 if (targetRoutes.includes(lastRoute) && !isTyping) {
                     if (window.navigateTo) {
                         window.navigateTo(lastRoute);

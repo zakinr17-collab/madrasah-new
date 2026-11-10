@@ -230,6 +230,9 @@ async function saveAiProviderSettings(button) {
             const keyVal = (document.getElementById('ai-provider-api-key')||{}).value?.trim() || '';
             if (keyVal) body.customApiKey = keyVal;
             body.order = 'custom,gemini';
+            // AI_FALLBACK_V1 UI
+            body.fallbackEnabled = !!window.__aiFallbackEnabled;
+            body.fallbackOrder = Array.isArray(window.__aiFallbackOrder) ? window.__aiFallbackOrder : [];
         }
         const res = await fetch('/api/ai-provider/settings', {
             method: 'POST',
@@ -277,20 +280,55 @@ async function loadAiProviderProfiles() {
         const data = await res.json();
         if (!data.success) return;
         __activeAiProfileId = data.activeProfileId || null;
+        if (data.fallback) {
+            window.__aiFallbackEnabled = !!data.fallback.enabled;
+            window.__aiFallbackOrder = Array.isArray(data.fallback.order) ? data.fallback.order : [];
+        }
         renderAiProviderProfiles(data.profiles || []);
         if (!__aiCreditInfo) checkAiProviderCredit(null);
     } catch (e) { /* diam */ }
 }
 window.loadAiProviderProfiles = loadAiProviderProfiles;
 
+window.__aiFallbackEnabled = window.__aiFallbackEnabled || false;
+window.__aiFallbackOrder = window.__aiFallbackOrder || [];
+function toggleAiFallback(btn) {
+    window.__aiFallbackEnabled = !window.__aiFallbackEnabled;
+    if (btn) {
+        btn.className = 'px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer border ' + (window.__aiFallbackEnabled ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-white border-slate-200 text-slate-500');
+        btn.innerHTML = window.__aiFallbackEnabled ? '<i class="fa-solid fa-link mr-1"></i>Fallback: AKTIF' : '<i class="fa-solid fa-link-slash mr-1"></i>Fallback: Nonaktif';
+    }
+    if (typeof loadAiProviderProfiles === 'function') loadAiProviderProfiles();
+}
+window.toggleAiFallback = toggleAiFallback;
+function moveAiProfileOrder(id, dir) {
+    const order = window.__aiFallbackOrder && window.__aiFallbackOrder.length ? [...window.__aiFallbackOrder] : (window.__lastProfiles || []).map(p => p.id);
+    const idx = order.indexOf(id);
+    const swap = idx + dir;
+    if (idx < 0 || swap < 0 || swap >= order.length) return;
+    [order[idx], order[swap]] = [order[swap], order[idx]];
+    window.__aiFallbackOrder = order;
+    renderAiProviderProfiles(window.__lastProfiles || []);
+}
+window.moveAiProfileOrder = moveAiProfileOrder;
 function renderAiProviderProfiles(profiles) {
     const wrap = document.getElementById('ai-provider-profiles-list');
     if (!wrap) return;
+    window.__lastProfiles = profiles;
     if (!profiles.length) {
         wrap.innerHTML = '<p class="text-[11px] text-slate-400">Belum ada profil tersimpan. Klik "Tambah AI Baru", isi form, lalu klik "Simpan sebagai Profil".</p>';
         return;
     }
-    wrap.innerHTML = profiles.map(p => {
+    const fb = window.__aiFallbackEnabled;
+    const order = window.__aiFallbackOrder && window.__aiFallbackOrder.length ? window.__aiFallbackOrder : profiles.map(p => p.id);
+    if (!window.__aiFallbackOrder.length) window.__aiFallbackOrder = [...order];
+    const fbToggle = `<div class="flex items-center justify-between px-3 py-2 rounded-xl border border-dashed border-slate-300 bg-slate-50/60">
+            <div class="min-w-0"><p class="text-[11px] font-bold text-slate-600"><i class="fa-solid fa-shuffle mr-1 text-violet-500"></i>Fallback AI</p>
+            <p class="text-[10px] text-slate-400">Kalau AI aktif gagal/token habis, lanjut otomatis ke AI lain sesuai urutan.</p></div>
+            <button type="button" onclick="toggleAiFallback(this)" class="px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer border ${fb ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-white border-slate-200 text-slate-500'}">${fb ? '<i class="fa-solid fa-link mr-1"></i>Fallback: AKTIF' : '<i class="fa-solid fa-link-slash mr-1"></i>Fallback: Nonaktif'}</button>
+        </div>`;
+    const sorted = [...profiles].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+    wrap.innerHTML = fbToggle + sorted.map(p => {
         const isActive = __activeAiProfileId === p.id;
         const border = isActive ? 'border-emerald-400 bg-emerald-50/60' : 'border-slate-200 bg-white';
         const badge = isActive
@@ -309,6 +347,8 @@ function renderAiProviderProfiles(profiles) {
                 </div>
             </div>
             <div class="flex items-center gap-1 shrink-0">
+                ${fb ? `<button type="button" onclick="moveAiProfileOrder('${p.id}', -1)" title="Naikkan urutan fallback" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-slate-400 text-slate-600 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-arrow-up"></i></button>
+                <button type="button" onclick="moveAiProfileOrder('${p.id}', 1)" title="Turunkan urutan fallback" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-slate-400 text-slate-600 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-arrow-down"></i></button>` : ''}
                 ${btnAktifkan}
                 <button type="button" onclick="viewAiProviderProfileKey('${p.id}')" title="Lihat API key" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-amber-300 text-amber-600 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-eye"></i></button>
                 <button type="button" onclick="useAiProviderProfile('${p.id}')" title="Muat ke form" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-violet-300 text-slate-600 text-[11px] font-bold cursor-pointer">Muat</button>

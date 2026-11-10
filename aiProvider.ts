@@ -14,23 +14,32 @@
 export interface AIContentPart { text?: string; inlineData?: { mimeType: string; data: string } }
 export type AIContents = string | AIContentPart[] | any[];
 
-function customBase(): string {
-  return aiUserOverride()?.baseUrl
+function customBase(cred?: AiCred | null): string {
+  return cred?.baseUrl
+    || aiUserOverride()?.baseUrl
     || (globalThis as any).__aiProviderRuntime?.customBaseUrl
     || (process.env.CUSTOM_AI_BASE_URL || "https://token.lightvela.ai/v1").replace(/\/$/, "");
 }
 function aiUserOverride(): { apiKey?: string; baseUrl?: string; model?: string } | undefined {
   try { return (globalThis as any).__aiUserStore?.getStore(); } catch { return undefined; }
 }
-function customKey(): string {
-  return aiUserOverride()?.apiKey
+function customKey(cred?: AiCred | null): string {
+  return cred?.apiKey
+    || aiUserOverride()?.apiKey
     || (globalThis as any).__aiProviderRuntime?.customApiKey
     || process.env.CUSTOM_AI_API_KEY || "";
 }
-function customModel(): string {
-  return aiUserOverride()?.model
+function customModel(cred?: AiCred | null): string {
+  return cred?.model
+    || aiUserOverride()?.model
     || (globalThis as any).__aiProviderRuntime?.customModel
     || process.env.CUSTOM_AI_MODEL || "auto";
+}
+// AI_FALLBACK_V1: kredensial profil fallback (diisi server dari daftar AI tersimpan)
+interface AiCred { baseUrl?: string; apiKey?: string; model?: string; label?: string }
+function fallbackCreds(): AiCred[] {
+  const list = (globalThis as any).__aiProviderRuntime?.fallbackProfiles;
+  return Array.isArray(list) ? list : [];
 }
 function providerOrder(): string[] {
   const runtimeOrder = (globalThis as any).__aiProviderRuntime?.order;
@@ -70,10 +79,10 @@ function toChatMessages(contents: AIContents, config?: any): any[] {
 }
 
 /** Panggil provider custom (OpenAI-compatible). Return teks atau null jika gagal. */
-async function callCustom(contents: AIContents, config?: any, maxTokens?: number): Promise<string | null> {
-  if (!customKey()) return null;
+async function callCustom(contents: AIContents, config?: any, maxTokens?: number, cred?: AiCred | null): Promise<string | null> {
+  if (!customKey(cred)) return null;
   const body: any = {
-    model: customModel(),
+    model: customModel(cred),
     messages: toChatMessages(contents, config),
     // Model reasoning butuh ruang thinking; default cukup besar agar content tidak kosong.
     max_tokens: maxTokens || 16384,
@@ -90,9 +99,9 @@ async function callCustom(contents: AIContents, config?: any, maxTokens?: number
     try {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 300_000);
-      const res = await fetch(`${customBase()}/chat/completions`, {
+      const res = await fetch(`${customBase(cred)}/chat/completions`, {
         method: "POST",
-        headers: { "Authorization": `Bearer ${customKey()}`, "Content-Type": "application/json" },
+        headers: { "Authorization": `Bearer ${customKey(cred)}`, "Content-Type": "application/json" },
         body: JSON.stringify(body),
         signal: ctrl.signal,
       });
@@ -126,16 +135,20 @@ export async function callAI(ai: any, params: { model?: string; contents: AICont
   let lastError: any = null;
   for (const provider of providerOrder()) {
     if (provider === "custom") {
-      const text = await callCustom(params.contents, params.config);
-      if (text !== null) {
-        // Validasi JSON ala helper lama
-        if (params.config?.responseMimeType === "application/json") {
-          const t = text.trim();
-          if (t === "{" || t === "}") throw new Error("Invalid/Truncated JSON response from custom provider");
+      const creds: (AiCred | null)[] = [null, ...fallbackCreds()];
+      for (const cred of creds) {
+        const text = await callCustom(params.contents, params.config, undefined, cred);
+        if (text !== null) {
+          // Validasi JSON ala helper lama
+          if (params.config?.responseMimeType === "application/json") {
+            const t = text.trim();
+            if (t === "{" || t === "}") throw new Error("Invalid/Truncated JSON response from custom provider");
+          }
+          return { text };
         }
-        return { text };
+        if (cred) console.warn(`[AIProvider] Fallback '${cred.label || cred.baseUrl}' gagal, mencoba berikutnya...`);
       }
-      console.warn("[AIProvider] Custom provider gagal, mencoba provider berikutnya...");
+      console.warn("[AIProvider] Custom provider & semua fallback gagal, mencoba provider berikutnya...");
       continue;
     }
     if (provider === "gemini") {

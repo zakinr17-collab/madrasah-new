@@ -117,6 +117,8 @@ export function sanitizeAiProviderInput(body: any, key: Buffer, existing?: AiPro
     customBaseUrl: String(body.customBaseUrl ?? existing?.customBaseUrl ?? '').trim().replace(/\/$/, ''),
     customApiKeyEnc: existing?.customApiKeyEnc || '',
     customModel: String(body.customModel ?? existing?.customModel ?? 'auto').trim(),
+    fallbackEnabled: Boolean(body.fallbackEnabled ?? existing?.fallbackEnabled ?? false),
+    fallbackOrder: Array.isArray(body.fallbackOrder) ? body.fallbackOrder.map((s: any) => String(s)).slice(0, 20) : (Array.isArray(existing?.fallbackOrder) ? existing.fallbackOrder : []),
     updatedAt: new Date().toISOString(),
   };
   // API key hanya ditimpa jika dikirim & tidak kosong ('' tidak menghapus key lama kecuali clearApiKey)

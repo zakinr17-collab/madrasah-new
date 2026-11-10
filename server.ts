@@ -469,6 +469,23 @@ function applyAiProviderRuntime() {
   rt.customApiKey = decryptSecret(cfg.customApiKeyEnc || '', AI_PROVIDER_CREDENTIAL_KEY);
   rt.customModel = cfg.customModel || 'auto';
   rt.order = cfg.order || '';
+  // AI_FALLBACK_V1: susun daftar profil fallback (aktif hanya bila setting fallbackEnabled)
+  rt.fallbackProfiles = [];
+  if (cfg.fallbackEnabled) {
+    const activeId = String((appSettings as any)?.activeAiProfileId || '');
+    const all = getAiProviderProfiles(appSettings);
+    const ids: string[] = Array.isArray(cfg.fallbackOrder) ? cfg.fallbackOrder.map((s: any) => String(s)) : [];
+    const ordered = [
+      ...ids.map((id: string) => all.find(p => p.id === id)).filter(Boolean),
+      ...all.filter(p => !ids.includes(p.id))
+    ];
+    for (const prof of ordered as any[]) {
+      if (!prof || prof.id === activeId) continue;
+      const key2 = decryptSecret(prof.customApiKeyEnc || '', AI_PROVIDER_CREDENTIAL_KEY);
+      if (!key2) continue;
+      rt.fallbackProfiles.push({ label: prof.label, baseUrl: prof.customBaseUrl, apiKey: key2, model: prof.customModel || 'auto' });
+    }
+  }
 }
 
 function customAiAvailable(): boolean {
@@ -23334,7 +23351,7 @@ app.get("/api/ai-provider/profiles", requireAuth, requireRole(['admin', 'adminis
       await saveData('settings', appSettings);
       migrated = true;
     }
-    res.json({ success: true, profiles: profiles.map(publicProfileView), migrated, activeProfileId: appSettings.activeAiProfileId || null, active: { customBaseUrl: activeCfg?.customBaseUrl || '', customModel: activeCfg?.customModel || 'auto' } });
+    res.json({ success: true, profiles: profiles.map(publicProfileView), migrated, activeProfileId: appSettings.activeAiProfileId || null, active: { customBaseUrl: activeCfg?.customBaseUrl || '', customModel: activeCfg?.customModel || 'auto' }, fallback: { enabled: Boolean(activeCfg?.fallbackEnabled), order: Array.isArray(activeCfg?.fallbackOrder) ? activeCfg.fallbackOrder : [] } });
   } catch (e: any) {
     res.status(500).json({ success: false, message: safeServerError(e) });
   }
