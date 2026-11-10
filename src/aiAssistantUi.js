@@ -74,6 +74,9 @@
         <div class="flex items-end gap-2">
           <textarea id="ai-assistant-input" rows="1" placeholder="Tanya apa saja… (fitur aplikasi / pertanyaan umum)"
             class="flex-1 resize-none max-h-28 px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400"></textarea>
+          <button id="ai-assistant-attach" onclick="document.getElementById('ai-assistant-file').click()" title="Lampirkan gambar"
+            class="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center shrink-0 cursor-pointer"><i class="fa-solid fa-image text-sm"></i></button>
+          <input type="file" id="ai-assistant-file" accept="image/*" class="hidden" onchange="window.aiAssistantPickImage(this)">
           <button id="ai-assistant-send" onclick="window.sendAiAssistantMessage()"
             class="w-10 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center shrink-0 cursor-pointer"><i class="fa-solid fa-paper-plane text-sm"></i></button>
         </div>
@@ -285,14 +288,77 @@
     window.loadAiAssistantHistory();
   };
 
+  let pendingImage = null; // {mime, data, name}
+
+  window.aiAssistantPickImage = function (input) {
+    const file = input && input.files && input.files[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) { if (typeof showToast === 'function') showToast('Gambar terlalu besar (maks 4 MB).', 'error'); input.value = ''; return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      pendingImage = { mime: file.type || 'image/jpeg', data: String(reader.result).split(',')[1] || '', name: file.name };
+      const bar = document.getElementById('ai-assistant-imgbar');
+      if (bar) { bar.classList.remove('hidden'); document.getElementById('ai-assistant-imgname').textContent = file.name; }
+    };
+    reader.readAsDataURL(file);
+    input.value = '';
+  };
+
+  window.aiAssistantClearImage = function () {
+    pendingImage = null;
+    const bar = document.getElementById('ai-assistant-imgbar');
+    if (bar) bar.classList.add('hidden');
+  };
+
+  function renderAssets(assets) {
+    if (!Array.isArray(assets) || !assets.length) return null;
+    const box = messagesBox();
+    if (!box) return null;
+    const wrap = document.createElement('div');
+    wrap.className = 'flex justify-start';
+    const inner = document.createElement('div');
+    inner.className = 'max-w-[85%] space-y-2';
+    assets.forEach((a) => {
+      if (!a || !a.url) return;
+      if (a.type === 'image') {
+        const img = document.createElement('img');
+        img.src = a.url;
+        img.alt = 'Gambar hasil AI';
+        img.className = 'rounded-2xl border border-slate-200 shadow-sm max-w-full cursor-zoom-in';
+        img.onclick = () => window.open(a.url, '_blank');
+        inner.appendChild(img);
+      } else if (a.type === 'audio') {
+        const audio = document.createElement('audio');
+        audio.controls = true;
+        audio.src = a.url;
+        audio.className = 'w-64';
+        inner.appendChild(audio);
+      } else if (a.type === 'download') {
+        const btn = document.createElement('a');
+        btn.href = a.url;
+        btn.setAttribute('download', a.name || 'dokumen.doc');
+        btn.className = 'inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold cursor-pointer';
+        btn.innerHTML = '<i class="fa-solid fa-file-arrow-down"></i> Unduh ' + esc(a.name || 'dokumen.doc');
+        inner.appendChild(btn);
+      }
+    });
+    wrap.appendChild(inner);
+    box.appendChild(wrap);
+    box.scrollTop = box.scrollHeight;
+    return wrap;
+  }
+
   window.sendAiAssistantMessage = async function () {
     const input = document.getElementById('ai-assistant-input');
     const sendBtn = document.getElementById('ai-assistant-send');
     const text = String(input?.value || '').trim();
     if (!text || !input) return;
+    const imgToSend = pendingImage;
+    if (!text && !imgToSend) return;
     input.value = '';
     input.style.height = 'auto';
-    appendBubble('user', text);
+    appendBubble('user', text || ('Lampiran gambar: ' + (imgToSend.name || 'gambar')));
+    if (imgToSend) window.aiAssistantClearImage();
     showTyping();
     if (sendBtn) { sendBtn.disabled = true; sendBtn.classList.add('opacity-50'); }
     try {
@@ -301,12 +367,13 @@
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ message: text }),
+        body: JSON.stringify({ message: text, image: imgToSend ? { mime: imgToSend.mime, data: imgToSend.data } : undefined }),
       });
       const data = await res.json();
       hideTyping();
       if (data?.success && data.reply) {
         appendBubble('assistant', data.reply);
+        renderAssets(data.assets);
         // Agent: antar admin langsung ke halaman yang diminta
         if (Array.isArray(data.navigation) && data.navigation.length && typeof window.navigateTo === 'function') {
           data.navigation.forEach((route) => {

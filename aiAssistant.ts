@@ -181,7 +181,7 @@ function makeTeacherTools(teacherId: string, teacher: any): ToolDef[] {
 // ---------------------------------------------------------------------------
 // TOOLS
 // ---------------------------------------------------------------------------
-type ToolDef = { name: string; description: string; parameters: any; exec: (args: any, req: any) => any };
+type ToolDef = { name: string; description: string; parameters: any; exec: (args: any, req: any) => any | Promise<any> };
 
 function tenantOf(item: any): string {
   return String(item?.madrasahId || item?.madrasahSlug || item?.tenant || "default");
@@ -450,6 +450,227 @@ function makeTools(): ToolDef[] {
   ];
 }
 
+
+// ---------------------------------------------------------------------------
+// MEDIA GENERATION HELPERS (REST ke Google Generative Language API).
+// Semua kemampuan generatif media hanya lewat GEMINI_API_KEY. Bila tidak ada,
+// tool mengembalikan pesan "provider tidak mendukung".
+// ---------------------------------------------------------------------------
+const NO_GEMINI_MSG = "Provider tidak mendukung. Generate media (gambar/suara/vision) membutuhkan profil AI Google Gemini (GEMINI_API_KEY belum diatur di server).";
+
+function geminiApiKey(): string {
+  return String(process.env.GEMINI_API_KEY || "").trim();
+}
+
+async function geminiREST(model: string, body: any, timeoutMs = 120000): Promise<any> {
+  const key = geminiApiKey();
+  if (!key) throw new Error(NO_GEMINI_MSG);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const data: any = await resp.json().catch(() => null);
+  if (!resp.ok) {
+    const msg = String(data?.error?.message || `Gemini ${resp.status}`);
+    if (resp.status === 429) throw new Error("Kuota/rate limit Gemini tercapai. Coba lagi nanti.");
+    throw new Error(msg);
+  }
+  return data;
+}
+
+function firstInlineData(data: any): { mime: string; data: string } | null {
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  for (const p of parts) {
+    if (p?.inlineData?.data) return { mime: String(p.inlineData.mimeType || "application/octet-stream"), data: String(p.inlineData.data) };
+  }
+  return null;
+}
+
+function firstText(data: any): string {
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  for (const p of parts) if (typeof p?.text === "string" && p.text.trim()) return p.text.trim();
+  return "";
+}
+
+function pcmToWavBase64(pcmB64: string, sampleRate = 24000, channels = 1, bits = 16): string {
+  const pcm = Buffer.from(pcmB64, "base64");
+  const byteRate = sampleRate * channels * bits / 8;
+  const blockAlign = channels * bits / 8;
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0); header.writeUInt32LE(36 + pcm.length, 4); header.write("WAVE", 8);
+  header.write("fmt ", 12); header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(channels, 22); header.writeUInt32LE(sampleRate, 24); header.writeUInt32LE(byteRate, 28);
+  header.writeUInt16LE(blockAlign, 32); header.writeUInt16LE(bits, 34); header.write("data", 36); header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]).toString("base64");
+}
+
+async function uploadCloudinary(b64: string, mime: string, resourceType: "image" | "video" | "raw"): Promise<string | null> {
+  try {
+    const cld = (require("cloudinary") as any)?.v2;
+    if (!cld || !process.env.CLOUDINARY_URL) return null;
+    const dataUri = `data:${mime};base64,${b64}`;
+    const result = await new Promise<any>((resolve, reject) => {
+      cld.uploader.upload(dataUri, { resource_type: resourceType }, (err: any, res: any) => err ? reject(err) : resolve(res));
+    });
+    return result?.secure_url || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// TOOLS GENERATE KONTEN (admin) - gambar, suara, dokumen, analisis gambar.
+// ---------------------------------------------------------------------------
+function makeMediaTools(): ToolDef[] {
+  return [
+    {
+      name: "generate_document",
+      description: "Buat dokumen teks (modul ajar, RPP, silabus, kisi-kisi, naskah soal, ringkasan materi, surat/pengumuman, atau dokumen bebas) lalu siapkan file .doc yang bisa diunduh admin dari chat. Pakai saat admin minta 'buatkan/bikin dokumen X'.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Judul dokumen" },
+          content_brief: { type: "string", description: "Jenis+isi dokumen: modul_ajar|rpp|silabus|kisi_kisi|naskah_soal|ringkasan|surat|bebas + topik + detail (kelas, mapel, jumlah soal, dsb)" },
+        },
+        required: ["title", "content_brief"],
+      },
+      exec: async (args: any) => {
+        const title = String(args.title || "Dokumen").trim();
+        const brief = String(args.content_brief || "").trim();
+        if (!brief) return { ok: false, error: "Brief dokumen kosong." };
+        const prompt = `Buat dokumen berikut dalam Bahasa Indonesia dengan format HTML sederhana (tag h1-h3, p, ul/ol, table bila perlu - TANPA style/css/javascript). Jangan menambahkan penjelasan di luar HTML.\nJudul: ${title}\nKebutuhan: ${brief}`;
+        try {
+          const g: any = globalThis as any;
+          const runtime = g.__aiProviderRuntime || {};
+          const baseUrl = String(runtime.customBaseUrl || process.env.CUSTOM_AI_BASE_URL || "https://token.lightvela.ai/v1").replace(/\/$/, "");
+          const apiKey = runtime.customApiKey || process.env.CUSTOM_AI_API_KEY || "";
+          const model = runtime.customModel || process.env.CUSTOM_AI_MODEL || "auto";
+          let html = "";
+          if (apiKey && baseUrl) {
+            const resp = await fetch(`${baseUrl}/chat/completions`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+              body: JSON.stringify({ model, messages: [{ role: "user", content: prompt }], temperature: 0.6, max_tokens: 8000 }),
+              signal: AbortSignal.timeout(180000),
+            });
+            if (!resp.ok) throw new Error(`Provider ${resp.status}`);
+            const data: any = await resp.json();
+            html = String(data?.choices?.[0]?.message?.content || "").trim();
+            html = html.replace(/^```[a-z]*\n?/i, "").replace(/\n?```$/, "").trim();
+          } else if (geminiApiKey()) {
+            const data = await geminiREST("gemini-2.5-flash", { contents: [{ role: "user", parts: [{ text: prompt }] }] }, 180000);
+            html = firstText(data);
+          } else {
+            return { ok: false, error: "Provider tidak mendukung: tidak ada profil AI aktif maupun GEMINI_API_KEY." };
+          }
+          if (!html) return { ok: false, error: "AI memberikan hasil kosong." };
+          const docHtml = `<html xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>${title.replace(/[<>&"]/g, "")}</title></head><body style="font-family:'Times New Roman',serif;font-size:12pt;line-height:1.5">${html}</body></html>`;
+          const token = require("crypto").randomBytes(16).toString("hex");
+          const g2: any = globalThis as any;
+          if (!g2.__assistantDocs) g2.__assistantDocs = new Map();
+          g2.__assistantDocs.set(token, { title, html: docHtml, createdAt: Date.now() });
+          const t = setTimeout(() => g2.__assistantDocs?.delete(token), 1000 * 60 * 60); t.unref?.();
+          const safeName = title.replace(/[^a-zA-Z0-9\s-]/g, "").trim().replace(/\s+/g, "_") || "dokumen";
+          return { ok: true, __asset: [{ type: "download", url: `/api/ai-assistant/document/${token}`, name: `${safeName}.doc`, mime: "application/msword" }], message: `Dokumen "${title}" selesai dibuat. Tombol unduh muncul di chat.` };
+        } catch (e: any) {
+          return { ok: false, error: e?.message || "Gagal membuat dokumen." };
+        }
+      },
+    },
+    {
+      name: "generate_image",
+      description: "Generate gambar/ilustrasi (mis. ilustrasi materi, poster, gambar untuk soal). Pakai saat admin minta 'buatkan gambar X'.",
+      parameters: {
+        type: "object",
+        properties: { prompt: { type: "string", description: "Deskripsi gambar yang diinginkan (detail, gaya)" } },
+        required: ["prompt"],
+      },
+      exec: async (args: any) => {
+        const prompt = String(args.prompt || "").trim();
+        if (!prompt) return { ok: false, error: "Deskripsi gambar kosong." };
+        if (!geminiApiKey()) return { ok: false, error: NO_GEMINI_MSG };
+        try {
+          const data = await geminiREST("gemini-2.5-flash-image", {
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+            generationConfig: { responseModalities: ["IMAGE"] },
+          }, 180000);
+          const img = firstInlineData(data);
+          if (!img) return { ok: false, error: "Gemini tidak menghasilkan gambar (mungkin permintaan ditolak). Coba deskripsi lain." };
+          let url = await uploadCloudinary(img.data, img.mime, "image");
+          if (!url) url = `data:${img.mime};base64,${img.data}`;
+          return { ok: true, __asset: [{ type: "image", url, mime: img.mime }], message: "Gambar selesai dibuat, ditampilkan di chat." };
+        } catch (e: any) {
+          return { ok: false, error: e?.message || "Gagal membuat gambar." };
+        }
+      },
+    },
+    {
+      name: "generate_speech",
+      description: "Ubah teks menjadi suara (text-to-speech, audio). Pakai saat admin minta 'bacakan/buatkan suara/audio X'.",
+      parameters: {
+        type: "object",
+        properties: {
+          text: { type: "string", description: "Teks yang dibacakan" },
+          style: { type: "string", description: "Gaya suara opsional, mis: ceria, tenang, tegas, narasi pelan" },
+        },
+        required: ["text"],
+      },
+      exec: async (args: any) => {
+        const text = String(args.text || "").trim();
+        if (!text) return { ok: false, error: "Teks kosong." };
+        if (text.length > 3000) return { ok: false, error: "Teks terlalu panjang (maks 3000 karakter)." };
+        if (!geminiApiKey()) return { ok: false, error: NO_GEMINI_MSG };
+        try {
+          const style = String(args.style || "").trim();
+          const spoken = style ? `Bacakan dengan gaya ${style}: ${text}` : text;
+          const data = await geminiREST("gemini-2.5-flash-preview-tts", {
+            contents: [{ role: "user", parts: [{ text: spoken }] }],
+            generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } } } },
+          }, 180000);
+          const audio = firstInlineData(data);
+          const mime = String(audio?.mime || "");
+          if (!audio || (!(mime.includes("audio") && !mime.includes("wav")) && !mime.includes("pcm") && !mime.includes("wav"))) return { ok: false, error: "Gemini tidak menghasilkan audio." };
+          const wavB64 = mime.includes("wav") ? audio.data : pcmToWavBase64(audio.data);
+          let url = await uploadCloudinary(wavB64, "audio/wav", "video");
+          if (!url) url = `data:audio/wav;base64,${wavB64}`;
+          return { ok: true, __asset: [{ type: "audio", url, mime: "audio/wav" }], message: "Audio siap, diputar di chat." };
+        } catch (e: any) {
+          return { ok: false, error: e?.message || "Gagal membuat audio." };
+        }
+      },
+    },
+    {
+      name: "analyze_image",
+      description: "Menganalisis gambar yang dilampirkan admin di chat (OCR naskah/soal, baca tabel nilai, jelaskan isi gambar).",
+      parameters: {
+        type: "object",
+        properties: { question: { type: "string", description: "Pertanyaan/tugas terhadap gambar" } },
+        required: ["question"],
+      },
+      exec: async (args: any, req: any) => {
+        const g: any = globalThis as any;
+        const pendingImg = g.__assistantPendingImage;
+        if (!pendingImg?.data) return { ok: false, error: "Tidak ada gambar terlampir di pesan ini." };
+        if (!geminiApiKey()) return { ok: false, error: NO_GEMINI_MSG };
+        const question = String(args.question || "Jelaskan isi gambar ini.").trim();
+        try {
+          const data = await geminiREST("gemini-2.5-flash", {
+            contents: [{ role: "user", parts: [{ text: question }, { inlineData: { mimeType: pendingImg.mime, data: pendingImg.data } }] }],
+          }, 120000);
+          const out = firstText(data);
+          if (!out) return { ok: false, error: "Gemini tidak memberikan hasil." };
+          g.__assistantPendingImage = null;
+          return { ok: true, text: out };
+        } catch (e: any) {
+          return { ok: false, error: e?.message || "Gagal menganalisis gambar." };
+        }
+      },
+    },
+  ];
+}
 function toolDefsForProvider(tools: ToolDef[]) {
   return tools.map((t) => ({
     type: "function",
@@ -465,6 +686,12 @@ function buildAssistantSystemPrompt(): string {
 
 KAMU PUNYA KEMAMPUAN AGENT:
 - Kamu bisa MEMANGGIL TOOLS untuk melihat data live aplikasi (statistik, cari siswa/guru/kelas/ujian) — lakukan SEBELUM menjawab pertanyaan tentang data; jangan pernah mengarang angka.
+- Kamu punya kemampuan GENERATE KONTEN lewat tools:
+  * generate_document: buat dokumen (modul ajar, RPP, silabus, kisi-kisi, naskah soal, ringkasan, surat, dokumen bebas) - file unduhan muncul otomatis di chat.
+  * generate_image: buat gambar/ilustrasi.
+  * generate_speech: ubah teks jadi audio (bacakan teks).
+  * analyze_image: analisis gambar yang dilampirkan admin (OCR, baca tabel, jelaskan isi).
+- Bila tool media mengembalikan error "Provider tidak mendukung", sampaikan apa adanya dengan sopan: kemampuan itu butuh Gemini (GEMINI_API_KEY) dan sarankan admin mengaturnya di server, TANPA menyebut nama tool secara teknis.
 - Kamu bisa MEMANGGIL navigate_to untuk MENGANTAR admin langsung ke halaman tertentu — gunakan saat admin bertanya "di mana", "buka", "tunjukkan", atau setelah menjelaskan cara pakai sebuah fitur agar admin langsung diantar ke sana. Dalam jawaban, sebutkan secara natural bahwa kamu sudah mengantarkan/membuka halamannya.
 
 PENGETAHUANMU TENTANG APLIKASI:
@@ -655,7 +882,7 @@ const MAX_TOOL_ROUNDS = 5;
 
 async function runAgent(text: string, session: any, req: any, h: AssistantHelpers, opts?: { mode?: "admin" | "teacher"; teacher?: any }) {
   const mode = opts?.mode || "admin";
-  const tools = mode === "teacher" ? makeTeacherTools(String(opts?.teacher?.id || ""), opts?.teacher) : [...makeTools(), ...makeWriteTools()];
+  const tools = mode === "teacher" ? makeTeacherTools(String(opts?.teacher?.id || ""), opts?.teacher) : [...makeTools(), ...makeWriteTools(), ...makeMediaTools()];
   const sysPrompt = mode === "teacher" ? buildTeacherSystemPrompt(opts?.teacher) : buildAssistantSystemPrompt();
   const g: any = globalThis as any;
   const runtime = g.__aiProviderRuntime || {};
@@ -672,6 +899,7 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
   const navigation: string[] = [];
   const highlights: Array<{ route: string; element: string; label: string }> = [];
   const pendingWritesOut: Array<{ id: string; summary: string }> = [];
+  const assets: Array<{ type: string; url: string; name?: string; mime?: string }> = [];
 
   const processToolResult = (result: any) => {
     if (result && result.__navigate) {
@@ -683,8 +911,11 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
     if (result && result.__highlight) {
       highlights.push({ route: result.route, element: result.__highlight, label: result.__label || result.__highlight });
     }
+    if (result && Array.isArray(result.__asset)) {
+      for (const a of result.__asset) assets.push(a);
+    }
     if (result && (result.__navigate || result.__highlight)) {
-      const { __navigate, __highlight, __label, __pendingWrite, __summary, ...rest } = result;
+      const { __navigate, __highlight, __label, __pendingWrite, __summary, __asset, ...rest } = result;
       return rest;
     }
     return result;
@@ -715,7 +946,7 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
         if (toolCalls.length) console.log("[AIAssistant] tool calls ronde", round + 1, ":", toolCalls.map((t: any) => t?.function?.name).join(","));
         if (!toolCalls.length) {
           const reply = String(msg.content || "").trim();
-          if (reply) return { reply, navigation, highlights, pendingWrites: pendingWritesOut.length ? pendingWritesOut : (WRITE_CLAIM_RE.test(reply) ? [buildDeterministicPendingWrite(text, req)].filter(Boolean) as any : pendingWritesOut) };
+          if (reply) return { reply, navigation, highlights, assets: assets.length ? assets : undefined, pendingWrites: pendingWritesOut.length ? pendingWritesOut : (WRITE_CLAIM_RE.test(reply) ? [buildDeterministicPendingWrite(text, req)].filter(Boolean) as any : pendingWritesOut) };
           break;
         }
         messages.push(msg);
@@ -724,7 +955,7 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
           let result: any;
           try {
             const args = typeof tc.function.arguments === "string" ? JSON.parse(tc.function.arguments || "{}") : (tc.function.arguments || {});
-            result = def ? def.exec(args, req) : { ok: false, error: "Tool tidak dikenal" };
+            result = def ? await def.exec(args, req) : { ok: false, error: "Tool tidak dikenal" };
           } catch (e: any) {
             result = { ok: false, error: e?.message || "Tool gagal" };
           }
@@ -795,9 +1026,9 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
   // Perizinan (mode 'allowed' pakai AI bersama ATAU 'own' dengan key terpasang).
   app.post("/api/ai-assistant/teacher/chat", h.requireAuth, h.requireRole(["teacher", "guru"]), async (req: Request, res: Response) => {
     try {
-      const { message } = (req.body || {}) as { message?: string };
+      const { message, image } = (req.body || {}) as { message?: string; image?: { mime?: string; data?: string } };
       const text = String(message || "").trim();
-      if (!text) return res.status(400).json({ success: false, message: "Pesan tidak boleh kosong." });
+      if (!text && !(image && image.data)) return res.status(400).json({ success: false, message: "Pesan tidak boleh kosong." });
 
       const authUser: any = h.getAuthUser(req);
       const userId = String(authUser?.id || "");
@@ -816,14 +1047,17 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
 
       (globalThis as any).__assistantAuthUser = authUser;
       const { session } = getSession(req);
-      pushTurn(session, "user", text);
+      const imgDataT = String(image?.data || "").replace(/^data:[^,]+,/, "");
+      (globalThis as any).__assistantPendingImage = imgDataT ? { mime: String(image?.mime || "image/jpeg"), data: imgDataT } : null;
+      const effectiveText = text || "Analisis gambar yang saya lampirkan.";
+      pushTurn(session, "user", effectiveText);
 
-      const { reply, navigation: agentNav, highlights: agentHl } = await runAgent(text, session, req, h, { mode: "teacher", teacher });
+      const { reply, navigation: agentNav, highlights: agentHl, assets: agentAssets } = await runAgent(effectiveText, session, req, h, { mode: "teacher", teacher });
       const navigation = agentNav;
       const highlights = agentHl && agentHl.length ? agentHl : [];
       pushTurn(session, "assistant", reply);
 
-      return res.json({ success: true, reply, navigation, highlights, mode, turns: session.turns.length });
+      return res.json({ success: true, reply, navigation, highlights, assets: (agentAssets && agentAssets.length) ? agentAssets : undefined, mode, turns: session.turns.length });
     } catch (err: any) {
       console.error("[AIAssistant] teacher chat gagal:", err?.message || err);
       return res.status(500).json({ success: false, message: err?.message || "Asisten AI gagal merespons." });
@@ -845,15 +1079,19 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
 
   app.post("/api/ai-assistant/chat", h.requireAuth, h.requireRole(["admin", "administrator", "bos", "superadmin"]), async (req: Request, res: Response) => {
     try {
-      const { message } = (req.body || {}) as { message?: string };
+      const { message, image } = (req.body || {}) as { message?: string; image?: { mime?: string; data?: string } };
       const text = String(message || "").trim();
-      if (!text) return res.status(400).json({ success: false, message: "Pesan tidak boleh kosong." });
+      if (!text && !(image && image.data)) return res.status(400).json({ success: false, message: "Pesan tidak boleh kosong." });
 
       (globalThis as any).__assistantAuthUser = h.getAuthUser(req);
       const { session } = getSession(req);
-      pushTurn(session, "user", text);
+      const imgMime = String(image?.mime || "image/jpeg");
+      const imgData = String(image?.data || "").replace(/^data:[^,]+,/, "");
+      (globalThis as any).__assistantPendingImage = imgData ? { mime: imgMime, data: imgData } : null;
+      const effectiveText = text || "Analisis gambar yang saya lampirkan.";
+      pushTurn(session, "user", effectiveText);
 
-      const { reply, navigation: agentNav, highlights: agentHl, pendingWrites: pendingW } = await runAgent(text, session, req, h);
+      const { reply, navigation: agentNav, highlights: agentHl, assets: agentAssets, pendingWrites: pendingW } = await runAgent(effectiveText, session, req, h);
       // Jaminan navigasi nyata: bila model mengklaim mengantar tanpa tool call,
       // ekstrak tujuan dari teks admin secara deterministik.
       const navigation = reconcileNavigation(reply, text, agentNav);
@@ -864,10 +1102,26 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       for (const hl of highlights) { if (!navSet.has(hl.route)) navigation.unshift(hl.route); }
       pushTurn(session, "assistant", reply);
 
-      return res.json({ success: true, reply, navigation, highlights, pendingWrites: pendingW || [], turns: session.turns.length });
+      const assets = (agentAssets && agentAssets.length) ? agentAssets : undefined;
+      return res.json({ success: true, reply, navigation, highlights, assets, pendingWrites: pendingW || [], turns: session.turns.length });
     } catch (err: any) {
       console.error("[AIAssistant] chat gagal:", err?.message || err);
       return res.status(500).json({ success: false, message: err?.message || "Asisten AI gagal merespons." });
+    }
+  });
+
+  // Unduhan dokumen hasil generate_document (token sekali pakai-ish, TTL 1 jam).
+  app.get("/api/ai-assistant/document/:token", h.requireAuth, h.requireRole(["admin", "administrator", "bos", "superadmin"]), async (req: Request, res: Response) => {
+    try {
+      const token = String(req.params.token || "");
+      const g: any = globalThis as any;
+      const doc = g.__assistantDocs?.get(token);
+      if (!doc) return res.status(404).json({ success: false, message: "Dokumen tidak ditemukan / sudah kadaluarsa." });
+      res.setHeader("Content-Type", "application/msword");
+      res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(doc.title)}.doc"`);
+      return res.send(doc.html);
+    } catch {
+      return res.status(500).json({ success: false, message: "Gagal mengunduh dokumen." });
     }
   });
 
@@ -959,6 +1213,7 @@ export async function runGeminiAgent(text: string, session: any, req: any, histo
   const navigation: string[] = [];
   const highlights: Array<{ route: string; element: string; label: string }> = [];
   const pendingWritesOut: Array<{ id: string; summary: string }> = [];
+  const assets: Array<{ type: string; url: string; name?: string; mime?: string }> = [];
 
   for (const model of GEMINI_AGENT_MODELS) {
     try {
@@ -979,7 +1234,7 @@ export async function runGeminiAgent(text: string, session: any, req: any, histo
 
         if (!fnCalls.length) {
           const reply = String(response?.text || parts.map((p: any) => p?.text || "").join("") || "").trim();
-          if (reply) return { reply, navigation, highlights, pendingWrites: pendingWritesOut.length ? pendingWritesOut : (WRITE_CLAIM_RE.test(reply) ? [buildDeterministicPendingWrite(text, req)].filter(Boolean) as any : pendingWritesOut) };
+          if (reply) return { reply, navigation, highlights, assets: assets.length ? assets : undefined, pendingWrites: pendingWritesOut.length ? pendingWritesOut : (WRITE_CLAIM_RE.test(reply) ? [buildDeterministicPendingWrite(text, req)].filter(Boolean) as any : pendingWritesOut) };
           break;
         }
         contents.push({ role: "model", parts });
