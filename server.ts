@@ -18472,7 +18472,8 @@ Jumlah soal pilihan ganda: ${mcCount}
 Jumlah soal esay: ${essayCount}
 Jumlah opsi pilihan ganda: ${optionCount}${sumberMateriBlock}${instruksiKhususBlock}
 
-Format JSON array of objects dengan properti: type ('mc' atau 'essay'), question, options (array string), answer, explanation.
+WAJIB: Setiap soal, TANPA TERKECUALI (termasuk soal esay/uraian), HARUS punya "answer" (kunci jawaban lengkap) dan "explanation" (penjelasan pembelajaran yang jelas). Untuk soal esay, "answer" adalah kunci jawaban model berupa uraian lengkap yang benar (bukan kosong, bukan "-"). Untuk soal pilihan ganda, "answer" adalah teks opsi yang benar persis sama dengan salah satu item di "options". "options" hanya diisi untuk soal 'mc' (array string, boleh array kosong untuk essay).
+Format JSON array of objects dengan properti: type ('mc' atau 'essay'), question, options (array string), answer, explanation. Jangan pernah mengosongkan atau memotong field answer dan explanation.
 ${NO_DASHES_PROMPT}
 `;
 
