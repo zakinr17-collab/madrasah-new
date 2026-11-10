@@ -23579,7 +23579,27 @@ app.post("/api/ai-provider/check-keys", requireAuth, requireRole(["admin", "admi
         clearTimeout(t);
         entry.httpStatus = r.status;
         entry.latencyMs = Date.now() - started;
-        const errBody = await r.text().catch(() => '');
+        let errBody = await r.text().catch(() => '');
+        // Retry sekali tanpa max_tokens utk provider yang menolak parameter tsb (mis. Google)
+        if (!r.ok && r.status === 400) {
+          try {
+            const ctrl2 = new AbortController();
+            const t2 = setTimeout(() => ctrl2.abort(), 20000);
+            const r2 = await fetch(String(prof.customBaseUrl || "").replace(/\/$/, "") + "/chat/completions", {
+              method: "POST",
+              headers: { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" },
+              body: JSON.stringify({ model: prof.customModel || "auto", messages: [{ role: "user", content: "Balas dengan kata: OK" }] }),
+              signal: ctrl2.signal
+            });
+            clearTimeout(t2);
+            if (r2.ok) {
+              entry.httpStatus = 200; entry.status = "ok"; entry.detail = "Key aktif (tanpa max_tokens)"; entry.latencyMs = Date.now() - started;
+              results.push(entry); return;
+            }
+            entry.httpStatus = r2.status;
+            errBody = await r2.text().catch(() => errBody);
+          } catch (_) { /* pakai hasil pertama */ }
+        }
         const errMsg = String(errBody || '').slice(0, 200);
         if (r.ok) { entry.status = "ok"; entry.detail = "Key aktif"; }
         else if (r.status === 401 || r.status === 403) { entry.status = "invalid"; entry.detail = "Key tidak sah / dicabut"; }
