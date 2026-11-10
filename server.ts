@@ -23609,6 +23609,7 @@ app.post("/api/ai-provider/check-keys", requireAuth, requireRole(["admin", "admi
         else if (r.status === 401 || r.status === 403) { entry.status = "invalid"; entry.detail = "Key tidak sah / dicabut"; }
         else if (r.status === 429) { entry.status = "limited"; entry.detail = "Rate limit / kuota tercapai"; }
         else if (r.status === 402) { entry.status = "limited"; entry.detail = "Kredit habis"; }
+        else if (r.status === 503 || r.status === 529) { entry.status = "limited"; entry.detail = "Provider sedang kelebihan beban (high demand). Coba lagi nanti."; }
         else if (r.status === 400 && /api key|api_key|invalid[_ ]key|unregistered/i.test(errMsg)) { entry.status = "invalid"; entry.detail = "Key tidak sah (provider: " + errMsg.slice(0, 80) + ")"; }
         else if (r.status === 400 && /quota|billing/i.test(errMsg)) { entry.status = "limited"; entry.detail = "Kuota/billing bermasalah"; }
         else if (r.status === 404 && /model|not found/i.test(errMsg)) { entry.status = "error"; entry.detail = "Model tidak ditemukan di provider (cek nama model): " + errMsg.slice(0, 100); }
