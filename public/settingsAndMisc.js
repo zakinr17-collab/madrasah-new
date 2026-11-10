@@ -291,6 +291,23 @@ async function loadAiProviderProfiles() {
 }
 window.loadAiProviderProfiles = loadAiProviderProfiles;
 
+// KEY_STATUS_V1 (frontend)
+window.__aiKeyStatus = window.__aiKeyStatus || {};   // id -> {status, latencyMs, detail, checkedAt}
+window.checkAllAiKeys = async function(btn) {
+    const orig = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>Mengecek...'; }
+    try {
+        const res = await fetch('/api/ai-provider/check-keys', { method: 'POST', headers: { 'Authorization': 'Bearer ' + (appState.token || '') } });
+        const data = await res.json();
+        if (!data.success) { showToast(data.message || 'Gagal cek key.', 'error'); return; }
+        (data.results || []).forEach(r => { window.__aiKeyStatus[r.id] = { status: r.status, latencyMs: r.latencyMs, detail: r.detail, checkedAt: Date.now() }; });
+        renderAiProviderProfiles(window.__lastProfiles || []);
+        const okCount = (data.results || []).filter(r => r.status === 'ok').length;
+        showToast(`Cek selesai: ${okCount}/${(data.results || []).length} key aktif.`, 'success');
+    } catch (e) {
+        showToast('Gagal cek key: ' + (e.message || e), 'error');
+    } finally { if (btn) { btn.disabled = false; btn.innerHTML = orig; } }
+};
 window.__aiFallbackEnabled = window.__aiFallbackEnabled || false;
 window.__aiFallbackOrder = window.__aiFallbackOrder || [];
 function toggleAiFallback(btn) {
@@ -329,8 +346,19 @@ function renderAiProviderProfiles(profiles) {
             <button type="button" onclick="toggleAiFallback(this)" class="px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer border ${fb ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-white border-slate-200 text-slate-500'}">${fb ? '<i class="fa-solid fa-link mr-1"></i>Fallback: AKTIF' : '<i class="fa-solid fa-link-slash mr-1"></i>Fallback: Nonaktif'}</button>
         </div>`;
     const sorted = [...profiles].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+    const statusMeta = {
+        ok: { cls: 'bg-emerald-50 text-emerald-700 border-emerald-200', icon: 'fa-circle-check', txt: 'AKTIF' },
+        limited: { cls: 'bg-amber-50 text-amber-700 border-amber-200', icon: 'fa-hourglass-half', txt: 'LIMIT' },
+        invalid: { cls: 'bg-rose-50 text-rose-700 border-rose-200', icon: 'fa-circle-xmark', txt: 'TAK SAH' },
+        nokey: { cls: 'bg-slate-100 text-slate-500 border-slate-200', icon: 'fa-key', txt: 'TANPA KEY' },
+        unreachable: { cls: 'bg-slate-100 text-slate-500 border-slate-200', icon: 'fa-plug-circle-xmark', txt: 'TAK TERJANGKAU' },
+        error: { cls: 'bg-slate-100 text-slate-500 border-slate-200', icon: 'fa-triangle-exclamation', txt: 'ERROR' }
+    };
     wrap.innerHTML = fbToggle + sorted.map(p => {
         const isActive = __activeAiProfileId === p.id;
+        const st = window.__aiKeyStatus && window.__aiKeyStatus[p.id];
+        const stMeta = st ? (statusMeta[st.status] || null) : null;
+        const stBadge = stMeta ? `<span title="${(st.detail || '').replace(/"/g, '&quot;')}" class="shrink-0 px-1.5 py-0.5 rounded-full border text-[10px] font-bold ${stMeta.cls}"><i class="fa-solid ${stMeta.icon} mr-0.5"></i>${stMeta.txt}${st.status === 'ok' && st.latencyMs ? ' \u00b7 ' + st.latencyMs + 'ms' : ''}</span>` : '';
         const border = isActive ? 'border-emerald-400 bg-emerald-50/60' : 'border-slate-200 bg-white';
         const badge = isActive
             ? '<span class="shrink-0 px-1.5 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-bold"><i class="fa-solid fa-bolt mr-0.5"></i>AKTIF</span>'
@@ -346,6 +374,7 @@ function renderAiProviderProfiles(profiles) {
                     <p class="text-xs font-bold ${isActive ? 'text-emerald-800' : 'text-slate-700'} truncate">${escHtml(p.label || p.id)}</p>
                     <p class="text-[11px] text-slate-400 truncate">${escHtml(p.customBaseUrl || '')} \u00b7 ${escHtml(p.customModel || 'auto')}${p.hasApiKey ? '' : ' \u00b7 tanpa key'}</p>
                 </div>
+                ${stBadge}
             </div>
             <div class="flex items-center gap-1 shrink-0">
                 ${fb ? `<button type="button" onclick="moveAiProfileOrder('${p.id}', -1)" title="Naikkan urutan fallback" class="px-2 py-1 rounded-lg bg-white border border-slate-200 hover:border-slate-400 text-slate-600 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-arrow-up"></i></button>
@@ -748,6 +777,7 @@ function renderSettingModule(container) {
                             <label class="block text-xs uppercase font-bold text-slate-500">Daftar AI Tersimpan</label>
                             <div class="flex gap-1.5">
                                 <button type="button" onclick="checkAiProviderCredit(this)" class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:border-emerald-300 text-emerald-700 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-coins mr-1"></i>Cek Kredit</button>
+                                <button type="button" onclick="checkAllAiKeys(this)" class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:border-sky-300 text-sky-700 text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-satellite-dish mr-1"></i>Cek Semua Key</button>
                                 <button type="button" onclick="showAiProviderForm()" class="px-2.5 py-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-[11px] font-bold cursor-pointer"><i class="fa-solid fa-plus mr-1"></i>Tambah AI Baru</button>
                                 <button type="button" onclick="editActiveAiProvider()" class="px-2.5 py-1 rounded-lg bg-white border border-slate-200 hover:border-violet-300 text-slate-600 text-[11px] font-bold cursor-pointer">Edit AI Aktif</button>
                             </div>

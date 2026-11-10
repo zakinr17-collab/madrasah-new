@@ -23557,6 +23557,46 @@ app.delete("/api/ai-provider/profiles/:id", requireAuth, requireRole(['admin', '
   }
 });
 
+// KEY_STATUS_V1: ping kecil tiap profil utk status key (aktif/limit/tak sah)
+app.post("/api/ai-provider/check-keys", requireAuth, requireRole(["admin", "administrator", "bos", "superadmin"]), async (req: any, res) => {
+  try {
+    const profiles = getAiProviderProfiles(appSettings);
+    const results: any[] = [];
+    await Promise.all(profiles.map(async (prof) => {
+      const apiKey = decryptSecret(prof.customApiKeyEnc || "", AI_PROVIDER_CREDENTIAL_KEY);
+      const entry: any = { id: prof.id, label: prof.label, status: "unknown", httpStatus: 0, latencyMs: null, detail: "" };
+      if (!apiKey) { entry.status = "nokey"; entry.detail = "Profil belum punya API key."; results.push(entry); return; }
+      const started = Date.now();
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 20000);
+        const r = await fetch(String(prof.customBaseUrl || "").replace(/\/$/, "") + "/chat/completions", {
+          method: "POST",
+          headers: { "Authorization": "Bearer " + apiKey, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: prof.customModel || "auto", messages: [{ role: "user", content: "Balas dengan kata: OK" }], max_tokens: 5 }),
+          signal: ctrl.signal
+        });
+        clearTimeout(t);
+        entry.httpStatus = r.status;
+        entry.latencyMs = Date.now() - started;
+        if (r.ok) { entry.status = "ok"; entry.detail = "Key aktif"; }
+        else if (r.status === 401 || r.status === 403) { entry.status = "invalid"; entry.detail = "Key tidak sah / dicabut"; }
+        else if (r.status === 429) { entry.status = "limited"; entry.detail = "Rate limit / kuota tercapai"; }
+        else if (r.status === 402) { entry.status = "limited"; entry.detail = "Kredit habis"; }
+        else { entry.status = "error"; entry.detail = "HTTP " + r.status; }
+      } catch (e: any) {
+        entry.latencyMs = Date.now() - started;
+        entry.status = "unreachable";
+        entry.detail = "Server provider tidak terjangkau: " + String(e?.message || e).slice(0, 120);
+      }
+      results.push(entry);
+    }));
+    res.json({ success: true, results });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
 app.post("/api/ai-provider/test", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
   try {
     // Tes memakai kredensial yang AKAN aktif (DB runtime + env).
