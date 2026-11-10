@@ -280,12 +280,13 @@ async function loadAiProviderProfiles() {
         const data = await res.json();
         if (!data.success) return;
         __activeAiProfileId = data.activeProfileId || null;
-        if (data.fallback) {
+        if (data.fallback && typeof window.__aiFallbackLoaded !== 'boolean') {
+            window.__aiFallbackLoaded = true;
             window.__aiFallbackEnabled = !!data.fallback.enabled;
-            window.__aiFallbackOrder = Array.isArray(data.fallback.order) ? data.fallback.order : [];
+            window.__aiFallbackOrder = Array.isArray(data.fallback.order) && data.fallback.order.length ? data.fallback.order : [];
         }
         renderAiProviderProfiles(data.profiles || []);
-        if (!__aiCreditInfo) checkAiProviderCredit(null);
+        if (!__aiCreditInfo) checkAiProviderCredit(null, true);
     } catch (e) { /* diam */ }
 }
 window.loadAiProviderProfiles = loadAiProviderProfiles;
@@ -298,7 +299,7 @@ function toggleAiFallback(btn) {
         btn.className = 'px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer border ' + (window.__aiFallbackEnabled ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-white border-slate-200 text-slate-500');
         btn.innerHTML = window.__aiFallbackEnabled ? '<i class="fa-solid fa-link mr-1"></i>Fallback: AKTIF' : '<i class="fa-solid fa-link-slash mr-1"></i>Fallback: Nonaktif';
     }
-    if (typeof loadAiProviderProfiles === 'function') loadAiProviderProfiles();
+    if (window.__lastProfiles) renderAiProviderProfiles(window.__lastProfiles);
 }
 window.toggleAiFallback = toggleAiFallback;
 function moveAiProfileOrder(id, dir) {
@@ -360,14 +361,14 @@ function renderAiProviderProfiles(profiles) {
 window.renderAiProviderProfiles = renderAiProviderProfiles;
 // ===== Cek sisa kredit LV (provider aktif) =====
 let __aiCreditInfo = null;
-window.checkAiProviderCredit = async function(btn) {
+window.checkAiProviderCredit = async function(btn, silent) {
     const orig = btn ? btn.innerHTML : '';
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Cek...'; }
     try {
         const res = await fetch('/api/ai-provider/credit', { headers: { 'Authorization': 'Bearer ' + (appState.token || '') } });
         const data = await res.json();
         if (!data.success) {
-            showToast(data.message || 'Gagal membaca kredit.', 'warning');
+            if (!silent) showToast(data.message || 'Gagal membaca kredit.', 'warning');
             __aiCreditInfo = null;
         } else {
             __aiCreditInfo = data.credit;
@@ -385,7 +386,7 @@ window.checkAiProviderCredit = async function(btn) {
             } else {
                 txt = `Sisa kredit: $${fmt(c.remainingUsd)}`;
             }
-            showToast(txt, 'success');
+            if (!silent) showToast(txt, 'success');
             const infoEl = document.getElementById('ai-provider-credit-info');
             if (infoEl) infoEl.innerHTML = `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-50 text-emerald-700 text-[11px] font-bold"><i class="fa-solid fa-coins text-amber-500"></i>${txt}</span>`;
         }
@@ -464,7 +465,7 @@ async function activateAiProviderProfile(id) {
             __aiCreditInfo = null;
             const creditEl = document.getElementById('ai-provider-credit-info');
             if (creditEl) creditEl.innerHTML = '';
-            checkAiProviderCredit(null);
+            checkAiProviderCredit(null, true);
             const cfg = data.config || {};
             const baseUrl = document.getElementById('ai-provider-base-url');
             const model = document.getElementById('ai-provider-model');

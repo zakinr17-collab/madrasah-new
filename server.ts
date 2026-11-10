@@ -18338,7 +18338,7 @@ app.post("/api/gemini/auto-koreksi-lkpd", requireAuth, requireRole(['teacher', '
     } else {
       // AI-based correction with Gemini 3.7 Flash
 
-      const ai = null; /* custom-first: client Gemini opsional */
+      const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { headers: { "User-Agent": "aistudio-build" } } }) : null; /* GEMINI_QUESTIONS_FIX */
 
       for (const sub of submissionsToGrade) {
         try {
@@ -18445,7 +18445,10 @@ app.post("/api/gemini/generate-questions", requireAuth, requireRole(['teacher', 
     const extraInstr = String(instruksiKhusus || "").trim().slice(0, 1000);
 
 
-    const ai = null; /* custom-first: client Gemini opsional */
+    // GEMINI_QUESTIONS_FIX: buat client Gemini asli bila key ada (dulu hardcode null ->
+    // callAI menolak gemini & request diam-diam jatuh ke soal mock catch-block)
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+    const ai = geminiApiKey ? new GoogleGenAI({ apiKey: geminiApiKey, httpOptions: { headers: { "User-Agent": "aistudio-build" } } }) : null;
 
     const sumberMateriBlock = materialText
       ? `
@@ -18531,7 +18534,7 @@ app.post("/api/gemini/generate-enrichment", requireAuth, requireRole(['teacher',
     const { topic } = req.body;
 
 
-    const ai = null; /* custom-first: client Gemini opsional */
+    const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { headers: { "User-Agent": "aistudio-build" } } }) : null; /* GEMINI_QUESTIONS_FIX */
 
     const prompt = `
 Buatkan uraian pengayaan pembelajaran atau ringkasan materi pembelajaran madrasah yang mendalam dan edukatif untuk topik: "${topic}".
@@ -20836,7 +20839,7 @@ app.post("/api/gemini/generate-modul", requireAuth, requireRole(['teacher', 'gur
     } catch (e: any) { console.warn('[Books] context load gagal:', e?.message || e); }
 
 
-    const ai = null; /* custom-first: client Gemini opsional */
+    const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { headers: { "User-Agent": "aistudio-build" } } }) : null; /* GEMINI_QUESTIONS_FIX */
 
     const category = detectSubjectCategoryServer(subjectName, topic);
     const subjectRule = getSubjectTemplateInstructions(subjectName, topic);
@@ -20899,7 +20902,7 @@ app.post("/api/gemini/generate-modul-all", requireAuth, requireRole(['teacher', 
         }
       }
     } catch (e: any) { console.warn('[Books] context load gagal:', e?.message || e); }
-    const ai = null; /* custom-first: client Gemini opsional */
+    const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { headers: { "User-Agent": "aistudio-build" } } }) : null; /* GEMINI_QUESTIONS_FIX */
 
     const category = detectSubjectCategoryServer(subjectName, topic, materiDetail);
     const subjectRule = getSubjectTemplateInstructions(subjectName, topic);
@@ -21244,7 +21247,7 @@ KEMBALIKAN HANYA OBJEK JSON MURNI DENGAN STRUKTUR:
 // AI Generate Modul 2 General (Alokasi Waktu, Silabus, ATP, KKTP)
 app.post("/api/gemini/generate-modul2-general", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
   try {
-    const ai = null; /* custom-first: client Gemini opsional */
+    const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { headers: { "User-Agent": "aistudio-build" } } }) : null; /* GEMINI_QUESTIONS_FIX */
     const { subjectName, babs } = req.body;
     
     const prompt = `
@@ -21313,7 +21316,7 @@ Pastikan isinya detail dan sangat profesional, serta tabel-tabelnya memiliki bor
 // AI Generate Modul 2 Bab (RPP, Analisis SKL, Modul Ajar)
 app.post("/api/gemini/generate-modul2-bab", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
   try {
-    const ai = null; /* custom-first: client Gemini opsional */
+    const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { headers: { "User-Agent": "aistudio-build" } } }) : null; /* GEMINI_QUESTIONS_FIX */
     const { subjectName, babTitle, grade = "X" } = req.body;
     
     const subjectRule = getSubjectTemplateInstructions(subjectName, babTitle);
@@ -21778,7 +21781,7 @@ ${NO_DASHES_PROMPT}
 // AI Generate Document Pack (12 Categories)
 app.post("/api/gemini/generate-kbc-document", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
   try {
-    const ai = null; /* custom-first: client Gemini opsional */
+    const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { headers: { "User-Agent": "aistudio-build" } } }) : null; /* GEMINI_QUESTIONS_FIX */
     const { docType, subjectName, babs = [], babIndex, babTitle, grade = "X", guruName, guruNip, kepsekName, kepsekNip } = req.body;
     
     let prompt = "";
@@ -21970,7 +21973,7 @@ app.post("/api/gemini/generate-soal-kisi", requireAuth, requireRole(['teacher', 
     const { subjectName, mcCount = 10, essayCount = 5, optionCount = 5, lessons = [], difficulty = "sedang" } = req.body;
 
 
-    const ai = null; /* custom-first: client Gemini opsional */
+    const ai = process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY, httpOptions: { headers: { "User-Agent": "aistudio-build" } } }) : null; /* GEMINI_QUESTIONS_FIX */
 
     let lessonsContext = "";
     if (lessons && lessons.length > 0) {
