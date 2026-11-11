@@ -23352,6 +23352,23 @@ app.post("/api/ai-provider/settings", requireAuth, requireRole(['admin', 'admini
   }
 });
 
+// Toggle fallback langsung persist (tanpa harus menekan Simpan & Terapkan). AI_FALLBACK_TOGGLE_V1
+app.post("/api/ai-provider/fallback-toggle", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
+  try {
+    const enabled = Boolean((req.body || {}).enabled);
+    const cfg = { ...getAiProviderConfig(), fallbackEnabled: enabled } as any;
+    if (enabled && (!Array.isArray(cfg.fallbackOrder) || !cfg.fallbackOrder.length)) {
+      cfg.fallbackOrder = getAiProviderProfiles(appSettings).map((p: any) => p.id).filter((id: string) => id !== appSettings.activeAiProfileId);
+    }
+    appSettings = { ...appSettings, aiProviderConfig: cfg } as any;
+    await saveData('settings', appSettings);
+    applyAiProviderRuntime();
+    res.json({ success: true, fallback: { enabled: Boolean(cfg.fallbackEnabled), order: cfg.fallbackOrder || [] } });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: safeServerError(e) });
+  }
+});
+
 app.get("/api/ai-provider/profiles", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
   try {
     // Auto-migrate: config aktif lama dijadikan profil pertama jika daftar masih kosong.

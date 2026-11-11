@@ -312,13 +312,31 @@ window.checkAllAiKeys = async function(btn, ids) {
 window.checkOneAiKey = function(id, btn) { window.checkAllAiKeys(btn, [id]); };
 window.__aiFallbackEnabled = window.__aiFallbackEnabled || false;
 window.__aiFallbackOrder = window.__aiFallbackOrder || [];
-function toggleAiFallback(btn) {
+async function toggleAiFallback(btn) {
     window.__aiFallbackEnabled = !window.__aiFallbackEnabled;
-    if (btn) {
-        btn.className = 'px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer border ' + (window.__aiFallbackEnabled ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-white border-slate-200 text-slate-500');
-        btn.innerHTML = window.__aiFallbackEnabled ? '<i class="fa-solid fa-link mr-1"></i>Fallback: AKTIF' : '<i class="fa-solid fa-link-slash mr-1"></i>Fallback: Nonaktif';
+    const render = () => {
+        if (btn) {
+            btn.className = 'px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer border ' + (window.__aiFallbackEnabled ? 'bg-emerald-50 border-emerald-300 text-emerald-700' : 'bg-white border-slate-200 text-slate-500');
+            btn.innerHTML = window.__aiFallbackEnabled ? '<i class="fa-solid fa-link mr-1"></i>Fallback: AKTIF' : '<i class="fa-solid fa-link-slash mr-1"></i>Fallback: Nonaktif';
+        }
+        if (window.__lastProfiles) renderAiProviderProfiles(window.__lastProfiles);
+    };
+    render();
+    // Persist langsung agar tidak hilang saat refresh (AI_FALLBACK_TOGGLE_V1)
+    try {
+        const res = await fetch('/api/ai-provider/fallback-toggle', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (appState.token || '') }, body: JSON.stringify({ enabled: window.__aiFallbackEnabled }) });
+        const data = await res.json();
+        if (data.success && data.fallback) {
+            window.__aiFallbackEnabled = !!data.fallback.enabled;
+            if (Array.isArray(data.fallback.order) && data.fallback.order.length) window.__aiFallbackOrder = data.fallback.order;
+            render();
+            showToast(window.__aiFallbackEnabled ? 'Fallback AI diaktifkan (tersimpan).' : 'Fallback AI dinonaktifkan (tersimpan).', 'success');
+        } else {
+            showToast(data.message || 'Gagal menyimpan status fallback.', 'error');
+        }
+    } catch (e) {
+        showToast('Gagal menyimpan status fallback: ' + (e.message || e), 'error');
     }
-    if (window.__lastProfiles) renderAiProviderProfiles(window.__lastProfiles);
 }
 window.toggleAiFallback = toggleAiFallback;
 function moveAiProfileOrder(id, dir) {
