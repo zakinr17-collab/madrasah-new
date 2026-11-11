@@ -220,6 +220,128 @@
       quick_actions: "#main-app .grid.grid-cols-1.sm\\:grid-cols-2.lg\\:grid-cols-3",
       agenda_banner: "#main-app",
     },
+    jadwal: {
+      add_event_btn: "button[onclick*='openEventModal'], button[onclick*='openScheduleEvent']",
+      schedule_search: "input[placeholder*='cari jadwal' i], input[placeholder*='Cari jadwal' i]",
+    },
+    absen: {
+      class_picker: "#attendance-class-select, select[onchange*='attendance']",
+      camera_box: "video, #attendance-camera",
+    },
+    asesmen: {
+      create_exam_btn: "button[onclick*='openExamModal']",
+      exam_event_list: "#exam-list-container, #assessment-list",
+    },
+    bank_soal: {
+      add_question_btn: "button[onclick*='openQuestionModal'], button[onclick*='addQuestion']",
+      question_search: "input[placeholder*='cari soal' i]",
+    },
+    nilai: {
+      grades_table: "table, #grades-container, #evaluasi-container",
+    },
+  };
+
+  // ---------------------------------------------------------------------------
+  // ISI FORM OTOMATIS (fill_form): server kirim __fillForm {form, data} ->
+  // navigasi, buka modal, isi field, JANGAN auto-submit (admin menekan Simpan).
+  // ---------------------------------------------------------------------------
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  async function openFormModal(form, attempt = 0) {
+    if (form === 'buat_ujian') {
+      if (typeof window.openExamModal === 'function') { window.openExamModal(null); return true; }
+    } else if (form === 'tambah_siswa') {
+      if (typeof window.openStudentModal === 'function') { window.openStudentModal(); return true; }
+    } else if (form === 'tambah_guru') {
+      if (typeof window.openTeacherModal === 'function') { window.openTeacherModal(); return true; }
+    }
+    if (attempt < 10) { await sleep(500); return openFormModal(form, attempt + 1); }
+    return false;
+  }
+
+  function setField(id, value) {
+    const el = document.getElementById(id);
+    if (!el || value === undefined || value === null) return false;
+    if (el.type === 'checkbox') { el.checked = !!value; el.dispatchEvent(new Event('change', { bubbles: true })); return true; }
+    el.value = String(value);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  }
+
+  window.aiAssistantFillForm = async function (form, d) {
+    d = d || {};
+    const ok = await openFormModal(form);
+    if (!ok) { if (typeof showToast === 'function') showToast('Formulir tidak dapat dibuka otomatis.', 'error'); return; }
+    await sleep(600);
+    let filled = 0, missing = [];
+    const put = (id, v) => { if (v === undefined || v === null) return; if (setField(id, v)) filled++; else missing.push(id); };
+    if (form === 'buat_ujian') {
+      put('ex-title', d.title);
+      if (d.subject) {
+        const sel = document.getElementById('ex-subject');
+        if (sel) { const opt = Array.from(sel.options).find((o) => o.value === d.subject || o.textContent === d.subject); if (opt) { sel.value = opt.value; sel.dispatchEvent(new Event('change', { bubbles: true })); filled++; } else missing.push('subject'); }
+      }
+      if (d.classAll) { const dd = document.getElementById('ex-class-dropdown'); if (dd) { dd.value = 'ALL'; if (typeof window.addExamClass === 'function') window.addExamClass('ALL'); filled++; } }
+      else if (Array.isArray(d.classNames) && d.classNames.length) {
+        const dd = document.getElementById('ex-class-dropdown');
+        if (dd) {
+          (d.classNames || []).forEach((cn) => {
+            const opt = Array.from(dd.options).find((o) => o.textContent === cn || o.value === cn);
+            if (opt) { if (typeof window.addExamClass === 'function') window.addExamClass(opt.value); filled++; }
+          });
+        }
+      }
+      if (d.bankCode) {
+        const sel = document.getElementById('ex-bank-code');
+        if (sel) { const opt = Array.from(sel.options).find((o) => o.value === d.bankCode || o.textContent.startsWith(d.bankCode)); if (opt) { sel.value = opt.value; filled++; } else missing.push('bankCode'); }
+      }
+      put('ex-question-count', d.questionCount);
+      put('ex-duration', d.duration);
+      put('ex-min-duration', d.minDuration);
+      put('ex-date', d.date);
+      put('ex-time', d.startTime);
+      put('ex-end-time', d.endTime);
+      if (d.type) { put('ex-type', d.type); if (typeof window.toggleEssayCountField === 'function') window.toggleEssayCountField(d.type); }
+      put('ex-essay-count', d.essayCount);
+      put('ex-auto-block', d.autoBlock !== undefined ? String(d.autoBlock) : undefined);
+      put('ex-shuffle-q', d.shuffleQ);
+      put('ex-shuffle-opt', d.shuffleOpt);
+      put('ex-show-score', d.showScore);
+      put('ex-allow-download', d.allowDownload);
+    } else if (form === 'tambah_siswa') {
+      put('std-name', d.name);
+      put('std-nis', d.nis);
+      if (d.className) {
+        const sel = document.getElementById('std-class');
+        if (sel) { const opt = Array.from(sel.options).find((o) => o.textContent === d.className || o.value === d.className); if (opt) { sel.value = opt.value; filled++; } else missing.push('className'); }
+      }
+      put('std-user', d.username);
+      put('std-pass', d.password);
+    } else if (form === 'tambah_guru') {
+      put('tch-name', d.name);
+      put('tch-nip', d.nip);
+      put('tch-nuptk', d.nuptk);
+      if (d.gender) put('tch-gender', d.gender);
+      put('tch-email', d.email);
+      put('tch-phone', d.phone);
+      put('tch-address', d.address);
+      put('tch-user', d.username);
+      put('tch-pass', d.password);
+      if (Array.isArray(d.mapels)) {
+        document.querySelectorAll('input[name="tch-mapels"]').forEach((cb) => { if (d.mapels.includes(cb.value)) { cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true })); filled++; } });
+      }
+    }
+    // Sorot tombol Simpan agar admin tinggal menekan
+    const saveBtn = document.querySelector('#modal-container button[type="submit"]');
+    if (saveBtn) {
+      saveBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      saveBtn.style.boxShadow = '0 0 0 4px rgba(16,185,129,.55), 0 0 24px 6px rgba(16,185,129,.35)';
+      setTimeout(() => { saveBtn.style.boxShadow = ''; }, 6000);
+    }
+    let msg = 'Formulir terisi otomatis (' + filled + ' kolom). Periksa lalu tekan tombol Simpan.';
+    if (missing.length) msg += ' Kolom tidak ditemukan: ' + missing.join(', ') + '.';
+    if (typeof showToast === 'function') showToast(msg, missing.length ? 'info' : 'success');
   };
 
   window.aiAssistantHighlight = function (route, element, label, attempt = 0) {
@@ -374,6 +496,9 @@
       if (data?.success && data.reply) {
         appendBubble('assistant', data.reply);
         renderAssets(data.assets);
+        if (Array.isArray(data.fillForms) && data.fillForms.length) {
+          data.fillForms.forEach((ff) => { if (ff && ff.form) window.aiAssistantFillForm(ff.form, ff.data); });
+        }
         // Agent: antar admin langsung ke halaman yang diminta
         if (Array.isArray(data.navigation) && data.navigation.length && typeof window.navigateTo === 'function') {
           data.navigation.forEach((route) => {

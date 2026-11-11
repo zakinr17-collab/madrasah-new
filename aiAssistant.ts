@@ -50,6 +50,22 @@ const UI_ELEMENT_MAP: Record<string, Record<string, UIElementDef>> = {
   },
   asesmen: {
     exam_list: { sel: "#exam-list-container, #assessment-list", desc: "Daftar ujian/sesi asesmen" },
+    create_exam_btn: { sel: "button[onclick*='openExamModal']", desc: "Tombol Buat Jadwal Ujian CBT" },
+  },
+  jadwal: {
+    add_event_btn: { sel: "button[onclick*='openEventModal'], button[onclick*='openScheduleEvent']", desc: "Tombol tambah event/kegiatan di Jadwal" },
+    schedule_search: { sel: "input[placeholder*='cari jadwal' i]", desc: "Kolom pencarian jadwal" },
+  },
+  absen: {
+    camera_box: { sel: "video, #attendance-camera", desc: "Area kamera absensi" },
+    class_picker: { sel: "#attendance-class-select, select[onchange*='attendance']", desc: "Pilih kelas untuk absensi" },
+  },
+  bank_soal: {
+    question_search: { sel: "input[placeholder*='cari soal' i]", desc: "Kolom pencarian soal" },
+    add_question_btn: { sel: "button[onclick*='openQuestionModal'], button[onclick*='addQuestion']", desc: "Tombol tambah soal baru" },
+  },
+  nilai: {
+    grades_table: { sel: "table, #grades-container, #evaluasi-container", desc: "Tabel/daftar nilai & evaluasi" },
   },
   modul_ajar: {
     subject_search: { sel: "input[placeholder*='cari mapel' i], input[placeholder*='Cari mapel' i], #mapel-search-input", desc: "Kolom pencarian mata pelajaran" },
@@ -447,6 +463,29 @@ function makeTools(): ToolDef[] {
         return { ok: true, route, elements: Object.entries(map).map(([k, v]) => ({ key: k, deskripsi: v.desc })) };
       },
     },
+    {
+      name: "fill_form",
+      description: "Buka & ISI formulir di aplikasi lalu tampilkan untuk dikonfirmasi admin (tidak otomatis disimpan). Form tersedia: buat_ujian (jadwal CBT), tambah_siswa, tambah_guru. Gunakan saat admin minta 'buatkan jadwal ujian X', 'tambahkan siswa Y', dll. Setelah diisi, tombol Simpan tetap ditekan admin sendiri.",
+      parameters: {
+        type: "object",
+        properties: {
+          form: { type: "string", description: "buat_ujian | tambah_siswa | tambah_guru", enum: ["buat_ujian", "tambah_siswa", "tambah_guru"] },
+          data: {
+            type: "object",
+            description: "Data field formulir. buat_ujian: title, subject, classAll (bool=semua kelas), classNames (array nama kelas), bankCode, questionCount, duration, minDuration, date (YYYY-MM-DD), startTime (HH:MM), endTime, type (pilihan_ganda|esay_saja|pilihan_dan_esay), essayCount, autoBlock (0|3|5), shuffleQ, shuffleOpt, showScore, allowDownload. tambah_siswa: name, nis, className, username, password. tambah_guru: name, nip, nuptk, gender (L|P), email, phone, address, username, password, mapels (array nama mapel).",
+          },
+        },
+        required: ["form", "data"],
+      },
+      exec: (args: any, _req: any) => {
+        const form = String(args.form || "").trim();
+        const FORMS = ["buat_ujian", "tambah_siswa", "tambah_guru"];
+        if (!FORMS.includes(form)) return { ok: false, error: `Form tidak dikenal: ${form}. Gunakan: ${FORMS.join(", ")}` };
+        if (!args.data || typeof args.data !== "object") return { ok: false, error: "data wajib diisi" };
+        const route = form === "buat_ujian" ? "asesmen" : form === "tambah_siswa" ? "siswa" : "guru";
+        return { ok: true, form, data: args.data, route, __fillForm: { form, data: args.data }, __navigate: route, message: "Formulir dibuka dan terisi otomatis di layar admin. Menunggu admin menekan tombol Simpan." };
+      },
+    },
   ];
 }
 
@@ -707,7 +746,8 @@ ATURAN JAWABAN:
 - Pertanyaan data ("berapa siswa", "siapa guru X", "kelas mana paling ramai") → panggil tool dulu.
 - Pertanyaan umum non-aplikasi → jawab seperti asisten AI biasa tanpa tool.
 - Jangan menyebut nama tool secara teknis; sebutkan natural ("saya cek dulu datanya…", "sudah saya antarkan ke halamannya…").
-- PERMINTAAN TULIS (tambah siswa, buat ujian, ubah teks berjalan, dll): WAJIB memanggil tool persiapan aksi DULU — dilarang keras menulis "rencana sudah siap, tekan tombol konfirmasi" tanpa memanggil tool itu. Setelah tool dipanggil, katakan bahwa tombol konfirmasi sudah muncul di chat.`;
+- Kamu bisa MENGISI FORMULIR lewat tool fill_form (form tersedia: buat_ujian, tambah_siswa, tambah_guru). Formulir akan terbuka dan terisi otomatis di layar admin, LALU admin menekan tombol Simpan sendiri. Untuk "buatkan jadwal ujian X" gunakan fill_form buat_ujian (bukan persiapan aksi tulis).
+- PERMINTAAN TULIS lain (tambah siswa via konfirmasi, ubah teks berjalan, dll): WAJIB memanggil tool persiapan aksi DULU — dilarang keras menulis "rencana sudah siap, tekan tombol konfirmasi" tanpa memanggil tool itu. Setelah tool dipanggil, katakan bahwa tombol konfirmasi sudah muncul di chat.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -902,6 +942,7 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
   const highlights: Array<{ route: string; element: string; label: string }> = [];
   const pendingWritesOut: Array<{ id: string; summary: string }> = [];
   const assets: Array<{ type: string; url: string; name?: string; mime?: string }> = [];
+  const fillForms: Array<{ form: string; data: any }> = [];
 
   const processToolResult = (result: any) => {
     if (result && result.__navigate) {
@@ -915,6 +956,9 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
     }
     if (result && Array.isArray(result.__asset)) {
       for (const a of result.__asset) assets.push(a);
+    }
+    if (result && result.__fillForm) {
+      fillForms.push({ form: result.__fillForm.form, data: result.__fillForm.data });
     }
     if (result && (result.__navigate || result.__highlight)) {
       const { __navigate, __highlight, __label, __pendingWrite, __summary, __asset, ...rest } = result;
@@ -948,7 +992,7 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
         if (toolCalls.length) console.log("[AIAssistant] tool calls ronde", round + 1, ":", toolCalls.map((t: any) => t?.function?.name).join(","));
         if (!toolCalls.length) {
           const reply = String(msg.content || "").trim();
-          if (reply) return { reply, navigation, highlights, assets: assets.length ? assets : undefined, pendingWrites: pendingWritesOut.length ? pendingWritesOut : (WRITE_CLAIM_RE.test(reply) ? [buildDeterministicPendingWrite(text, req)].filter(Boolean) as any : pendingWritesOut) };
+          if (reply) return { reply, navigation, highlights, assets: assets.length ? assets : undefined, fillForms: fillForms.length ? fillForms : undefined, pendingWrites: pendingWritesOut.length ? pendingWritesOut : (WRITE_CLAIM_RE.test(reply) ? [buildDeterministicPendingWrite(text, req)].filter(Boolean) as any : pendingWritesOut) };
           break;
         }
         messages.push(msg);
@@ -972,6 +1016,9 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
           }
           if (result && result.__highlight) {
             result = { ok: true, route: result.route, element: result.__highlight, label: result.__label || result.__highlight, message: "Sorotan elemen dikirim ke browser admin." };
+          }
+          if (result && result.__fillForm) {
+            result = { ok: true, form: result.__fillForm.form, status: "form_terisi_menunggu_simpan", message: "Formulir dibuka & terisi di layar. Admin perlu menekan tombol Simpan." };
           }
           messages.push({ role: "tool", tool_call_id: tc.id, content: JSON.stringify(result) });
         }
@@ -1093,7 +1140,7 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       const effectiveText = text || "Analisis gambar yang saya lampirkan.";
       pushTurn(session, "user", effectiveText);
 
-      const { reply, navigation: agentNav, highlights: agentHl, assets: agentAssets, pendingWrites: pendingW } = await runAgent(effectiveText, session, req, h);
+      const { reply, navigation: agentNav, highlights: agentHl, assets: agentAssets, fillForms: agentFillForms, pendingWrites: pendingW } = await runAgent(effectiveText, session, req, h);
       // Jaminan navigasi nyata: bila model mengklaim mengantar tanpa tool call,
       // ekstrak tujuan dari teks admin secara deterministik.
       const navigation = reconcileNavigation(reply, text, agentNav);
@@ -1105,7 +1152,8 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       pushTurn(session, "assistant", reply);
 
       const assets = (agentAssets && agentAssets.length) ? agentAssets : undefined;
-      return res.json({ success: true, reply, navigation, highlights, assets, pendingWrites: pendingW || [], turns: session.turns.length });
+      const fillFormsOut = (agentFillForms && agentFillForms.length) ? agentFillForms : undefined;
+      return res.json({ success: true, reply, navigation, highlights, assets, fillForms: fillFormsOut, pendingWrites: pendingW || [], turns: session.turns.length });
     } catch (err: any) {
       console.error("[AIAssistant] chat gagal:", err?.message || err);
       return res.status(500).json({ success: false, message: err?.message || "Asisten AI gagal merespons." });
@@ -1216,6 +1264,7 @@ export async function runGeminiAgent(text: string, session: any, req: any, histo
   const highlights: Array<{ route: string; element: string; label: string }> = [];
   const pendingWritesOut: Array<{ id: string; summary: string }> = [];
   const assets: Array<{ type: string; url: string; name?: string; mime?: string }> = [];
+  const fillForms: Array<{ form: string; data: any }> = [];
 
   for (const model of GEMINI_AGENT_MODELS) {
     try {
@@ -1236,7 +1285,7 @@ export async function runGeminiAgent(text: string, session: any, req: any, histo
 
         if (!fnCalls.length) {
           const reply = String(response?.text || parts.map((p: any) => p?.text || "").join("") || "").trim();
-          if (reply) return { reply, navigation, highlights, assets: assets.length ? assets : undefined, pendingWrites: pendingWritesOut.length ? pendingWritesOut : (WRITE_CLAIM_RE.test(reply) ? [buildDeterministicPendingWrite(text, req)].filter(Boolean) as any : pendingWritesOut) };
+          if (reply) return { reply, navigation, highlights, assets: assets.length ? assets : undefined, fillForms: fillForms.length ? fillForms : undefined, pendingWrites: pendingWritesOut.length ? pendingWritesOut : (WRITE_CLAIM_RE.test(reply) ? [buildDeterministicPendingWrite(text, req)].filter(Boolean) as any : pendingWritesOut) };
           break;
         }
         contents.push({ role: "model", parts });
