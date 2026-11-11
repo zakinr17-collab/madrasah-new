@@ -135,13 +135,13 @@ function makeTeacherTools(teacherId: string, teacher: any): ToolDef[] {
       parameters: {
         type: "object",
         properties: {
-          route: { type: "string", description: "Salah satu: dashboard, jadwal, asesmen, bank_soal, modul_ajar, kalender, evaluasi" },
+          route: { type: "string", description: "Salah satu: dashboard, jadwal, asesmen, bank_soal, modul_ajar, kalender, nilai" },
           label: { type: "string" },
         },
         required: ["route"],
       },
       exec: (args: any) => {
-        const TEACHER_ROUTES = ["dashboard", "jadwal", "asesmen", "bank_soal", "modul_ajar", "kalender", "evaluasi"];
+        const TEACHER_ROUTES = ["dashboard", "jadwal", "asesmen", "bank_soal", "modul_ajar", "kalender", "nilai"];
         const route = String(args.route || "").trim().toLowerCase();
         if (!TEACHER_ROUTES.includes(route)) return { ok: false, error: `Halaman tidak tersedia untuk guru: ${route}` };
         return { ok: true, route, label: args.label || route, __navigate: route };
@@ -399,13 +399,13 @@ function makeTools(): ToolDef[] {
       parameters: {
         type: "object",
         properties: {
-          route: { type: "string", description: "Salah satu: dashboard, siswa, guru, kelas, mapel, jadwal, asesmen, bank_soal, modul_ajar, evaluasi, kalender, setting, perizinan, ai_assistant" },
+          route: { type: "string", description: "Salah satu: dashboard, siswa, guru, kelas, jadwal, absen, asesmen, bank_soal, modul_ajar, nilai (halaman Evaluasi/Nilai), jurnal, kalender, setting" },
           label: { type: "string", description: "Nama halaman yang ramah, mis. 'Data Siswa'" },
         },
         required: ["route"],
       },
       exec: (args: any, _req: any) => {
-        const VALID = ["dashboard", "siswa", "guru", "kelas", "mapel", "jadwal", "asesmen", "bank_soal", "modul_ajar", "evaluasi", "kalender", "setting", "perizinan", "ai_assistant"];
+        const VALID = ["dashboard", "siswa", "guru", "kelas", "jadwal", "absen", "asesmen", "bank_soal", "modul_ajar", "nilai", "jurnal", "kalender", "setting"];
         const route = String(args.route || "").trim().toLowerCase();
         if (!VALID.includes(route)) return { ok: false, error: `Route tidak dikenal: ${route}. Gunakan salah satu: ${VALID.join(", ")}` };
         return { ok: true, route, label: args.label || route, __navigate: route };
@@ -424,7 +424,7 @@ function makeTools(): ToolDef[] {
         required: ["route", "element"],
       },
       exec: (args: any, _req: any) => {
-        const VALID = ["dashboard", "siswa", "guru", "kelas", "mapel", "jadwal", "asesmen", "bank_soal", "modul_ajar", "evaluasi", "kalender", "setting", "perizinan", "ai_assistant"];
+        const VALID = ["dashboard", "siswa", "guru", "kelas", "jadwal", "absen", "asesmen", "bank_soal", "modul_ajar", "nilai", "jurnal", "kalender", "setting"];
         const route = String(args.route || "").trim().toLowerCase();
         const element = String(args.element || "").trim();
         if (!VALID.includes(route)) return { ok: false, error: `Route tidak dikenal: ${route}` };
@@ -693,6 +693,8 @@ KAMU PUNYA KEMAMPUAN AGENT:
   * analyze_image: analisis gambar yang dilampirkan admin (OCR, baca tabel, jelaskan isi).
 - Bila tool media mengembalikan error "Provider tidak mendukung", sampaikan apa adanya dengan sopan: kemampuan itu butuh Gemini (GEMINI_API_KEY) dan sarankan admin mengaturnya di server, TANPA menyebut nama tool secara teknis.
 - Kamu bisa MEMANGGIL navigate_to untuk MENGANTAR admin langsung ke halaman tertentu — gunakan saat admin bertanya "di mana", "buka", "tunjukkan", atau setelah menjelaskan cara pakai sebuah fitur agar admin langsung diantar ke sana. Dalam jawaban, sebutkan secara natural bahwa kamu sudah mengantarkan/membuka halamannya.
+- Peta halaman yang BENAR (pakai ini, jangan mengarang): dashboard, siswa (Data Murid), guru (Data Guru), kelas, jadwal (Jadwal & Mapel), absen (Absensi), asesmen (Asesmen/ujian CBT), bank_soal, modul_ajar, nilai (halaman Evaluasi/Nilai - sebut saja "Evaluasi" ke admin), jurnal, kalender, setting (Pengaturan). Alias: "mapel" -> jadwal; "evaluasi"/"hasil ujian" -> nilai; "perizinan" -> setting.
+- JANGAN PERNAH mengatakan halaman sudah terbuka kalau kamu tidak memanggil navigate_to (atau tool gagal). Kalau tool gagal/route ditolak, akui dan sarankan membuka manual dari menu samping.
 
 PENGETAHUANMU TENTANG APLIKASI:
 - Aplikasi CBT + manajemen madrasah: data siswa/guru/kelas/mapel, ujian CBT (pilihan ganda & esay) dengan monitoring real-time & mode fokus, koreksi otomatis AI, modul ajar (17 komponen) + kisi-kisi/naskah soal, RPP/silabus/ATP/KKTP/Prota/Prosem/LKPD, evaluasi & unduh lembar jawaban, Perizinan Guru (AI & Drive), chat antar pengguna, kalender, gamifikasi, buku sumber (OCR), pengaturan profil AI & lisensi offline.
@@ -716,7 +718,7 @@ function buildTeacherSystemPrompt(teacher: any): string {
 
 KEMAMPUANMU (terbatas & aman):
 - Melihat ringkasan data milik guru sendiri (kelas ampuan, siswa di kelas itu, ujian yang guru buat) via tool.
-- Mengantar guru ke halaman: dashboard, jadwal, asesmen, bank_soal, modul_ajar, kalender, evaluasi.
+- Mengantar guru ke halaman: dashboard, jadwal, asesmen, bank_soal, modul_ajar, kalender, nilai (Evaluasi/Nilai).
 - Menunjuk/sorot elemen UI di halaman-halaman tersebut.
 - Menjelaskan cara memakai fitur aplikasi + menjawab pertanyaan umum seperti asisten AI biasa.
 
@@ -768,11 +770,11 @@ function foldHistory(session: { turns: ChatTurn[] }, current: string): string {
 // deterministik — menjamin navigasi NYATA meski model lupa memanggil tool.
 // ---------------------------------------------------------------------------
 const NAV_INTENT_PATTERNS: Array<{ re: RegExp; route: string }> = [
-  { re: /(evaluasi|hasil ujian|penilaian hasil)/i, route: "evaluasi" },
+  { re: /(evaluasi|hasil ujian|penilaian hasil|nilai)/i, route: "nilai" },
   { re: /(data siswa|halaman siswa|buka siswa|ke siswa|daftar siswa)/i, route: "siswa" },
   { re: /(data guru|halaman guru|buka guru|ke guru|daftar guru)/i, route: "guru" },
   { re: /(data kelas|halaman kelas|buka kelas|ke kelas|daftar kelas)/i, route: "kelas" },
-  { re: /(mata pelajaran|\bmapel\b)/i, route: "mapel" },
+  { re: /(mata pelajaran|\bmapel\b)/i, route: "jadwal" },
   { re: /(jadwal)/i, route: "jadwal" },
   { re: /(asesmen|monitoring ujian|monitor ujian|sesi ujian)/i, route: "asesmen" },
   { re: /(bank soal|soal)/i, route: "bank_soal" },
