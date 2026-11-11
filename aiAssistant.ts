@@ -80,6 +80,36 @@ const UI_ELEMENT_MAP: Record<string, Record<string, UIElementDef>> = {
 };
 
 // ---------------------------------------------------------------------------
+// KAMUS APLIKASI: kata/istilah apapun -> halaman tempat ia berada.
+// Dipakai asisten untuk MENGANTAR admin dulu ke halaman yang benar SEBELUM
+// menyorot, sehingga "sorot X" bekerja meski halamannya belum dibuka.
+// ---------------------------------------------------------------------------
+const APP_KEYWORD_PAGES: Array<{ re: RegExp; route: string; why: string }> = [
+  { re: /(teks berjalan|running text|marquee|banner)/i, route: "dashboard", why: "Teks berjalan tampil di atas Dashboard" },
+  { re: /\bgps\b|geotag|selfie/i, route: "absen", why: "GPS & kamera absensi ada di menu Absen" },
+  { re: /(absen|presensi|kehadiran)/i, route: "absen", why: "Menu Absen" },
+  { re: /(nilai|evaluasi|hasil ujian|rapor|tawashul)/i, route: "nilai", why: "Menu Manajemen Nilai" },
+  { re: /(bank soal|soal ujian|kisi-kisi)/i, route: "bank_soal", why: "Menu Bank Soal" },
+  { re: /(jadwal|jam pelajaran|mata pelajaran|mapel)/i, route: "jadwal", why: "Menu Jadwal & Mata Pelajaran" },
+  { re: /(modul ajar|perangkat ajar|rpp)/i, route: "modul_ajar", why: "Menu Modul Ajar" },
+  { re: /(kalender|agenda|hari libur)/i, route: "kalender", why: "Menu Kalender" },
+  { re: /(jurnal|mengajar)/i, route: "jurnal", why: "Menu Jurnal" },
+  { re: /(ujian|cbt|asesmen|monitoring ujian|sesi ujian)/i, route: "asesmen", why: "Menu Asesmen/ujian CBT" },
+  { re: /(pengaturan|setting|token|api key|fallback ai|profil ai|tema|warna)/i, route: "setting", why: "Menu Pengaturan" },
+  { re: /(kelas|rombel|wali kelas)/i, route: "kelas", why: "Menu Data Kelas" },
+  { re: /(guru|uang guru|nip|nuptk)/i, route: "guru", why: "Menu Data Guru" },
+  { re: /(siswa|murid|nis)/i, route: "siswa", why: "Menu Data Siswa" },
+  { re: /(dashboard|beranda|statistik|grafik)/i, route: "dashboard", why: "Dashboard" },
+];
+
+function guessPageForWord(text: string): string | null {
+  for (const p of APP_KEYWORD_PAGES) {
+    if (p.re.test(text)) return p.route;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // TOOL GURU (read-only, terkurung) — terpisah dari tool admin.
 // Guru hanya boleh: data kelas/mapel yang DIA ampu, statistik ringkas
 // kelasnya, jadwal, dan navigasi/tunjuk elemen. TANPA settings, TANPA data
@@ -451,8 +481,10 @@ function makeTools(): ToolDef[] {
         const freeText = String(args.text || "").trim();
         if (!element && !freeText) return { ok: false, error: "element atau text wajib diisi" };
         if (freeText && !element) {
-          if (route && !VALID.includes(route)) return { ok: false, error: `Route tidak dikenal: ${route}` };
-          return { ok: true, route: route || "dashboard", text: freeText, label: args.label || freeText, __navigate: route || undefined, __highlightText: freeText, __label: args.label || freeText };
+          let target = route;
+          if (!target) target = guessPageForWord(freeText) || "dashboard";
+          if (!VALID.includes(target)) target = "dashboard";
+          return { ok: true, route: target, text: freeText, label: args.label || freeText, __navigate: target, __highlightText: freeText, __label: args.label || freeText };
         }
         if (route && !VALID.includes(route)) return { ok: false, error: `Route tidak dikenal: ${route}` };
         return { ok: true, route, element, label: args.label || element, __navigate: route, __highlight: element, __label: args.label || element };
@@ -781,7 +813,8 @@ ATURAN JAWABAN:
 - Selalu Bahasa Indonesia, ramah, terstruktur (poin/strip, TANPA ** atau #).
 - Pertanyaan tentang data → panggil tool dulu, jangan mengarang angka.
 - Permintaan "buka/cari halaman X" → panggil navigate_to dulu; "tunjukkan kolom X" → panggil highlight_element.
-- Permintaan menyorot/menunjuk SESUATU YANG TAMPIL DI HALAMAN (nama siswa/guru tertentu, angka, teks, judul, tombol apa pun, teks berjalan, GPS, kamera, dll) → WAJIB panggil highlight_element dengan parameter **text** berisi teks/istilah persisnya (mis. text: "Budi Santoso", text: "teks berjalan", text: "GPS"). JANGAN PERNAH menjawab "tidak tahu" atau "tidak bisa" untuk permintaan sorot — fitur ini bekerja untuk APA PUN yang terlihat di aplikasi. Jika istilahnya fitur (GPS, teks berjalan, kamera), kirim istilah itu apa adanya di text — frontend sudah tahu cara menemukannya. Jangan klaim sudah menyorot bila tool belum dipanggil/sukses.
+- Permintaan menyorot/menunjuk SESUATU (nama siswa/guru tertentu, angka, teks, judul, tombol apa pun, teks berjalan, GPS, kamera, dll) → WAJIB panggil highlight_element dengan parameter **text** berisi teks/istilah persisnya (mis. text: "Budi Santoso", text: "teks berjalan", text: "GPS"). JANGAN PERNAH menjawab "tidak tahu" atau "tidak bisa" untuk permintaan sorot — fitur ini bekerja untuk APA PUN.
+- PENTING: sorot bekerja pada halaman yang SEDANG DIBUKA. Bila admin menyebut kata/fitur/nama padahal halamannya belum terbuka, KAMU HARUS navigasi dulu ke halaman yang tepat (tool highlight_element otomatis mengantar bila kamu mengisi parameter route — isi route tebakan terbaikmu: teks berjalan/GPS→absen atau dashboard, nilai/rapor→nilai, ujian→asesmen, nama siswa→siswa, dst), lalu teksnya disorot di sana. Contoh: "temukan Budi" → highlight_element {route:"siswa", text:"Budi"} — admin diantar ke Data Siswa dan nama itu disorot di sana.
 - Jangan sebut nama tool secara teknis; sebutkan natural ("saya cek dulu ya…", "sudah saya antarkan…").`;
 }
 
