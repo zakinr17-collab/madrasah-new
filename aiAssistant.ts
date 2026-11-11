@@ -421,8 +421,10 @@ function makeTools(): ToolDef[] {
         required: ["route"],
       },
       exec: (args: any, _req: any) => {
-        const VALID = ["dashboard", "siswa", "guru", "kelas", "jadwal", "absen", "asesmen", "bank_soal", "modul_ajar", "nilai", "jurnal", "kalender", "setting"];
-        const route = String(args.route || "").trim().toLowerCase();
+        const VALID = ["dashboard", "siswa", "guru", "kelas", "jadwal", "absen", "asesmen", "bank_soal", "modul_ajar", "nilai", "jurnal", "kalender", "setting", "profil_guru", "learning_teacher"];
+        const ALIAS: Record<string, string> = { evaluasi: "nilai", "hasil ujian": "nilai", mapel: "jadwal", "mata pelajaran": "jadwal", perizinan: "setting" };
+        let route = String(args.route || "").trim().toLowerCase();
+        if (ALIAS[route]) route = ALIAS[route];
         if (!VALID.includes(route)) return { ok: false, error: `Route tidak dikenal: ${route}. Gunakan salah satu: ${VALID.join(", ")}` };
         return { ok: true, route, label: args.label || route, __navigate: route };
       },
@@ -440,8 +442,10 @@ function makeTools(): ToolDef[] {
         required: ["route", "element"],
       },
       exec: (args: any, _req: any) => {
-        const VALID = ["dashboard", "siswa", "guru", "kelas", "jadwal", "absen", "asesmen", "bank_soal", "modul_ajar", "nilai", "jurnal", "kalender", "setting"];
-        const route = String(args.route || "").trim().toLowerCase();
+        const VALID = ["dashboard", "siswa", "guru", "kelas", "jadwal", "absen", "asesmen", "bank_soal", "modul_ajar", "nilai", "jurnal", "kalender", "setting", "profil_guru", "learning_teacher"];
+        const ALIAS: Record<string, string> = { evaluasi: "nilai", "hasil ujian": "nilai", mapel: "jadwal", "mata pelajaran": "jadwal", perizinan: "setting" };
+        let route = String(args.route || "").trim().toLowerCase();
+        if (ALIAS[route]) route = ALIAS[route];
         const element = String(args.element || "").trim();
         if (!VALID.includes(route)) return { ok: false, error: `Route tidak dikenal: ${route}` };
         if (!element) return { ok: false, error: "element wajib diisi" };
@@ -821,8 +825,20 @@ const NAV_INTENT_PATTERNS: Array<{ re: RegExp; route: string }> = [
   { re: /(modul ajar)/i, route: "modul_ajar" },
   { re: /(kalender|agenda)/i, route: "kalender" },
   { re: /(pengaturan|setting)/i, route: "setting" },
-  { re: /(perizinan)/i, route: "perizinan" },
-  { re: /(dashboard|beranda)/i, route: "dashboard" },
+  { re: /(absen|presensi|kehadiran)/i, route: "absen" },
+  { re: /(jurnal)/i, route: "jurnal" },
+  { re: /(profil( guru| saya)?|akun saya)/i, route: "profil_guru" },
+  { re: /(dashboard|beranda|halaman utama)/i, route: "dashboard" },
+];
+
+// Kata kunci terakhir: nama rute persis disebut admin ("buka jurnal", "ke kalender")
+const ROUTE_NAME_PATTERNS: Array<{ re: RegExp; route: string }> = [
+  { re: /\bjurnal\b/i, route: "jurnal" },
+  { re: /\bkalender\b/i, route: "kalender" },
+  { re: /\babsen\b/i, route: "absen" },
+  { re: /\bprofil\b/i, route: "profil_guru" },
+  { re: /\bnilai\b/i, route: "nilai" },
+  { re: /\bsetting\b|\bpengaturan\b/i, route: "setting" },
 ];
 
 const NAV_REQUEST_RE = /(antar|buka(?:kan)?|tunjuk(?:an)?|arah(?:kan)?|pindah(?:kan)?|masuk ke|ke halaman|bawakan|navigasi|go to|open)/i;
@@ -832,6 +848,11 @@ function detectNavigationIntent(userText: string): string[] {
   if (!NAV_REQUEST_RE.test(userText)) return nav;
   for (const p of NAV_INTENT_PATTERNS) {
     if (p.re.test(userText)) { nav.push(p.route); break; }
+  }
+  if (!nav.length) {
+    for (const p of ROUTE_NAME_PATTERNS) {
+      if (p.re.test(userText)) { nav.push(p.route); break; }
+    }
   }
   return nav;
 }
