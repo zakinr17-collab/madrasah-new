@@ -345,12 +345,28 @@
   };
 
   // Cari elemen APA PUN di halaman yang memuat teks tertentu (untuk sorot bebas).
+  // Sinonim umum -> selector khusus (fitur yang tidak berlabel jelas di halaman)
+  const SPECIAL_TARGETS = [
+    { re: /(teks berjalan|running text|marquee|banner berjalan)/i, get: () => document.querySelector('marquee') },
+    { re: /\bgps\b|geotag|lokasi absen/i, get: () => document.querySelector('#gps-status-text, [id*="gps"]') || Array.from(document.querySelectorAll('p,span,div')).find((e) => /gps/i.test(e.textContent || '') && e.children.length === 0) || null },
+    { re: /(kamera|selfie|webcam)/i, get: () => document.querySelector('video') },
+    { re: /(jam|waktu|tanggal hari ini)/i, get: () => document.querySelector('[id*="clock"], [id*="date"]') },
+    { re: /(logo|favicon)/i, get: () => document.querySelector('img[src*="logo"], header img') },
+  ];
+
   window.aiAssistantFindTextOnPage = function (text) {
     const key = String(text || '').trim().toLowerCase();
     if (!key) return null;
+    // Cek target khusus dulu (fitur tanpa label teks yang persis)
+    for (const sp of SPECIAL_TARGETS) {
+      if (sp.re.test(key)) {
+        const el = sp.get();
+        if (el) return el;
+      }
+    }
     const words = key.split(/\s+/);
     const needle = words.slice(-3).join(' '); // pakai 3 kata terakhir (nama siswa dsb.)
-    const all = Array.from(document.querySelectorAll('#main-app *'));
+    const all = Array.from(document.querySelectorAll('body *')).filter((el) => !el.closest('#ai-assistant-panel'));
     let best = null, bestLen = Infinity;
     for (const el of all) {
       if (el.children.length > 0) continue; // hanya leaf dengan teks langsung

@@ -781,7 +781,7 @@ ATURAN JAWABAN:
 - Selalu Bahasa Indonesia, ramah, terstruktur (poin/strip, TANPA ** atau #).
 - Pertanyaan tentang data → panggil tool dulu, jangan mengarang angka.
 - Permintaan "buka/cari halaman X" → panggil navigate_to dulu; "tunjukkan kolom X" → panggil highlight_element.
-- Permintaan menyorot/menunjuk SESUATU YANG TAMPIL DI HALAMAN (nama siswa/guru tertentu, angka, teks, judul) → panggil highlight_element dengan parameter **text** berisi teks persisnya (mis. text: "Budi Santoso"). Ini bekerja untuk teks APA PUN di halaman.
+- Permintaan menyorot/menunjuk SESUATU YANG TAMPIL DI HALAMAN (nama siswa/guru tertentu, angka, teks, judul, tombol apa pun, teks berjalan, GPS, kamera, dll) → WAJIB panggil highlight_element dengan parameter **text** berisi teks/istilah persisnya (mis. text: "Budi Santoso", text: "teks berjalan", text: "GPS"). JANGAN PERNAH menjawab "tidak tahu" atau "tidak bisa" untuk permintaan sorot — fitur ini bekerja untuk APA PUN yang terlihat di aplikasi. Jika istilahnya fitur (GPS, teks berjalan, kamera), kirim istilah itu apa adanya di text — frontend sudah tahu cara menemukannya. Jangan klaim sudah menyorot bila tool belum dipanggil/sukses.
 - Jangan sebut nama tool secara teknis; sebutkan natural ("saya cek dulu ya…", "sudah saya antarkan…").`;
 }
 
@@ -920,7 +920,7 @@ function reconcileNavigation(reply: string, userText: string, navigation: string
 // dan model tidak memanggil highlight_element, eksekusi sendiri secara
 // deterministik (kata kunci -> route + element).
 // ---------------------------------------------------------------------------
-const HIGHLIGHT_INTENT_RE = /(tunjuk(?:an|kan)?|sorot|tandai|tunjukkan|mana (?:kolom|tombol|yang|letak)|dimana|di mana|kolom (?:username|pencarian)|highlight|\bcari (?:menu|tren|grafik|kartu|kolom|tombol)|letak)/i;
+const HIGHLIGHT_INTENT_RE = /(tunjuk(?:an|kan)?|sorot|tandai|tunjukkan|temukan|mana (?:kolom|tombol|yang|letak|tempat)|dimana|di mana|kolom (?:username|pencarian)|highlight|\bcari(?:kan)?\b|letak)/i;
 
 const HIGHLIGHT_ELEMENT_PATTERNS: Array<{ re: RegExp; route: string; element: string; label: string }> = [
   { re: /kolom (?:pencarian )?(?:akun|username|user name|nis|nama)/i, route: "setting", element: "account_search", label: "Kolom pencarian akun (username/NIS/NIP)" },
@@ -937,10 +937,16 @@ const HIGHLIGHT_ELEMENT_PATTERNS: Array<{ re: RegExp; route: string; element: st
   { re: /(log aktivitas)/i, route: "dashboard", element: "activity_log", label: "Bagian Log Aktivitas Sistem" },
 ];
 
-function detectHighlightIntent(userText: string): Array<{ route: string; element: string; label: string }> {
+function detectHighlightIntent(userText: string): Array<{ route: string; element: string; label: string; text?: string }> {
   if (!HIGHLIGHT_INTENT_RE.test(userText)) return [];
   for (const p of HIGHLIGHT_ELEMENT_PATTERNS) {
     if (p.re.test(userText)) return [{ route: p.route, element: p.element, label: p.label }];
+  }
+  // Fallback universal: ambil frasa target setelah kata sorot/cari/temukan/tunjukkan
+  const m = userText.match(/(?:sorot|tunjukkan|tunjukan|temukan|cari(?:kan)?|highlight| tandai)\s+(?:teks\s+|nama\s+|tombol\s+|kolom\s+|menu\s+|yang\s+bernama\s+)?["“']?([^.,;!?\n]{2,60})["”']?/i);
+  if (m && m[1]) {
+    const target = m[1].trim().replace(/^(di|pada|di halaman)\s+/i, "");
+    if (target) return [{ route: "dashboard", element: "__text__", label: target, text: target }];
   }
   return [];
 }
