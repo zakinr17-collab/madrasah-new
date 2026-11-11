@@ -1700,10 +1700,10 @@ function renderGradesModule(container) {
                             <table class="w-full text-left border-collapse min-w-[600px]">
                                 <thead class="sticky top-0 z-30">
                                     <tr class="bg-slate-50 text-xs text-slate-600 uppercase font-semibold border-b shadow-[0_1px_0_#e2e8f0]">
-                                        <th class="p-3 w-16 text-center sticky left-0 z-20 bg-slate-50">No</th>
-                                        <th class="p-3 w-[100px] sticky left-[64px] z-20 bg-slate-50">NIS</th>
-                                        <th class="p-3 text-center w-16 sticky left-[164px] z-20 bg-slate-50">Foto Profil</th>
-                                        <th class="p-3 min-w-[120px] max-w-[220px] sticky left-[228px] z-20 bg-slate-50 shadow-sm"><div class="truncate" title="Nama Murid">Nama Murid</div></th>
+                                        <th class="p-3 w-16 text-center sticky z-20 bg-slate-50" data-sticky-col="0">No</th>
+                                        <th class="p-3 w-[100px] sticky z-20 bg-slate-50 whitespace-nowrap" data-sticky-col="1">NIS</th>
+                                        <th class="p-3 text-center w-16 sticky z-20 bg-slate-50" data-sticky-col="2">Foto Profil</th>
+                                        <th class="p-3 min-w-[120px] max-w-[220px] sticky z-20 bg-slate-50 shadow-sm" data-sticky-col="3"><div class="truncate" title="Nama Murid">Nama Murid</div></th>
                                         ${categories.map(cat => {
                                             const catName = typeof cat === 'string' ? cat : (cat && (cat.name || cat.title || cat.category) ? (cat.name || cat.title || cat.category) : String(cat));
                                             const safeCatAttr = String(catName).replace(/'/g, "\\'").replace(/"/g, '&quot;');
@@ -1739,10 +1739,10 @@ function renderGradesModule(container) {
                                         
                                         return `
                                             <tr class="hover:bg-slate-50/50">
-                                                <td class="p-3 text-center font-mono text-xs text-slate-500 sticky left-0 z-10 bg-white">${idx + 1}</td>
-                                                <td class="p-3 font-mono text-xs font-bold text-emerald-700 sticky left-[64px] z-10 bg-white whitespace-nowrap">${st.nis}</td>
-                                                <td class="p-3 text-center sticky left-[164px] z-10 bg-white">${photoHtml}</td>
-                                                <td class="p-3 font-semibold text-slate-800 sticky left-[228px] z-10 bg-white shadow-sm"><div class="max-w-[220px] truncate" title="${st.name}">${st.name}</div></td>
+                                                <td class="p-3 text-center font-mono text-xs text-slate-500 sticky z-10 bg-white" data-sticky-col="0">${idx + 1}</td>
+                                                <td class="p-3 font-mono text-xs font-bold text-emerald-700 sticky z-10 bg-white whitespace-nowrap" data-sticky-col="1">${st.nis}</td>
+                                                <td class="p-3 text-center sticky z-10 bg-white" data-sticky-col="2">${photoHtml}</td>
+                                                <td class="p-3 font-semibold text-slate-800 sticky z-10 bg-white shadow-sm" data-sticky-col="3"><div class="max-w-[220px] truncate" title="${st.name}">${st.name}</div></td>
                                                 ${categories.map(cat => {
                                                     const g = (appState.grades || []).find(item => {
                                                         if (!item) return false;
@@ -1771,6 +1771,27 @@ function renderGradesModule(container) {
             `}
         </div>
     `;
+    fixStickyGradeColumns(container);
+}
+
+// Ukur posisi nyata kolom sticky (No/NIS/Foto/Nama) dan set left sesuai lebar asli,
+// supaya kolom sticky tidak menimpa kolom nilai saat tabel belum digeser.
+function fixStickyGradeColumns(container) {
+    requestAnimationFrame(() => {
+        const table = container.querySelector('table');
+        if (!table) return;
+        const headCells = Array.from(table.querySelectorAll('thead th[data-sticky-col]'));
+        if (!headCells.length) return;
+        const offsets = headCells.map(th => th.offsetLeft + th.offsetWidth);
+        const rows = [table.querySelector('thead tr'), ...table.querySelectorAll('tbody tr')];
+        rows.forEach(tr => {
+            if (!tr) return;
+            tr.querySelectorAll('[data-sticky-col]').forEach(td => {
+                const i = Number(td.getAttribute('data-sticky-col'));
+                if (i > 0 && offsets[i - 1] !== undefined) td.style.left = offsets[i - 1] + 'px';
+            });
+        });
+    });
 }
 
 function handleGradeClassChange(classId) {
