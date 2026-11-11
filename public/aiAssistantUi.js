@@ -344,17 +344,73 @@
     if (typeof showToast === 'function') showToast(msg, missing.length ? 'info' : 'success');
   };
 
+  // Cari elemen APA PUN di halaman yang memuat teks tertentu (untuk sorot bebas).
+  window.aiAssistantFindTextOnPage = function (text) {
+    const key = String(text || '').trim().toLowerCase();
+    if (!key) return null;
+    const words = key.split(/\s+/);
+    const needle = words.slice(-3).join(' '); // pakai 3 kata terakhir (nama siswa dsb.)
+    const all = Array.from(document.querySelectorAll('#main-app *'));
+    let best = null, bestLen = Infinity;
+    for (const el of all) {
+      if (el.children.length > 0) continue; // hanya leaf dengan teks langsung
+      const t = (el.textContent || '').trim().toLowerCase();
+      if (!t) continue;
+      const matched = t === needle || t.includes(needle) || (words.length > 1 && words.every((w) => t.includes(w)));
+      if (!matched) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width === 0 && r.height === 0) continue;
+      if (t.length < bestLen) { best = el; bestLen = t.length; } // yang paling spesifik
+    }
+    return best;
+  };
+
+  // Sorot teks apa pun di halaman (tanpa peta elemen): "sorot nama siswa Budi"
+  window.aiAssistantHighlightText = function (label, attempt = 0) {
+    try {
+      const el = window.aiAssistantFindTextOnPage(label);
+      if (!el) {
+        if (attempt < 16) { setTimeout(() => window.aiAssistantHighlightText(label, attempt + 1), 500); return; }
+        if (typeof showToast === 'function') showToast('Tidak menemukan "' + label + '" di halaman ini. Pastikan halamannya sudah benar.', 'error');
+        return;
+      }
+      const target = el.closest('td,tr,button,a,div') || el;
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target.style.transition = 'box-shadow 0.3s ease';
+      let pulses = 0;
+      const pulse = () => {
+        if (pulses % 2 === 0) {
+          target.style.boxShadow = '0 0 0 4px rgba(99,102,241,0.55), 0 0 24px 6px rgba(99,102,241,0.35)';
+          target.style.outline = '3px solid rgba(99,102,241,0.9)';
+          target.style.outlineOffset = '2px';
+        } else {
+          target.style.boxShadow = '0 0 0 4px rgba(99,102,241,0.15)';
+        }
+        pulses++;
+        if (pulses < 22) setTimeout(pulse, 450);
+        else { target.style.boxShadow = ''; target.style.outline = ''; }
+      };
+      pulse();
+      const tip = document.createElement('div');
+      tip.textContent = '👉 ' + (label || 'Ini');
+      tip.style.cssText = 'position:absolute;top:-30px;left:0;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;font-size:12px;font-weight:700;padding:5px 11px;border-radius:12px;white-space:nowrap;z-index:60;';
+      const holder = target.closest('td,div') || target.parentElement;
+      if (holder && getComputedStyle(holder).position === 'static') holder.style.position = 'relative';
+      (holder || target.parentElement).appendChild(tip);
+      setTimeout(() => tip.remove(), 5000);
+      if (typeof showToast === 'function') showToast('Asisten menunjukkan: ' + (label || ''), 'info');
+    } catch (e) { /* diam */ }
+  };
+
   window.aiAssistantHighlight = function (route, element, label, attempt = 0) {
     try {
       const map = UI_ELEMENT_SELECTORS[route];
       if (!map || !map[element]) return;
       let el = document.querySelector(map[element]);
       if (!el) {
-        // Fallback teks: cari judul/elemen yang mengandung kata kunci label
-        const key = String(label || element).toLowerCase();
-        const candidates = Array.from(document.querySelectorAll('#main-app h1, #main-app h2, #main-app h3, #main-app p, #main-app button, #main-app input'));
-        el = candidates.find((c) => c.textContent && c.textContent.toLowerCase().includes(key.split(' ').slice(-2).join(' ')));
-        if (el) el = el.closest('div.bg-white, .rounded-3xl, section, form') || el;
+        // Fallback teks universal: cari elemen APA PUN yang memuat kata kunci label
+        const found = window.aiAssistantFindTextOnPage(label || element);
+        if (found) el = found;
       }
       if (!el) {
         // Halaman mungkin masih dirender — coba lagi hingga ~8 detik.
@@ -550,6 +606,10 @@
         // Agent: tunjuk/sorot elemen UI
         if (Array.isArray(data.highlights) && data.highlights.length) {
           data.highlights.forEach((h) => {
+            if (h && typeof h.text === 'string' && h.text) {
+              setTimeout(() => window.aiAssistantHighlightText(h.text), 1200);
+              return;
+            }
             if (h && typeof h.route === 'string' && typeof h.element === 'string') {
               const label = h.label || h.element;
               setTimeout(() => window.aiAssistantHighlight(h.route, h.element, label), 1200);

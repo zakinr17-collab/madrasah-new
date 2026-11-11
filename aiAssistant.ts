@@ -435,7 +435,8 @@ function makeTools(): ToolDef[] {
       parameters: {
         type: "object",
         properties: {
-          route: { type: "string", description: "Halaman tempat elemen berada (sama seperti navigate_to)." },
+          route: { type: "string", description: "Halaman tempat elemen berada (sama seperti navigate_to). Opsional bila memakai text." },
+          text: { type: "string", description: "Teks APA PUN yang terlihat di halaman untuk disorot bebas — mis. nama siswa 'Budi Santoso', angka, judul kolom, nama tombol. Gunakan ini bila elemen yang diminta bukan tombol/kolom standar (mis. 'sorot nama siswa Budi')." },
           element: { type: "string", description: "Kunci elemen dari daftar ELEMENT_MAP, mis. 'account_search', 'set_school_name', 'set_teacher_name', 'reset_password_input', 'profile_tab'." },
           label: { type: "string", description: "Nama ramah elemen untuk tooltip, mis. 'Kolom pencarian akun'." },
         },
@@ -447,8 +448,13 @@ function makeTools(): ToolDef[] {
         let route = String(args.route || "").trim().toLowerCase();
         if (ALIAS[route]) route = ALIAS[route];
         const element = String(args.element || "").trim();
-        if (!VALID.includes(route)) return { ok: false, error: `Route tidak dikenal: ${route}` };
-        if (!element) return { ok: false, error: "element wajib diisi" };
+        const freeText = String(args.text || "").trim();
+        if (!element && !freeText) return { ok: false, error: "element atau text wajib diisi" };
+        if (freeText && !element) {
+          if (route && !VALID.includes(route)) return { ok: false, error: `Route tidak dikenal: ${route}` };
+          return { ok: true, route: route || "dashboard", text: freeText, label: args.label || freeText, __navigate: route || undefined, __highlightText: freeText, __label: args.label || freeText };
+        }
+        if (route && !VALID.includes(route)) return { ok: false, error: `Route tidak dikenal: ${route}` };
         return { ok: true, route, element, label: args.label || element, __navigate: route, __highlight: element, __label: args.label || element };
       },
     },
@@ -775,6 +781,7 @@ ATURAN JAWABAN:
 - Selalu Bahasa Indonesia, ramah, terstruktur (poin/strip, TANPA ** atau #).
 - Pertanyaan tentang data → panggil tool dulu, jangan mengarang angka.
 - Permintaan "buka/cari halaman X" → panggil navigate_to dulu; "tunjukkan kolom X" → panggil highlight_element.
+- Permintaan menyorot/menunjuk SESUATU YANG TAMPIL DI HALAMAN (nama siswa/guru tertentu, angka, teks, judul) → panggil highlight_element dengan parameter **text** berisi teks persisnya (mis. text: "Budi Santoso"). Ini bekerja untuk teks APA PUN di halaman.
 - Jangan sebut nama tool secara teknis; sebutkan natural ("saya cek dulu ya…", "sudah saya antarkan…").`;
 }
 
@@ -975,14 +982,17 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
     if (result && result.__highlight) {
       highlights.push({ route: result.route, element: result.__highlight, label: result.__label || result.__highlight });
     }
+    if (result && result.__highlightText) {
+      highlights.push({ route: result.route || "dashboard", element: "__text__", label: result.__label || result.__highlightText, text: result.__highlightText });
+    }
     if (result && Array.isArray(result.__asset)) {
       for (const a of result.__asset) assets.push(a);
     }
     if (result && result.__fillForm) {
       fillForms.push({ form: result.__fillForm.form, data: result.__fillForm.data });
     }
-    if (result && (result.__navigate || result.__highlight)) {
-      const { __navigate, __highlight, __label, __pendingWrite, __summary, __asset, ...rest } = result;
+    if (result && (result.__navigate || result.__highlight || result.__highlightText)) {
+      const { __navigate, __highlight, __highlightText, __label, __pendingWrite, __summary, __asset, ...rest } = result;
       return rest;
     }
     return result;
@@ -1034,6 +1044,9 @@ async function runAgent(text: string, session: any, req: any, h: AssistantHelper
             console.log("[AIAssistant] pendingWrite dibuat:", result.__pendingWrite, "->", pendingWritesOut.length + 1);
             pendingWritesOut.push({ id: result.__pendingWrite, summary: result.__summary || result.summary || "Aksi tulis" });
             result = { ok: true, status: "menunggu_konfirmasi", summary: result.__summary || result.summary, message: "Rencana dibuat. Menunggu admin menekan tombol konfirmasi di chat." };
+          }
+          if (result && result.__highlightText) {
+            result = { ok: true, route: result.route, text: result.__highlightText, label: result.__label || result.__highlightText, message: "Sorotan teks dikirim ke browser admin." };
           }
           if (result && result.__highlight) {
             result = { ok: true, route: result.route, element: result.__highlight, label: result.__label || result.__highlight, message: "Sorotan elemen dikirim ke browser admin." };
@@ -1166,7 +1179,8 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       // ekstrak tujuan dari teks admin secara deterministik.
       const navigation = reconcileNavigation(reply, text, agentNav);
       // Jaminan sorotan nyata: intent eksplisit "tunjukkan kolom X" dijamin tereksekusi.
-      const highlights = agentHl && agentHl.length ? agentHl : detectHighlightIntent(text);
+      const highlightsRaw = agentHl && agentHl.length ? agentHl : detectHighlightIntent(text);
+      const highlights = highlightsRaw.map((hl: any) => hl && hl.element === "__text__" ? { route: hl.route, text: hl.text || hl.label, label: hl.label } : hl);
       // Bila highlight diberikan tapi halamannya belum dinavigasi, pastikan pindah dulu.
       const navSet = new Set(navigation);
       for (const hl of highlights) { if (!navSet.has(hl.route)) navigation.unshift(hl.route); }
@@ -1326,6 +1340,10 @@ export async function runGeminiAgent(text: string, session: any, req: any, histo
           if (result && result.__pendingWrite) {
             pendingWritesOut.push({ id: result.__pendingWrite, summary: result.__summary || result.summary || "Aksi tulis" });
             result = { ok: true, status: "menunggu_konfirmasi", summary: result.__summary || result.summary, message: "Rencana dibuat. Menunggu admin menekan tombol konfirmasi di chat." };
+          }
+          if (result && result.__highlightText) {
+            highlights.push({ route: result.route || "dashboard", element: "__text__", label: result.__label || result.__highlightText, text: result.__highlightText });
+            result = { ok: true, route: result.route, text: result.__highlightText, label: result.__label || result.__highlightText, message: "Sorotan teks dikirim ke browser admin." };
           }
           if (result && result.__highlight) {
             highlights.push({ route: result.route, element: result.__highlight, label: result.__label || result.__highlight });
