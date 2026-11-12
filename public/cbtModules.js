@@ -4554,57 +4554,317 @@ function parseWordHtmlToText(html) {
     return fullText.replace(/\n{3,}/g, '\n\n').trim();
 }
 
+
+// ===== OMML (Word Equation) -> LaTeX converter =====
+// Word menyimpan persamaan sebagai m:oMath (OMML). Mammoth membuangnya,
+// jadi kita baca word/document.xml langsung via JSZip dan konversi sendiri.
+function ommlToLatex(node) {
+    if (!node) return '';
+    const children = Array.from(node.childNodes || []);
+    let out = '';
+    for (const ch of children) {
+        if (ch.nodeType === 3) { out += ch.nodeValue || ''; continue; }
+        if (ch.nodeType !== 1) continue;
+        const tag = ch.nodeName.toLowerCase().replace('m:', '');
+        if (tag === 't') { out += ch.textContent || ''; continue; }
+        if (tag === 'r') { out += ommlToLatexInnerRuns(ch); continue; }
+        if (tag === 'f') { // fraction
+            const num = ch.getElementsByTagName('m:num')[0];
+            const den = ch.getElementsByTagName('m:den')[0];
+            out += `\\frac{${ommlToLatex(num)}}{${ommlToLatex(den)}}`;
+            continue;
+        }
+        if (tag === 'sSup') {
+            const base = (Array.from(ch.childNodes || []).find(c => c.nodeType === 1 && (c.nodeName || '').toLowerCase().replace('m:', '') === 'e'));
+            const sup = ch.getElementsByTagName('m:sup')[0];
+            out += `{${ommlToLatex(base)}}^{${ommlToLatex(sup)}}`;
+            continue;
+        }
+        if (tag === 'sSub') {
+            const base = (Array.from(ch.childNodes || []).find(c => c.nodeType === 1 && (c.nodeName || '').toLowerCase().replace('m:', '') === 'e'));
+            const sub = ch.getElementsByTagName('m:sub')[0];
+            out += `{${ommlToLatex(base)}}_{${ommlToLatex(sub)}}`;
+            continue;
+        }
+        if (tag === 'rad') {
+            const deg = ch.getElementsByTagName('m:deg')[0];
+            const e = ch.getElementsByTagName('m:e')[0];
+            const degLatex = ommlToLatex(deg).trim();
+            out += degLatex && degLatex !== '2' ? `\\sqrt[${degLatex}]{${ommlToLatex(e)}}` : `\\sqrt{${ommlToLatex(e)}}`;
+            continue;
+        }
+                        if (tag === 'd') { // delimiter — hanya m:e LANGSUNG (hindari duplikasi nested)
+            const begChr = ch.getElementsByTagName('m:begChr')[0]?.getAttribute('m:val') || '(';
+            const endChr = ch.getElementsByTagName('m:endChr')[0]?.getAttribute('m:val') || ')';
+            const inner = Array.from(ch.getElementsByTagName('m:e')).filter(e => e.parentNode === ch).map(e => ommlToLatex(e)).join(', ');
+            out += wrapMathDelim(begChr, endChr, inner);
+            continue;
+        }
+        if (tag === 'm') { // matrix — hanya baris m:mr LANGSUNG
+            const rows = Array.from(ch.getElementsByTagName('m:mr')).filter(mr => mr.parentNode === ch).map(mr =>
+                Array.from(mr.getElementsByTagName('m:e')).filter(e => e.parentNode === mr).map(e => ommlToLatex(e).trim()).join(' & ')
+            );
+            out += `\\begin{matrix}${rows.join('\\\\')}\\end{matrix}`;
+            continue;
+        }
+if (tag === 'e') { out += ommlToLatex(ch); continue; }
+        if (tag === 'func' || tag === 'fName') { out += ommlToLatex(ch); continue; }
+        if (tag === 'nary') {
+            const chrEl = ch.getElementsByTagName('m:chr')[0];
+            const chr = chrEl?.getAttribute('m:val') || '∫';
+            const sub = ch.getElementsByTagName('m:sub')[0];
+            const sup = ch.getElementsByTagName('m:sup')[0];
+            const e = ch.getElementsByTagName('m:e')[0];
+            const symMap = { '∑': '\\sum', '∏': '\\prod', '∫': '\\int' };
+            let s = (symMap[chr] || chr);
+            if (sub) s += `_{${ommlToLatex(sub).trim()}}`;
+            if (sup) s += `^{${ommlToLatex(sup).trim()}}`;
+            out += `${s} ${ommlToLatex(e)}`;
+            continue;
+        }
+        out += ommlToLatex(ch);
+    }
+    return out;
+}
+function ommlToLatexInnerRuns(r) {
+    let s = '';
+    for (const ch of Array.from(r.childNodes || [])) {
+        if (ch.nodeType === 3) s += ch.nodeValue || '';
+        else if (ch.nodeType === 1 && ch.nodeName.toLowerCase().endsWith(':t')) s += ch.textContent || '';
+        else if (ch.nodeType === 1) s += ommlToLatexInnerRuns(ch);
+    }
+    return s;
+}
+function wrapMathDelim(beg, end, inner) {
+    if (beg === '[' || end === ']') return `\\left[${inner}\\right]`;
+    if (beg === '{' || end === '}') return `\\left\\{${inner}\\right\\}`;
+    if (beg === '(' || end === ')') return `\\left(${inner}\\right)`;
+    if (beg === '|' || end === '|') return `\\left|${inner}\\right|`;
+    if (beg === '' && end === '') return inner;
+    return `${beg === '(' ? '(' : beg}${inner}${end === ')' ? ')' : end}`;
+}
+// Matrix dibungkus kurung [ ] dari m:d -> bmatrix
+function ommlMathToLatex(oMathEl) {
+    let latex = ommlToLatex(oMathEl).replace(/\s+/g, ' ').trim();
+    // Ganti \left[X\begin{matrix}...\right] -> \begin{Xmatrix}... via string ops (bebas risiko escape regex)
+    const BS = String.fromCharCode(92); // backslash
+    const pairs = [
+        [BS + 'left[' + BS + 'begin{matrix}', BS + 'end{matrix}' + BS + 'right]', 'bmatrix'],
+        [BS + 'left(' + BS + 'begin{matrix}', BS + 'end{matrix}' + BS + 'right)', 'pmatrix'],
+        [BS + 'left|' + BS + 'begin{matrix}', BS + 'end{matrix}' + BS + 'right|', 'vmatrix'],
+    ];
+    for (const [openTok, closeTok, env] of pairs) {
+        while (latex.includes(openTok)) {
+            const a = latex.indexOf(openTok);
+            const b = latex.indexOf(closeTok, a);
+            if (b < 0) break;
+            const body = latex.slice(a + openTok.length, b);
+            latex = latex.slice(0, a) + BS + 'begin{' + env + '}' + body + BS + 'end{' + env + '}' + latex.slice(b + closeTok.length);
+        }
+    }
+    return latex;
+}
+window.ommlMathToLatex = ommlMathToLatex;
+
+// ===== Ekstraksi docx lengkap dengan persamaan =====
+async function extractDocxTextWithMath(file) {
+    const JSZipMod = window.JSZip || (await import('jszip')).default;
+    const JSZip = JSZipMod.default || JSZipMod;
+    const zip = await JSZip.loadAsync(file);
+    const docXml = await zip.file('word/document.xml').async('string');
+    let numFmtMap = {};
+    try {
+        const nx = await zip.file('word/numbering.xml').async('string');
+        const num2abs = {};
+        (nx.match(/<w:num w:numId="\d+"[^>]*><w:abstractNumId w:val="\d+"\/>/g) || []).forEach(s => {
+            const nm = s.match(/numId="(\d+)"/), am = s.match(/abstractNumId w:val="(\d+)"/);
+            if (nm && am) num2abs[nm[1]] = am[1];
+        });
+        const absRe = /<w:abstractNum w:abstractNumId="\d+"[\s\S]*?<\/w:abstractNum>/g;
+        let amatch;
+        const absCache = {};
+        while ((amatch = absRe.exec(nx))) {
+            const aid = amatch[0].match(/abstractNumId="(\d+)"/)[1];
+            const l0 = amatch[0].match(/<w:lvl w:ilvl="0"[\s\S]*?<w:numFmt w:val="([a-zA-Z]+)"/);
+            absCache[aid] = l0 ? l0[1] : null;
+        }
+        Object.keys(num2abs).forEach(k => { numFmtMap[k] = absCache[num2abs[k]] || null; });
+    } catch (e) { /* tanpa numbering.xml pun tetap jalan */ }
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(docXml, 'application/xml');
+    const paras = Array.from(doc.getElementsByTagName('w:p'));
+    const lines = [];
+    for (const pEl of paras) {
+        // nomor daftar (decimal=soal, lowerLetter=pilihan)
+        let fmt = null;
+        try {
+            const numPr = pEl.getElementsByTagName('w:numPr')[0];
+            if (numPr) {
+                const numIdEl = numPr.getElementsByTagName('w:numId')[0];
+                const numId = numIdEl?.getAttribute('w:val');
+                if (numId) fmt = numFmtMap[numId] || null;
+            }
+        } catch (e) {}
+        // bangun teks paragraf berurutan, equation dikonversi inline
+        let text = '';
+        const walk = (node) => {
+            for (const ch of Array.from(node.childNodes || [])) {
+                const nm = ch.nodeName ? ch.nodeName.toLowerCase() : '';
+                if (nm === 'm:omath' || nm === 'm:omathpara') {
+                    const latex = ommlMathToLatex(ch);
+                    if (latex) text += ` \\(${latex}\\) `;
+                } else if (nm === 'w:t') {
+                    text += ch.textContent || '';
+                } else if (nm === 'w:tab') {
+                    text += ' ';
+                } else if (ch.childNodes && ch.childNodes.length) {
+                    walk(ch);
+                }
+            }
+        };
+        walk(pEl);
+        text = text.replace(/\s+/g, ' ').trim();
+        if (!text) continue;
+        if (fmt === 'decimal') lines.push('##Q## ' + text);
+        else if (fmt === 'lowerLetter') lines.push('##O## ' + text);
+        else lines.push(text);
+    }
+    return lines.join('\n');
+}
+
+// Ubah baris bertanda ##Q##/##O## menjadi format teks soal standar aplikasi
+function assembleQuestionTextFromDocxLines(raw) {
+    const lines = String(raw || '').split('\n');
+    const out = [];
+    let qNum = 0, inOptions = false, keyBlock = [];
+    for (const line of lines) {
+        const t = line.trim();
+        if (!t) continue;
+        if (t.startsWith('##Q##')) {
+            const body = t.slice(5).trim();
+            // Soal "angka murni" (mis. Word me-render opsi 11-15 sbg daftar bernomor):
+            // bila soal berjalan belum punya opsi, perlakukan sebagai opsi.
+            if (/^\d{1,3}$/.test(body) && out.length) {
+                // Angka murni setelah teks soal (Word me-render opsi sbg daftar bernomor)
+                let opCount = 0;
+                for (let i = out.length - 1; i >= 0; i--) {
+                    if (/^\d+\. /.test(out[i])) break;
+                    if (/^[A-E]\. /.test(out[i])) opCount++;
+                }
+                const letters2 = ['A','B','C','D','E'];
+                if (opCount < 5) { out.push(`${letters2[opCount]}. ${body}`); continue; }
+            }
+            qNum++;
+            inOptions = false;
+            out.push(`${qNum}. ${body}`);
+        } else if (t.startsWith('##O##')) {
+            inOptions = true;
+            const idx = out.length - 1;
+            // hitung huruf opsi berikutnya utk soal terakhir
+            const last = out[idx] || '';
+            const letters = ['A','B','C','D','E'];
+            let cnt = 0;
+            const m = out.filter(l => /^A\. |^B\. |^C\. |^D\. |^E\. /.test(l));
+            // perlu konteks: hitung opsi sejak soal terakhir
+            let opCount = 0;
+            for (let i = out.length - 1; i >= 0; i--) {
+                if (/^\d+\.\s/.test(out[i])) break;
+                if (/^[A-E]\.\s/.test(out[i])) opCount++;
+            }
+            out.push(`${letters[Math.min(opCount, 4)]}. ${t.slice(5).trim()}`);
+        } else {
+            out.push(t);
+        }
+    }
+    // Kunci jawaban di akhir dokumen: "KUNCI JAWABAN" lalu "1. C", "2. A", dst.
+    const keyStart = out.findIndex(l => /^(kunci\s*jawaban|kunci|jawaban)\s*:?\s*$/i.test(l.trim()));
+    if (keyStart >= 0) {
+        let inserted = 0;
+        const keyMap = {};
+        for (const l of out.slice(keyStart + 1)) {
+            const m = l.trim().match(/^(\d{1,3})\s*[.\):\-]?\s*([A-Ea-e])\b/);
+            if (m) keyMap[Number(m[1])] = m[2].toUpperCase();
+        }
+        if (Object.keys(keyMap).length) {
+            const qStarts = [];
+            for (let i = 0; i < keyStart; i++) {
+                const m = out[i].match(/^(\d{1,3})\. /);
+                if (m) qStarts.push({ i, qn: Number(m[1]) });
+            }
+            for (let k = 0; k < qStarts.length; k++) {
+                const { i, qn } = qStarts[k];
+                if (!keyMap[qn]) continue;
+                const end = (k + 1 < qStarts.length ? qStarts[k + 1].i : keyStart) + inserted;
+                out.splice(end, 0, `Kunci: ${keyMap[qn]}`);
+                inserted++;
+            }
+        }
+        // buang blok kunci dari teks soal (kompensasi penyisipan Kunci)
+        out.splice(keyStart + inserted);
+    }
+    return out.join('\n');
+}
+window.extractDocxTextWithMath = extractDocxTextWithMath;
+window.assembleQuestionTextFromDocxLines = assembleQuestionTextFromDocxLines;
+
+
 function handleConvertWordFileUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
 
     showToast('Membaca file Word...', 'info');
 
-    const processWithMammoth = (mammothInst) => {
-        const reader = new FileReader();
-        reader.onload = function(evt) {
-            const arrayBuffer = evt.target.result;
-            mammothInst.convertToHtml({ arrayBuffer: arrayBuffer })
-                .then(function(result) {
-                    const htmlContent = result.value || '';
-                    const extractedText = parseWordHtmlToText(htmlContent);
-                    const textarea = document.getElementById('cvt-raw-text');
-                    if (textarea) {
-                        textarea.value = extractedText;
-                    }
-                    showToast('Berhasil mengimpor teks dari file Word!', 'success');
-                })
-                .catch(function(err) {
-                    console.warn('Mammoth convert error, falling back to raw text:', err);
-                    const readerText = new FileReader();
-                    readerText.onload = function(txtEvt) {
-                        const textarea = document.getElementById('cvt-raw-text');
-                        if (textarea) textarea.value = txtEvt.target.result;
-                        showToast('Berhasil mengimpor teks file!', 'success');
-                    };
-                    readerText.readAsText(file);
-                });
-        };
-        reader.readAsArrayBuffer(file);
-    };
+    // Jalur utama .docx: ekstraksi langsung document.xml (persamaan Equation Word
+    // dikonversi ke LaTeX otomatis). Mammoth hanya fallback jika JSZip gagal.
+    const lowerName = String(file.name || '').toLowerCase();
+    if (lowerName.endsWith('.docx')) {
+        extractDocxTextWithMath(file)
+            .then((raw) => {
+                const text = assembleQuestionTextFromDocxLines(raw);
+                const textarea = document.getElementById('cvt-raw-text');
+                if (textarea && text.trim()) {
+                    textarea.value = text;
+                    showToast('Berhasil mengimpor file Word (rumus Equation dikonversi ke LaTeX)!', 'success');
+                } else {
+                    // hasil kosong -> fallback mammoth
+                    processWithMammothFlow(file);
+                }
+            })
+            .catch((err) => {
+                console.warn('Docx math extraction gagal, fallback mammoth:', err);
+                processWithMammothFlow(file);
+            });
+        return;
+    }
 
-    if (window.mammoth) {
-        processWithMammoth(window.mammoth);
-    } else {
-        import('mammoth').then(mod => {
-            window.mammoth = mod.default || mod;
-            processWithMammoth(window.mammoth);
-        }).catch(err => {
-            console.error('Failed to load mammoth:', err);
+    const processWithMammothFlow = (f) => {
+        const processWithMammoth = (mammothInst) => {
             const reader = new FileReader();
             reader.onload = function(evt) {
-                const textarea = document.getElementById('cvt-raw-text');
-                if (textarea) textarea.value = evt.target.result;
-                showToast('Berhasil mengimpor teks file!', 'success');
+                mammothInst.convertToHtml({ arrayBuffer: evt.target.result })
+                    .then(function(result) {
+                        const htmlContent = result.value || '';
+                        const extractedText = parseWordHtmlToText(htmlContent);
+                        const textarea = document.getElementById('cvt-raw-text');
+                        if (textarea) textarea.value = extractedText;
+                        showToast('Berhasil mengimpor teks dari file Word! (Persamaan Equation mungkin tidak terbaca)', 'warning');
+                    })
+                    .catch(function() {
+                        const readerText = new FileReader();
+                        readerText.onload = function(txtEvt) {
+                            const textarea = document.getElementById('cvt-raw-text');
+                            if (textarea) textarea.value = txtEvt.target.result;
+                            showToast('Berhasil mengimpor teks file!', 'success');
+                        };
+                        readerText.readAsText(f);
+                    });
             };
-            reader.readAsText(file);
-        });
-    }
+            reader.readAsArrayBuffer(f);
+        };
+        if (window.mammoth) processWithMammoth(window.mammoth);
+        else import('mammoth').then(mod => { window.mammoth = mod.default || mod; processWithMammoth(window.mammoth); }).catch(() => {});
+    };
 }
 
 // Improved Multi-Format Question Import Modal
