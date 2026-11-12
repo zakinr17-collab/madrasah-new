@@ -4614,51 +4614,132 @@ function ommlToLatex(node) {
     for (const ch of children) {
         if (ch.nodeType === 3) { out += ch.nodeValue || ''; continue; }
         if (ch.nodeType !== 1) continue;
-        const tag = ch.nodeName.toLowerCase().replace('m:', '');
-        if (tag === 't') { out += ch.textContent || ''; continue; }
-        if (tag === 'r') { out += ommlToLatexInnerRuns(ch); continue; }
-        if (tag === 'f') { // fraction
+        const rawTag = ch.nodeName.replace(/^m:/, '');
+        const tag = rawTag;
+        const tagLower = rawTag.toLowerCase();
+        if (tagLower === 't') { out += ch.textContent || ''; continue; }
+        if (tagLower === 'r') { out += ommlToLatexInnerRuns(ch); continue; }
+        if (tagLower === 'f') { // fraction
             const num = ch.getElementsByTagName('m:num')[0];
             const den = ch.getElementsByTagName('m:den')[0];
             out += `\\frac{${ommlToLatex(num)}}{${ommlToLatex(den)}}`;
             continue;
         }
-        if (tag === 'sSup') {
+        if (tagLower === 'ssup') {
             const base = (Array.from(ch.childNodes || []).find(c => c.nodeType === 1 && (c.nodeName || '').toLowerCase().replace('m:', '') === 'e'));
             const sup = ch.getElementsByTagName('m:sup')[0];
             out += `{${ommlToLatex(base)}}^{${ommlToLatex(sup)}}`;
             continue;
         }
-        if (tag === 'sSub') {
+        if (tagLower === 'ssub') {
             const base = (Array.from(ch.childNodes || []).find(c => c.nodeType === 1 && (c.nodeName || '').toLowerCase().replace('m:', '') === 'e'));
             const sub = ch.getElementsByTagName('m:sub')[0];
             out += `{${ommlToLatex(base)}}_{${ommlToLatex(sub)}}`;
             continue;
         }
-        if (tag === 'rad') {
+        if (tagLower === 'rad') {
             const deg = ch.getElementsByTagName('m:deg')[0];
             const e = ch.getElementsByTagName('m:e')[0];
             const degLatex = ommlToLatex(deg).trim();
             out += degLatex && degLatex !== '2' ? `\\sqrt[${degLatex}]{${ommlToLatex(e)}}` : `\\sqrt{${ommlToLatex(e)}}`;
             continue;
         }
-                        if (tag === 'd') { // delimiter — hanya m:e LANGSUNG (hindari duplikasi nested)
+                        if (tagLower === 'd') { // delimiter — hanya m:e LANGSUNG (hindari duplikasi nested)
             const begChr = ch.getElementsByTagName('m:begChr')[0]?.getAttribute('m:val') || '(';
             const endChr = ch.getElementsByTagName('m:endChr')[0]?.getAttribute('m:val') || ')';
             const inner = Array.from(ch.getElementsByTagName('m:e')).filter(e => e.parentNode === ch).map(e => ommlToLatex(e)).join(', ');
             out += wrapMathDelim(begChr, endChr, inner);
             continue;
         }
-        if (tag === 'm') { // matrix — hanya baris m:mr LANGSUNG
+        if (tagLower === 'm') { // matrix — hanya baris m:mr LANGSUNG
             const rows = Array.from(ch.getElementsByTagName('m:mr')).filter(mr => mr.parentNode === ch).map(mr =>
                 Array.from(mr.getElementsByTagName('m:e')).filter(e => e.parentNode === mr).map(e => ommlToLatex(e).trim()).join(' & ')
             );
             out += `\\begin{matrix}${rows.join('\\\\')}\\end{matrix}`;
             continue;
         }
-if (tag === 'e') { out += ommlToLatex(ch); continue; }
-        if (tag === 'func' || tag === 'fName') { out += ommlToLatex(ch); continue; }
-        if (tag === 'nary') {
+if (tagLower === 'e') { out += ommlToLatex(ch); continue; }
+        if (tagLower === 'func') {
+            // fungsi: pisahkan nama fungsi dari argumennya (sin x, cos x, log x)
+            const fNameEl = ch.getElementsByTagName('m:fName')[0];
+            const eEl = Array.from(ch.childNodes || []).find(c => c.nodeType === 1 && (c.nodeName || '').toLowerCase().replace('m:', '') === 'e');
+            const fnName = fNameEl ? ommlToLatex(fNameEl).trim() : '';
+            const arg = eEl ? ommlToLatex(eEl) : '';
+            out += `${fnName}(${arg.trim()})`;
+            continue;
+        }
+        if (tagLower === 'fname') { out += ommlToLatex(ch); continue; }
+        if (tagLower === 'ssubsup') {
+            // x_1^2 (sub & sup sekaligus)
+            const eEl = ch.getElementsByTagName('m:e')[0];
+            const subEl = ch.getElementsByTagName('m:sub')[0];
+            const supEl = ch.getElementsByTagName('m:sup')[0];
+            const base = eEl ? ommlToLatex(eEl).trim() : '';
+            const sub = subEl ? ommlToLatex(subEl).trim() : '';
+            const sup = supEl ? ommlToLatex(supEl).trim() : '';
+            out += `${base}_{${sub}}^{${sup}}`;
+            continue;
+        }
+        if (tagLower === 'spre') {
+            // presubscript: _n P^k
+            const eEl = ch.getElementsByTagName('m:e')[0];
+            const subEl = ch.getElementsByTagName('m:sub')[0];
+            const supEl = ch.getElementsByTagName('m:sup')[0];
+            const base = eEl ? ommlToLatex(eEl).trim() : '';
+            const sub = subEl ? ommlToLatex(subEl).trim() : '';
+            const sup = supEl ? ommlToLatex(supEl).trim() : '';
+            out += `${sub ? `_{${sub}}` : ''}${base}${sup ? `^{${sup}}` : ''}`;
+            continue;
+        }
+        if (tagLower === 'limlow' || tagLower === 'limupp') {
+            const eEl = ch.getElementsByTagName('m:e')[0];
+            const limEl = ch.getElementsByTagName('m:lim')[0];
+            const base = eEl ? ommlToLatex(eEl).trim() : '';
+            const lim = limEl ? ommlToLatex(limEl).trim() : '';
+            out += tagLower === 'limlow' ? `${base}_{${lim}}` : `${base}^{${lim}}`;
+            continue;
+        }
+        if (tagLower === 'bar') {
+            const eEl = ch.getElementsByTagName('m:e')[0];
+            out += `\\overline{${(eEl ? ommlToLatex(eEl) : '').trim()}}`;
+            continue;
+        }
+        if (tagLower === 'acc') {
+            const chrEl = ch.getElementsByTagName('m:chr')[0];
+            const chr = (chrEl?.getAttribute('m:val') || '^');
+            const accMap = { '^': '\\hat', '~': '\\tilde', '¯': '\\bar', '→': '\\vec', '⃗': '\\vec', '̇': '\\dot', '̈': '\\ddot' };
+            const eEl = ch.getElementsByTagName('m:e')[0];
+            out += `${accMap[chr] || '\\hat'}{${(eEl ? ommlToLatex(eEl) : '').trim()}}`;
+            continue;
+        }
+        if (tagLower === 'groupchr') {
+            const chrEl = ch.getElementsByTagName('m:chr')[0];
+            const chr = chrEl?.getAttribute('m:val') || '';
+            const eEl = ch.getElementsByTagName('m:e')[0];
+            const inner = (eEl ? ommlToLatex(eEl) : '').trim();
+            if (chr === '⏞' || chr === '⏟') {
+                const cmd = chr === '⏞' ? '\\overbrace' : '\\underbrace';
+                out += `${cmd}{${inner}}`;
+            } else {
+                out += inner; // karakter gabungan lain (mis. pembagi pecahan bersusun) diabaikan
+            }
+            continue;
+        }
+        if (tagLower === 'eqarr') {
+            // susunan persamaan (sistem persamaan) -> \begin{cases}
+            const rows = Array.from(ch.childNodes || [])
+                .filter(c => c.nodeType === 1 && (c.nodeName || '').toLowerCase().replace('m:', '') === 'e')
+                .map(c => ommlToLatex(c).trim()).filter(Boolean);
+            out += `\\begin{cases}${rows.join(' \\\\ ')}\\end{cases}`;
+            continue;
+        }
+        if (tagLower === 'borderbox' || tagLower === 'box' || tagLower === 'phant' || tag === 'argPr' || tag === 'ctrlPr') {
+            if (tagLower === 'phant') { out += ommlToLatex(ch); continue; }
+            const eEl = ch.getElementsByTagName('m:e')[0];
+            out += (eEl ? ommlToLatex(eEl) : ommlToLatex(ch));
+            continue;
+        }
+        if (tagLower === 'nary') {
             const chrEl = ch.getElementsByTagName('m:chr')[0];
             const chr = chrEl?.getAttribute('m:val') || '∫';
             const sub = ch.getElementsByTagName('m:sub')[0];
