@@ -3881,6 +3881,42 @@ setAssistantDataStore({ get students(){ return students; }, get teachers(){ retu
     if (tid && t) { t.homeroom_class_id = cid; await saveData('teachers', teachers); }
     return { ok: true, message: 'Wali kelas ' + cls.name + ' = ' + (t ? t.name : '(kosong)') + '.' };
   }
+  if (action === 'fix_bank_question') {
+    const qid = String(args.questionId || '').trim();
+    const code = String(args.code || '').trim();
+    const set = args.set && typeof args.set === 'object' ? args.set : {};
+    const tenantQs = filterByMadrasah(questions, req);
+    const q = tenantQs.find((x: any) => String(x?.id || '') === qid && (!code || String(x?.code || '') === code));
+    if (!q) throw new Error('Soal tidak ditemukan di bank soal (ID ' + qid + ').');
+    const changes: string[] = [];
+    if (typeof set.questionText === 'string' && set.questionText.trim()) { q.question = set.questionText.trim(); changes.push('teks soal diperbarui'); }
+    if (set.options && typeof set.options === 'object') {
+      if (!Array.isArray(q.options)) q.options = [];
+      for (const L of ['A', 'B', 'C', 'D', 'E']) {
+        const v = set.options[L];
+        if (typeof v === 'string' && v.trim()) {
+          const idx = L.charCodeAt(0) - 65;
+          while (q.options.length <= idx) q.options.push('');
+          q.options[idx] = v.trim();
+          changes.push('opsi ' + L + ' diisi');
+        }
+      }
+    }
+    if (typeof set.answer === 'string' && set.answer.trim()) {
+      const up = set.answer.trim().toUpperCase().replace(/\.$/, '');
+      if (/^[A-E]$/.test(up)) {
+        const idx = up.charCodeAt(0) - 65;
+        if (Array.isArray(q.options) && q.options[idx] !== undefined && String(q.options[idx]).trim()) {
+          q.answer = q.options[idx];
+          changes.push('kunci digeser ke ' + up + ' (' + String(q.options[idx]).slice(0, 40) + ')');
+        } else { q.answer = up; changes.push('kunci = ' + up); }
+      } else { q.answer = set.answer.trim(); changes.push('kunci diperbarui'); }
+    }
+    if (set.clearImage === true) { q.imageUrl = ''; changes.push('gambar dihapus'); }
+    if (!changes.length) throw new Error('Tidak ada perubahan valid pada soal tersebut.');
+    await saveData('questions', questions);
+    return { ok: true, message: 'Soal di bank ' + (q.code || code || '-') + ' diperbarui: ' + changes.join(', ') + '.' };
+  }
   throw new Error('Aksi tidak dikenal: ' + action);
 };
 registerAiAssistantEndpoints(app, { requireAuth, requireRole, getAuthUser, callAI });

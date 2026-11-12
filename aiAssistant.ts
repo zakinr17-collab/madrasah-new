@@ -268,12 +268,124 @@ function newPendingId(): string {
   return "wact_" + Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
 }
 
+// ---------------------------------------------------------------------------
+// BANK SOAL CHECKER — struktur & konsistensi soal (dipakai admin & guru)
+// ---------------------------------------------------------------------------
+type BankIssue = { questionId: string; num: number; severity: "error" | "warning"; issue: string; suggestion: string };
+
+function analyzeBankQuestions(qs: any[]): BankIssue[] {
+  const issues: BankIssue[] = [];
+  const LETTERS = ["A", "B", "C", "D", "E"];
+  qs.forEach((q, i) => {
+    const num = i + 1;
+    const qid = String(q?.id || "");
+    const text = String(q?.question || "").trim();
+    const opts: any[] = Array.isArray(q?.options) ? q.options : [];
+    const answer = String(q?.answer || "").trim();
+    const isEssay = String(q?.type || "") === "essay" || String(q?.type || "") === "esay";
+
+    if (!text) issues.push({ questionId: qid, num, severity: "error", issue: "Teks soal kosong.", suggestion: "Isi teks soal." });
+    if (/(perhatikan|lihat|amati)[^.\n]*(gambar|diagram|grafik)/i.test(text) && !q?.imageUrl && !text.includes("data:image")) {
+      issues.push({ questionId: qid, num, severity: "warning", issue: "Soal menyuruh melihat gambar tapi tidak ada gambar tersimpan.", suggestion: "Tambahkan gambar pada soal." });
+    }
+    if (/##IMG##|\\begin\{[a-z]*matrix\}(?!.*\\\end)|\\frac\{\}/i.test(text)) {
+      issues.push({ questionId: qid, num, severity: "error", issue: "Ada artefak konversi di teks soal (marker/LaTeX rusak).", suggestion: "Bersihkan artefak dari hasil convert Word." });
+    }
+    if (isEssay) {
+      if (!answer || answer.length < 2) issues.push({ questionId: qid, num, severity: "warning", issue: "Kunci/jawaban esai kosong atau terlalu pendek.", suggestion: "Isi kunci jawaban esai." });
+      return;
+    }
+    if (opts.length < 2) {
+      issues.push({ questionId: qid, num, severity: "error", issue: `Opsi hanya ${opts.length} — soal pilihan ganda butuh minimal 2 opsi.`, suggestion: "Lengkapi opsi jawaban." });
+    }
+    const seen = new Map<string, number>();
+    opts.forEach((o, oi) => {
+      const v = String(o || "").trim();
+      if (!v) issues.push({ questionId: qid, num, severity: "error", issue: `Opsi ${LETTERS[oi] || oi + 1} kosong.`, suggestion: "Isi atau hapus opsi kosong lalu geser kunci." });
+      else {
+        const k = v.toLowerCase();
+        if (seen.has(k)) issues.push({ questionId: qid, num, severity: "error", issue: `Opsi ${LETTERS[seen.get(k)!]} dan ${LETTERS[oi]} kembar ("${v.slice(0, 40)}").`, suggestion: "Perbaiki salah satu opsi kembar." });
+        else seen.set(k, oi);
+      }
+    });
+    if (answer) {
+      const up = answer.toUpperCase().replace(/\.$/, "");
+      const isLetter = /^[A-E]$/.test(up);
+      const idx = isLetter ? LETTERS.indexOf(up) : opts.findIndex((o) => String(o).trim().toLowerCase() === answer.toLowerCase());
+      if (idx === -1) {
+        if (isLetter) issues.push({ questionId: qid, num, severity: "error", issue: `Kunci "${up}" menunjuk opsi yang tidak ada (soal punya ${opts.length} opsi).`, suggestion: "Perbaiki kunci jawaban." });
+        // else: kunci berupa teks bebas (esai-like) — diabaikan untuk MC bila tak cocok: warning
+        else issues.push({ questionId: qid, num, severity: "warning", issue: `Kunci jawaban tidak cocok dengan opsi mana pun ("${answer.slice(0, 40)}").`, suggestion: "Samakan kunci dengan salah satu opsi atau hurufnya." });
+      } else if (opts[idx] === undefined || !String(opts[idx]).trim()) {
+        issues.push({ questionId: qid, num, severity: "error", issue: `Kunci "${up}" menunjuk opsi ${LETTERS[idx]} yang ${opts[idx] === undefined ? "tidak ada" : "kosong"} (soal punya ${opts.length} opsi).`, suggestion: "Perbaiki kunci jawaban." });
+      }
+    } else {
+      issues.push({ questionId: qid, num, severity: "error", issue: "Kunci jawaban kosong.", suggestion: "Tentukan kunci jawaban." });
+    }
+  });
+  return issues;
+}
+
+function makeBankCheckTools(): ToolDef[] {
+  const g: any = globalThis as any;
+  const bankOf = (req: any) => scopedAll(g.__assistantStore?.questions, req);
+  const listCodes = (req: any) => {
+    const qs = bankOf(req);
+    const map = new Map<string, { code: string; count: number; essay: number; withImage: number }>();
+    qs.forEach((q: any) => {
+      const code = String(q?.code || "(tanpa kode)");
+      const cur = map.get(code) || { code, count: 0, essay: 0, withImage: 0 };
+      cur.count++;
+      if (String(q?.type || "") === "essay" || String(q?.type || "") === "esay") cur.essay++; else if (Array.isArray(q?.options)) cur.count;
+      if (q?.imageUrl) cur.withImage++;
+      map.set(code, cur);
+    });
+    return Array.from(map.values()).sort((a, b) => a.code.localeCompare(b.code));
+  };
+  const findCode = (req: any, code: string) => {
+    const qs = bankOf(req);
+    if (code === "*" || !code) return qs;
+    const exact = qs.filter((q: any) => String(q?.code || "") === code);
+    if (exact.length) return exact;
+    const lower = String(code).toLowerCase();
+    return qs.filter((q: any) => String(q?.code || "").toLowerCase().includes(lower));
+  };
+  return [
+    {
+      name: "list_bank_soal",
+      description: "Daftar semua kode Bank Soal beserta jumlah soal, jumlah soal esai, dan jumlah soal bergambar. Panggil ini dulu bila user tidak menyebut kode spesifik.",
+      parameters: { type: "object", properties: {} },
+      exec: (_a: any, req: any) => ({ banks: listCodes(req) }),
+    },
+    {
+      name: "check_bank_soal",
+      description: "Periksa isi satu Bank Soal: kunci jawaban tidak cocok/kosong, opsi kosong/kembar, soal tanpa teks, artefak convert, soal menyuruh lihat gambar tapi gambar tidak ada. WAJIB dipanggil sebelum mengklaim hasil cek. Argumen code = kode bank (dari list_bank_soal) atau '*' untuk semua.",
+      parameters: { type: "object", properties: { code: { type: "string", description: "Kode bank soal, mis: MTK7A. Gunakan list_bank_soal bila tidak tahu." } }, required: ["code"] },
+      exec: (args: any, req: any) => {
+        const code = String(args?.code || "").trim();
+        const qs = findCode(req, code);
+        if (!qs.length) return { error: `Bank soal "${code}" tidak ditemukan / kosong. Panggil list_bank_soal dulu.` };
+        const issues = analyzeBankQuestions(qs);
+        return {
+          code: code || "*",
+          jumlahSoal: qs.length,
+          jumlahMasalah: issues.length,
+          ringkasan: issues.length === 0 ? "Semua soal lolos pemeriksaan struktur & kunci jawaban." :
+            issues.map((it) => `#${it.num}: [${it.severity === "error" ? "FATAL" : "PERINGATAN"}] ${it.issue}`).slice(0, 40),
+          issues: issues.slice(0, 40),
+          note: "issues berisi questionId untuk revisi via prepare_write_action action=fix_bank_question. Untuk masalah makna (jawaban tidak sesuai pertanyaan), nilailah dari teks soal & opsi yang tersedia dan sampaikan sebagai DUGAAN, bukan kepastian.",
+        };
+      },
+    },
+  ];
+}
+
 function makeWriteTools(): ToolDef[] {
   return [
     {
       name: "prepare_write_action",
       description:
-        "WAJIB dipanggil setiap kali admin meminta MEMBUAT/MENGUBAH data. PANGGIL TOOL INI DULU sebelum menulis jawaban — JANGAN hanya mengklaim rencana siap tanpa memanggil tool. Aksi TIDAK langsung dijalankan: server membuat rencana + tombol konfirmasi muncul otomatis di chat. Aksi ringan tersedia: create_student {nama, nis, username, password, classId}; update_student {studentId, name?, nis?, classId?, no_hp?, password?} (ubah nama/NIS/kelas/HP/password siswa); update_teacher {teacherId, name?, mapel?, homeroom_class_id?, phone?, password?}; update_admin_settings {adminName?, schoolName?, newPassword?, runningText?} (ganti nama admin/madrasah, reset password admin, teks berjalan); set_grade {studentId, classId?, subjectName, category, score 0-100} (masukkan/ubah nilai); create_calendar_event {title, date YYYY-MM-DD, description?, type?}; update_calendar_event {eventId, title, date, description?}; set_schedule_entry {day (senin-jumat), classId, time (mis 07:30), subjectId, teacherId?} (ubah roster/jadwal); assign_homeroom {classId, teacherId}; create_exam {judul, classId?, subjectName?, tanggal?}; set_running_text {text}. SELALU cari ID dulu via tool cari (search_students, list_classes, search_teachers, list_subjects) — jangan menebak ID.",
+        "WAJIB dipanggil setiap kali admin meminta MEMBUAT/MENGUBAH data. PANGGIL TOOL INI DULU sebelum menulis jawaban — JANGAN hanya mengklaim rencana siap tanpa memanggil tool. Aksi TIDAK langsung dijalankan: server membuat rencana + tombol konfirmasi muncul otomatis di chat. Aksi ringan tersedia: create_student {nama, nis, username, password, classId}; update_student {studentId, name?, nis?, classId?, no_hp?, password?} (ubah nama/NIS/kelas/HP/password siswa); update_teacher {teacherId, name?, mapel?, homeroom_class_id?, phone?, password?}; update_admin_settings {adminName?, schoolName?, newPassword?, runningText?} (ganti nama admin/madrasah, reset password admin, teks berjalan); set_grade {studentId, classId?, subjectName, category, score 0-100} (masukkan/ubah nilai); create_calendar_event {title, date YYYY-MM-DD, description?, type?}; update_calendar_event {eventId, title, date, description?}; set_schedule_entry {day (senin-jumat), classId, time (mis 07:30), subjectId, teacherId?} (ubah roster/jadwal); assign_homeroom {classId, teacherId}; create_exam {judul, classId?, subjectName?, tanggal?}; set_running_text {text}; fix_bank_question {code, questionId, num, fixes: string[] (daftar deskripsi perubahan utk konfirmasi), set: {questionText?, answer?, options? {A..E}, clearImage? boolean}} (revisi soal di bank soal HASIL check_bank_soal — WAJIB tampilkan temuan & minta persetujuan user dulu, jangan pernah auto-revisi). SELALU cari ID dulu via tool cari (search_students, list_classes, search_teachers, list_subjects) — jangan menebak ID.",
       parameters: {
         type: "object",
         properties: {
@@ -298,6 +410,7 @@ function makeWriteTools(): ToolDef[] {
           update_calendar_event: (x) => `Perbarui acara kalender (ID ${x.eventId}): "${x.title}" pada ${x.date}.`,
           set_schedule_entry: (x) => `Set jadwal ${x.day} ${x.time} kelas ${x.classId} → mapel ID ${x.subjectId}${x.teacherId ? ` guru ID ${x.teacherId}` : ""}.`,
           assign_homeroom: (x) => `Tetapkan wali kelas ${x.classId} = guru ID ${x.teacherId || "(kosong)"}.`,
+          fix_bank_question: (x) => `Revisi soal "${x.questionId}" di bank ${x.code}: ${Array.isArray(x.fixes) ? x.fixes.join("; ") : (x.fixes && x.fixes.note) || "perbaikan"}.`,
         };
         if (!summaries[action]) return { error: "Aksi tidak dikenal. Gunakan: create_student, create_exam, set_running_text." };
         const id = newPendingId();
@@ -790,7 +903,8 @@ ATURAN JAWABAN:
 - Pertanyaan umum non-aplikasi → jawab seperti asisten AI biasa tanpa tool.
 - Jangan menyebut nama tool secara teknis; sebutkan natural ("saya cek dulu datanya…", "sudah saya antarkan ke halamannya…").
 - Kamu bisa MENGISI FORMULIR lewat tool fill_form (form tersedia: buat_ujian, tambah_siswa, tambah_guru). Formulir akan terbuka dan terisi otomatis di layar admin, LALU admin menekan tombol Simpan sendiri. Untuk "buatkan jadwal ujian X" gunakan fill_form buat_ujian (bukan persiapan aksi tulis).
-- PERMINTAAN TULIS lain (tambah siswa via konfirmasi, ubah teks berjalan, dll): WAJIB memanggil tool persiapan aksi DULU — dilarang keras menulis "rencana sudah siap, tekan tombol konfirmasi" tanpa memanggil tool itu. Setelah tool dipanggil, katakan bahwa tombol konfirmasi sudah muncul di chat.`;
+- PERMINTAAN TULIS lain (tambah siswa via konfirmasi, ubah teks berjalan, dll): WAJIB memanggil tool persiapan aksi DULU — dilarang keras menulis "rencana sudah siap, tekan tombol konfirmasi" tanpa memanggil tool itu. Setelah tool dipanggil, katakan bahwa tombol konfirmasi sudah muncul di chat.
+- PENGECEKAN BANK SOAL: bila admin minta cek bank soal (import/convert baru, "cek soal", "kunci jawaban benar semua"), panggil list_bank_soal (atau langsung check_bank_soal bila kodenya disebut). Laporkan temuan per nomor soal (FATAL vs PERINGATAN). TAWARKAN perbaikan per temuan (kunci salah, opsi kosong/kembar, artefak) dan TUNGGU persetujuan admin sebelum memanggil tool persiapan aksi fix_bank_question — jangan pernah merevisi soal tanpa izin. Masalah makna ("jawaban tidak sesuai pertanyaan") sampaikan sebagai DUGAAN beserta saran perbaikan, bukan kepastian.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -807,7 +921,8 @@ KEMAMPUANMU (terbatas & aman):
 
 BATASAN MUTLAK (jangan pernah dilanggar):
 - Kamu TIDAK bisa melihat/mengubah data di luar kelas ampuan guru (siswa kelas lain, data guru lain, pengaturan/aplikasi, akun, lisensi, API key).
-- Kamu TIDAK bisa menulis/mengubah/menghapus apa pun — hanya membaca & menunjuk. Jika diminta mengubah data, jelaskan langkah manualnya di aplikasi.
+- Kamu TIDAK bisa mengubah data siswa/guru/nilai/pengaturan. SATU-SATUNYA pengecualian: memperbaiki butir soal di Bank Soal (via konfirmasi guru) setelah check_bank_soal menemukan masalah.
+- PENGECEKAN BANK SOAL: bila guru minta cek bank soal (baru import/convert, "cek soal", "kunci jawaban benar"), panggil list_bank_soal (atau check_bank_soal bila kode disebut). Laporkan temuan per nomor (FATAL vs PERINGATAN). TAWARKAN perbaikan (kunci salah, opsi kosong/kembar, artefak) dan TUNGGU persetujuan guru sebelum memanggil tool persiapan aksi fix_bank_question — jangan pernah merevisi tanpa izin. Masalah makna sampaikan sebagai DUGAAN, bukan kepastian.
 - Jika guru meminta hal di luar kemampuanmu, tolak dengan sopan dan arahkan ke admin madrasah.
 
 ATURAN JAWABAN:
@@ -995,7 +1110,8 @@ const MAX_TOOL_ROUNDS = 5;
 
 async function runAgent(text: string, session: any, req: any, h: AssistantHelpers, opts?: { mode?: "admin" | "teacher"; teacher?: any }) {
   const mode = opts?.mode || "admin";
-  const tools = mode === "teacher" ? makeTeacherTools(String(opts?.teacher?.id || ""), opts?.teacher) : [...makeTools(), ...makeWriteTools(), ...makeMediaTools()];
+  const bankCheckTools = makeBankCheckTools();
+  const tools = mode === "teacher" ? [...makeTeacherTools(String(opts?.teacher?.id || ""), opts?.teacher), ...bankCheckTools] : [...makeTools(), ...bankCheckTools, ...makeWriteTools(), ...makeMediaTools()];
   const sysPrompt = mode === "teacher" ? buildTeacherSystemPrompt(opts?.teacher) : buildAssistantSystemPrompt();
   const g: any = globalThis as any;
   const runtime = g.__aiProviderRuntime || {};
@@ -1178,12 +1294,12 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       const effectiveText = text || "Analisis gambar yang saya lampirkan.";
       pushTurn(session, "user", effectiveText);
 
-      const { reply, navigation: agentNav, highlights: agentHl, assets: agentAssets } = await runAgent(effectiveText, session, req, h, { mode: "teacher", teacher });
+      const { reply, navigation: agentNav, highlights: agentHl, assets: agentAssets, pendingWrites: agentPending } = await runAgent(effectiveText, session, req, h, { mode: "teacher", teacher });
       const navigation = agentNav;
       const highlights = agentHl && agentHl.length ? agentHl : [];
       pushTurn(session, "assistant", reply);
 
-      return res.json({ success: true, reply, navigation, highlights, assets: (agentAssets && agentAssets.length) ? agentAssets : undefined, mode, turns: session.turns.length });
+      return res.json({ success: true, reply, navigation, highlights, assets: (agentAssets && agentAssets.length) ? agentAssets : undefined, pendingWrites: (agentPending && agentPending.length) ? agentPending : undefined, mode, turns: session.turns.length });
     } catch (err: any) {
       console.error("[AIAssistant] teacher chat gagal:", err?.message || err);
       return res.status(500).json({ success: false, message: err?.message || "Asisten AI gagal merespons." });
@@ -1265,7 +1381,7 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
 
   // KONFIRMASI AKSI TULIS (admin) — eksekusi rencana yang dibuat agent.
   // Token sekali pakai, TTL 15 menit, terikat userId pembuatnya.
-  app.post("/api/ai-assistant/confirm", h.requireAuth, h.requireRole(["admin", "administrator", "bos", "superadmin"]), async (req: Request, res: Response) => {
+  app.post("/api/ai-assistant/confirm", h.requireAuth, h.requireRole(["admin", "administrator", "bos", "superadmin", "teacher", "guru"]), async (req: Request, res: Response) => {
     try {
       const { token, cancel } = (req.body || {}) as { token?: string; cancel?: boolean };
       const authUser: any = h.getAuthUser(req);
