@@ -3533,33 +3533,69 @@ function loadActiveBankQuestionsToConvert(activeCode) {
     showToast(`Berhasil memuat ${questions.length} soal ke area convert.`, 'success');
 }
 
+function qbRenderLatexPreviewHtml(sourceText) {
+    // Pratinjau tangguh: pecah teks di blok LaTeX \(...\)/\[...\] lalu render
+    // tiap blok LANGSUNG dengan katex.render (tanpa auto-render & tanpa
+    // round-trip textContent yang bisa menggandakan teks/menghasilkan 'amp;').
+    const decodeEnt = (s) => qbDecodeLegacyEntities(s);
+    const escHtml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const src = decodeEnt(String(sourceText || ''));
+    const re = /\\\(([\s\S]*?)\\\)|\\\[([\s\S]*?)\\\]/g;
+    let out = '';
+    let last = 0;
+    let m;
+    let idx = 0;
+    while ((m = re.exec(src)) !== null) {
+        out += escHtml(src.slice(last, m.index));
+        const isDisplay = m[2] !== undefined;
+        const tex = (isDisplay ? m[2] : m[1]).trim();
+        out += `<span class="qb-latex-slot" data-qbtex="${qbEscapeAttr(JSON.stringify(tex))}" data-qbdisp="${isDisplay ? '1' : '0'}"></span>`;
+        last = m.index + m[0].length;
+        idx++;
+    }
+    out += escHtml(src.slice(last));
+    if (idx === 0) return null; // tak ada LaTeX -> panggilan tidak perlu pratinjau
+    return out;
+}
+
+function qbRenderLatexSlots(rootEl) {
+    if (!rootEl || typeof window.katex === 'undefined') return;
+    rootEl.querySelectorAll('.qb-latex-slot:not([data-done])').forEach(el => {
+        try {
+            const tex = JSON.parse(el.getAttribute('data-qbtex') || '""');
+            const display = el.getAttribute('data-qbdisp') === '1';
+            window.katex.render(tex, el, { throwOnError: false, displayMode: display });
+            el.setAttribute('data-done', '1');
+        } catch (err) {
+            el.textContent = el.getAttribute('data-qbtex') || '';
+        }
+    });
+}
+
 function renderCbtTableCell(text) {
     if (!text) return '';
 
     const sourceText = qbDecodeLegacyEntities(text);
-    const previewText = RAW_LATEX_COMMAND_PATTERN.test(sourceText)
-        ? autoConvertMathToLatex(sourceText)
-        : sourceText;
 
     const escaped = sourceText
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;');
 
-    const hasLatex = /\\\([\s\S]*?\\\)|\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$|\$[^\$\n]+\$/.test(previewText);
+    const previewHtml = qbRenderLatexPreviewHtml(sourceText);
 
-    if (!hasLatex) {
+    if (!previewHtml) {
         return `<span class="leading-relaxed">${escaped}</span>`;
     }
 
     return `
         <div class="space-y-1 my-0.5">
-            <div class="font-mono text-xs text-slate-800 bg-slate-100/90 px-2.5 py-1.5 rounded-lg border border-slate-300 font-bold select-all break-words leading-relaxed tracking-tight shadow-2xs" title="Teks asli dengan tag LaTeX \...\">
+            <div class="font-mono text-xs text-slate-800 bg-slate-100/90 px-2.5 py-1.5 rounded-lg border border-slate-300 font-bold select-all break-words leading-relaxed tracking-tight shadow-2xs" title="Teks asli dengan tag LaTeX \(...\)">
                 ${escaped}
             </div>
             <div class="text-xs text-indigo-950 bg-indigo-50/80 px-2.5 py-1.5 rounded-lg border border-indigo-200/80 flex items-center flex-wrap gap-2">
                 <span class="text-[10px] font-extrabold text-indigo-700 uppercase tracking-wider shrink-0 bg-indigo-200/80 px-1.5 py-0.5 rounded shadow-2xs">Pratinjau Render:</span>
-                <span class="katex-preview-block leading-relaxed font-semibold">${qbEscapeHtml(previewText)}</span>
+                <span class="katex-preview-block leading-relaxed font-semibold">${previewHtml}</span>
             </div>
         </div>
     `;
@@ -3661,23 +3697,8 @@ function runQuestionConversion(activeCode = '') {
             </div>
         `).join('');
 
-        // Trigger KaTeX math rendering ONLY inside .katex-preview-block elements.
-        // Normalize legacy HTML entities as plain text before KaTeX sees them.
-        if (typeof renderMathInElement === 'function') {
-            previewArea.querySelectorAll('.katex-preview-block').forEach(el => {
-                const mathSource = qbDecodeLegacyEntities(el.textContent || '');
-                el.textContent = mathSource;
-                renderMathInElement(el, {
-                    delimiters: [
-                        {left: '$$', right: '$$', display: true},
-                        {left: '$', right: '$', display: false},
-                        {left: '\\(', right: '\\)', display: false},
-                        {left: '\\[', right: '\\]', display: true}
-                    ],
-                    throwOnError: false
-                });
-            });
-        }
+        // Render slot LaTeX langsung (tanpa auto-render & tanpa round-trip teks).
+        qbRenderLatexSlots(previewArea);
     }
 
     showToast(`Berhasil mengkonversi ${result.parsedQuestions.length} paket soal!`, 'success');
