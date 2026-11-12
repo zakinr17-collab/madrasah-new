@@ -3173,6 +3173,7 @@ function autoConvertMathToLatex(str) {
 
     // Helper to protect generated LaTeX blocks immediately
     const protectedLatex = [];
+    const protectedPh = [];
     function wrapAndProtect(innerStr) {
         if (!innerStr) return '';
         let clean = innerStr.trim();
@@ -3187,7 +3188,7 @@ function autoConvertMathToLatex(str) {
 
         const formatted = formatLatexMath(clean);
         protectedLatex.push(`\\(${formatted}\\)`);
-        return `___LATEX_BLOCK_${protectedLatex.length - 1}___${trailingPunct}`;
+        return `\uE000${protectedLatex.length - 1}\uF001${trailingPunct}`;
     }
 
     // Step 0.5: Treat a math-only raw LaTeX line as one expression.
@@ -3202,6 +3203,13 @@ function autoConvertMathToLatex(str) {
     text = text.replace(/\$([^\$\n]+)\$/g, (m, inner) => wrapAndProtect(inner));
     text = text.replace(/\\\(([\s\S]*?)\\\)/g, (m, inner) => wrapAndProtect(inner));
     text = text.replace(/\\\[([\s\S]*?)\\\]/g, (m, inner) => wrapAndProtect(inner));
+
+    // Step 1.5: protect placeholders with private-use chars so NO later regex
+    // (masterMath dsb.) bisa menelannya — token tak mengandung huruf/angka/_.
+    text = text.replace(/___LATEX_BLOCK_(\d+)___/g, (m, idx) => {
+        protectedPh.push(m);
+        return `\uE000${protectedPh.length - 1}\uE001`;
+    });
 
     // Step 2: Fractions (e.g. (3x-1)/(x+2), (x-2)/5, 1/2(x+3), 3/4)
     text = text.replace(/\(([^)]+)\)\/\(([^)]+)\)/g, (match, num, den) => {
@@ -3235,7 +3243,7 @@ function autoConvertMathToLatex(str) {
     });
 
     // Step 5: Permutations & Combinations (e.g. 5P2, 5C2, P(5,2), C(5,2), nPr, nCr)
-    text = text.replace(/\b(\d+|[a-zA-Z])\s*([PC])\s*(\d+|[a-zA-Z])\b/g, (match, n, type, r) => {
+    text = text.replace(/(?<![a-zA-Z\\][ \t]?)(\d+|[a-zA-Z])\s*([PC])\s*(\d+|[a-zA-Z])(?![a-zA-Z])/g, (match, n, type, r) => {
         return wrapAndProtect(`_{${n}}${type}_{${r}}`);
     });
     text = text.replace(/\b([PC])\s*\(\s*([^,\)]+)\s*,\s*([^,\)]+)\s*\)/g, (match, type, n, r) => {
@@ -3246,7 +3254,7 @@ function autoConvertMathToLatex(str) {
     text = text.replace(/\b(sin|cos|tan|cot|sec|csc|cosec)(?:\^2)?\s*\(\s*([^)]+)\s*\)/gi, (match, fn, arg) => {
         return wrapAndProtect(`\\${fn.toLowerCase()}(${arg.trim()})`);
     });
-    text = text.replace(/\b(sin|cos|tan|cot|sec|csc|cosec)\s*(\d+(?:[\.,]\d+)?°?|\^o|[a-zA-Z0-9\^\circ]+)/gi, (match, fn, arg) => {
+    text = text.replace(/\b(sin|cos|tan|cot|sec|csc|cosec)(?![a-zA-Z])\s*(\d+(?:[\.,]\d+)?°?|\^o|[a-zA-Z0-9\^\circ]+)/gi, (match, fn, arg) => {
         let cleanArg = arg;
         if (/°|\^o|\^\{?\\circ\}?/.test(cleanArg)) {
             cleanArg = cleanArg.replace(/°|\^o|\^\{?\\circ\}?/, '') + '^\\circ';
@@ -3308,10 +3316,16 @@ function autoConvertMathToLatex(str) {
         return wrapAndProtect(`${num}^\\circ`);
     });
 
-    // Step 13: Restore protected LaTeX blocks
-    text = text.replace(/___LATEX_BLOCK_(\d+)___/g, (match, idx) => {
-        return protectedLatex[idx] || match;
-    });
+    // Step 12.5/13: restore placeholders & LaTeX blocks — PH diulang karena blok
+    // LaTeX yang dibungkus di tengah proses bisa ikut menelan placeholder.
+    for (let pass = 0; pass < 5; pass++) {
+        text = text.replace(/\uE000(\d+)\uE001/g, (m, idx) => protectedPh[idx] || m);
+        text = text.replace(/\uE000(\d+)\uF001/g, (m, idx) => protectedLatex[idx] || m);
+        text = text.replace(/___LATEX_BLOCK_(\d+)___/g, (match, idx) => {
+            return protectedLatex[idx] || match;
+        });
+        if (!/\uE000\d+[\uE001\uF001]|___LATEX_BLOCK_\d+___/.test(text)) break;
+    }
 
     // Step 14: Restore protected HTML tags
     text = text.replace(/___HTML_TAG_(\d+)___/g, (match, idx) => {
@@ -3900,10 +3914,24 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
         const optRegex = /^\s*[\(\[]?([A-Ea-e])[\.\)\:\-\s\]]\s*(.*)/;
         const keyRegex = /^\s*(?:Kunci|KJ|Jawaban|Kunci\s+Jawaban|Answer|Ans)\s*[:=]?\s*([A-Ea-e])/i;
 
+        // Lewati kop/header sekolah sebelum soal pertama: baris tanpa awalan
+        // nomor soal/opsi/kunci di AWAL dokumen (sebelum ada "1. ...") = header.
+        let firstQuestionSeen = false;
+        const headerSkip = /mata pelajaran|kelas\s*:|waktu\s*:|hari\s*:|tanggal\s*:|yayasan|madrasah|sekolah|evaluasi belajar|ujian|semester|tahun pelajaran|berilah tanda|petunjuk|kode pos|dilibas|alphabet/i;
+
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             const trimmed = line.trim();
             if (!trimmed) continue;
+            if (!firstQuestionSeen) {
+                if (qNumRegex.test(trimmed) && !headerSkip.test(trimmed)) {
+                    firstQuestionSeen = true;
+                } else if (headerSkip.test(trimmed) || !optRegex.test(trimmed) || !keyRegex.test(trimmed)) {
+                    continue; // baris kop/instruksi sebelum soal pertama dibuang
+                } else {
+                    continue;
+                }
+            }
 
             const keyMatch = trimmed.match(keyRegex);
             if (keyMatch) {
