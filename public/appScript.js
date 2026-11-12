@@ -2987,6 +2987,8 @@ function navigateTo(route, options = {}) {
     else if (route === 'jadwal') renderScheduleModule(container);
     else if (route === 'absen') renderAttendanceModule(container);
     else if (route === 'asesmen') renderAssessmentModule(container, appState.lastAssessmentSubTab || 'jadwal', appState.activeMonitoringExamId || null);
+    else if (route === 'evaluasi') renderAssessmentModule(container, 'evaluasi', appState.evaluasiSelectedExamId || appState.activeEvaluationExamId || appState.activeMonitoringExamId || null);
+    else if (route === 'monitoring') renderAssessmentModule(container, 'monitoring', appState.activeMonitoringExamId || null);
     else if (route === 'bank_soal') renderQuestionBankModule(container);
     else if (route === 'nilai') renderGradesModule(container);
     else if (route === 'modul_ajar') renderModulAjarModule(container);

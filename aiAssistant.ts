@@ -88,7 +88,8 @@ const APP_KEYWORD_PAGES: Array<{ re: RegExp; route: string; why: string }> = [
   { re: /(teks berjalan|running text|marquee|banner)/i, route: "dashboard", why: "Teks berjalan tampil di atas Dashboard" },
   { re: /\bgps\b|geotag|selfie/i, route: "absen", why: "GPS & kamera absensi ada di menu Absen" },
   { re: /(absen|presensi|kehadiran)/i, route: "absen", why: "Menu Absen" },
-  { re: /(nilai|evaluasi|hasil ujian|rapor|tawashul)/i, route: "nilai", why: "Menu Manajemen Nilai" },
+  { re: /(evaluasi|hasil ujian|lembar jawaban|skor per siswa)/i, route: "evaluasi", why: "Halaman Evaluasi CBT (di dalam Asesmen): hasil ujian, jawaban & skor per siswa" },
+  { re: /(nilai|rapor|tawashul|import nilai)/i, route: "nilai", why: "Menu Manajemen Nilai" },
   { re: /(bank soal|soal ujian|kisi-kisi)/i, route: "bank_soal", why: "Menu Bank Soal" },
   { re: /(jadwal|jam pelajaran|mata pelajaran|mapel)/i, route: "jadwal", why: "Menu Jadwal & Mata Pelajaran" },
   { re: /(modul ajar|perangkat ajar|rpp)/i, route: "modul_ajar", why: "Menu Modul Ajar" },
@@ -445,14 +446,14 @@ function makeTools(): ToolDef[] {
       parameters: {
         type: "object",
         properties: {
-          route: { type: "string", description: "Salah satu: dashboard, siswa, guru, kelas, jadwal, absen, asesmen, bank_soal, modul_ajar, nilai (halaman Evaluasi/Nilai), jurnal, kalender, setting" },
+          route: { type: "string", description: "Salah satu: dashboard, siswa, guru, kelas, jadwal, absen, asesmen, evaluasi (hasil & lembar jawaban ujian CBT), monitoring (Monitoring Ujian), bank_soal, modul_ajar, nilai (Manajemen Nilai/import nilai), jurnal, kalender, setting" },
           label: { type: "string", description: "Nama halaman yang ramah, mis. 'Data Siswa'" },
         },
         required: ["route"],
       },
       exec: (args: any, _req: any) => {
-        const VALID = ["dashboard", "siswa", "guru", "kelas", "jadwal", "absen", "asesmen", "bank_soal", "modul_ajar", "nilai", "jurnal", "kalender", "setting", "profil_guru", "learning_teacher"];
-        const ALIAS: Record<string, string> = { evaluasi: "nilai", "hasil ujian": "nilai", mapel: "jadwal", "mata pelajaran": "jadwal", perizinan: "setting" };
+        const VALID = ["dashboard", "siswa", "guru", "kelas", "jadwal", "absen", "asesmen", "bank_soal", "modul_ajar", "nilai", "jurnal", "kalender", "setting", "profil_guru", "learning_teacher", "evaluasi", "monitoring"];
+        const ALIAS: Record<string, string> = { "hasil ujian": "evaluasi", mapel: "jadwal", "mata pelajaran": "jadwal", perizinan: "setting" };
         let route = String(args.route || "").trim().toLowerCase();
         if (ALIAS[route]) route = ALIAS[route];
         if (!VALID.includes(route)) return { ok: false, error: `Route tidak dikenal: ${route}. Gunakan salah satu: ${VALID.join(", ")}` };
@@ -473,8 +474,8 @@ function makeTools(): ToolDef[] {
         required: ["route", "element"],
       },
       exec: (args: any, _req: any) => {
-        const VALID = ["dashboard", "siswa", "guru", "kelas", "jadwal", "absen", "asesmen", "bank_soal", "modul_ajar", "nilai", "jurnal", "kalender", "setting", "profil_guru", "learning_teacher"];
-        const ALIAS: Record<string, string> = { evaluasi: "nilai", "hasil ujian": "nilai", mapel: "jadwal", "mata pelajaran": "jadwal", perizinan: "setting" };
+        const VALID = ["dashboard", "siswa", "guru", "kelas", "jadwal", "absen", "asesmen", "bank_soal", "modul_ajar", "nilai", "jurnal", "kalender", "setting", "profil_guru", "learning_teacher", "evaluasi", "monitoring"];
+        const ALIAS: Record<string, string> = { "hasil ujian": "evaluasi", mapel: "jadwal", "mata pelajaran": "jadwal", perizinan: "setting" };
         let route = String(args.route || "").trim().toLowerCase();
         if (ALIAS[route]) route = ALIAS[route];
         const element = String(args.element || "").trim();
@@ -814,6 +815,7 @@ ATURAN JAWABAN:
 - Pertanyaan tentang data → panggil tool dulu, jangan mengarang angka.
 - Permintaan "buka/cari halaman X" → panggil navigate_to dulu; "tunjukkan kolom X" → panggil highlight_element.
 - Permintaan menyorot/menunjuk SESUATU (nama siswa/guru tertentu, angka, teks, judul, tombol apa pun, teks berjalan, GPS, kamera, dll) → WAJIB panggil highlight_element dengan parameter **text** berisi teks/istilah persisnya (mis. text: "Budi Santoso", text: "teks berjalan", text: "GPS"). JANGAN PERNAH menjawab "tidak tahu" atau "tidak bisa" untuk permintaan sorot — fitur ini bekerja untuk APA PUN.
+- Halaman Evaluasi (route "evaluasi") BERBEDA dari Manajemen Nilai (route "nilai"): Evaluasi = hasil/lembar jawaban ujian CBT per siswa (sub-tab di Asesmen); Manajemen Nilai = matriks nilai/import per kelas-mapel. "Buka evaluasi" -> evaluasi; "input/lihat nilai kelas" -> nilai.
 - Menu di dalam menu lain: halaman Pengaturan berbentuk kartu hub (Identitas & Lokasi, Tampilan & Dasbor, Halaman Login, AI & Integrasi, Data Akun & Pemeliharaan, Keamanan & Live). Bila target berada di dalam kartu tersebut (mis. nama madrasah ada di "Identitas & Lokasi Madrasah"), tetap panggil highlight_element dengan text-nya — frontend OTOMATIS membuka kartu/sub-tab yang relevan lalu menyorot isinya.
 - PENTING: sorot bekerja pada halaman yang SEDANG DIBUKA. Bila admin menyebut kata/fitur/nama padahal halamannya belum terbuka, KAMU HARUS navigasi dulu ke halaman yang tepat (tool highlight_element otomatis mengantar bila kamu mengisi parameter route — isi route tebakan terbaikmu: teks berjalan/GPS→absen atau dashboard, nilai/rapor→nilai, ujian→asesmen, nama siswa→siswa, dst), lalu teksnya disorot di sana. Contoh: "temukan Budi" → highlight_element {route:"siswa", text:"Budi"} — admin diantar ke Data Siswa dan nama itu disorot di sana.
 - Jangan sebut nama tool secara teknis; sebutkan natural ("saya cek dulu ya…", "sudah saya antarkan…").`;
@@ -855,7 +857,8 @@ function foldHistory(session: { turns: ChatTurn[] }, current: string): string {
 // deterministik — menjamin navigasi NYATA meski model lupa memanggil tool.
 // ---------------------------------------------------------------------------
 const NAV_INTENT_PATTERNS: Array<{ re: RegExp; route: string }> = [
-  { re: /(evaluasi|hasil ujian|penilaian hasil|nilai)/i, route: "nilai" },
+  { re: /(evaluasi|hasil ujian|lembar jawaban)/i, route: "evaluasi" },
+  { re: /(nilai|tawashul)/i, route: "nilai" },
   { re: /(data siswa|halaman siswa|buka siswa|ke siswa|daftar siswa)/i, route: "siswa" },
   { re: /(data guru|halaman guru|buka guru|ke guru|daftar guru)/i, route: "guru" },
   { re: /(data kelas|halaman kelas|buka kelas|ke kelas|daftar kelas)/i, route: "kelas" },
