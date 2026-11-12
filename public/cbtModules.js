@@ -3880,6 +3880,7 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
         let currentOptions = {};
         let currentKey = null;
         let currentNum = 1;
+        let currentImageData = null;
 
         function pushQuestion() {
             if (!currentQuestion || !currentQuestion.text.trim()) return;
@@ -3919,6 +3920,7 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
                 kd: defaultKD,
                 kj: isEssayInline ? String(currentKey || '') : (currentKey || defaultKJ).toUpperCase().trim(),
                 abs: '',
+                imageUrl: currentImageData || '',
                 questionText: qText,
                 options: isEssayInline ? { A: '', B: '', C: '', D: '', E: '' } : opts
             });
@@ -3928,6 +3930,7 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
             currentQuestion = null;
             currentOptions = {};
             currentKey = null;
+            currentImageData = null;
         }
 
         let defaultTSInline = null;
@@ -3952,6 +3955,11 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
                 } else {
                     continue;
                 }
+            }
+
+            if (trimmed.startsWith('##IMG##')) {
+                currentImageData = trimmed.slice(7).trim();
+                continue;
             }
 
             const keyMatch = trimmed.match(keyRegex);
@@ -4455,7 +4463,7 @@ async function executeImportConvertedToBank(e) {
             classId: targetClassId,
             type: isEssay ? 'essay' : 'mc',
             question: q.questionText || '',
-            imageUrl: '',
+            imageUrl: q.imageUrl || '',
             options: isEssay ? [] : opts,
             answer: answerVal,
             explanation: ''
@@ -4821,6 +4829,30 @@ async function extractDocxTextWithMath(file) {
         Object.keys(num2abs).forEach(k => { numFmtMap[k] = absCache[num2abs[k]] || null; });
     } catch (e) { /* tanpa numbering.xml pun tetap jalan */ }
 
+    // peta rId -> file media (gambar) untuk ekstraksi gambar soal
+    const ridMap = {};
+    const mediaMime = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp' };
+    try {
+        const relsXml = await zip.file('word/_rels/document.xml.rels').async('string');
+        (relsXml.match(/<Relationship [^>]*>/g) || []).forEach(s => {
+            const id = s.match(/Id="(rId\d+)"/), t = s.match(/Target="([^"]+)"/);
+            if (id && t && /media\//.test(t[1])) ridMap[id[1]] = t[1];
+        });
+    } catch (e) {}
+    const loadMediaDataUrl = async (rid) => {
+        const target = ridMap[rid];
+        if (!target) return null;
+        const path = target.startsWith('/') ? target.slice(1) : ('word/' + target);
+        const f = zip.file(path) || zip.file(target);
+        if (!f) return null;
+        const ext = (path.split('.').pop() || '').toLowerCase();
+        if (!mediaMime[ext]) return null; // emf/wmf tidak bisa ditampilkan
+        try {
+            const b64 = await f.async('base64');
+            return 'data:' + mediaMime[ext] + ';base64,' + b64;
+        } catch (e) { return null; }
+    };
+
     const parser = new DOMParser();
     const doc = parser.parseFromString(docXml, 'application/xml');
     const paras = Array.from(doc.getElementsByTagName('w:p'));
@@ -4853,91 +4885,117 @@ async function extractDocxTextWithMath(file) {
                 }
             }
         };
+        // gambar di dalam paragraf (soal bergambar)
+        const blipEls = Array.from(pEl.getElementsByTagName('a:blip') || []);
+        for (const blip of blipEls) {
+            const rid = blip.getAttribute('r:embed') || blip.getAttribute('r:link');
+            if (!rid) continue;
+            const dataUrl = await loadMediaDataUrl(rid);
+            if (dataUrl) lines.push('##IMG##' + dataUrl);
+        }
         walk(pEl);
         text = text.replace(/\s+/g, ' ').trim();
-        if (!text) continue;
-        if (fmt === 'decimal') lines.push('##Q## ' + text);
-        else if (fmt === 'lowerLetter') lines.push('##O## ' + text);
-        else lines.push(text);
+        if (!text && !blipEls.length) continue;
+        if (fmt === 'decimal') lines.push(text ? '##Q## ' + text : '');
+        else if (fmt === 'lowerLetter' || fmt === 'upperLetter') lines.push(text ? '##O## ' + text : '');
+        else if (text) lines.push(text);
     }
     return lines.join('\n');
 }
 
 // Ubah baris bertanda ##Q##/##O## menjadi format teks soal standar aplikasi
 function assembleQuestionTextFromDocxLines(raw) {
-    const lines = String(raw || '').split('\n');
-    const out = [];
-    let qNum = 0, inOptions = false, keyBlock = [];
-    for (const line of lines) {
-        const t = line.trim();
+    if (!raw) return '';
+    const linesRaw = raw.split('\n');
+    const letters = ['A','B','C','D','E','F','G','H'];
+    const isContinuation = (s2) => /…\s*\.?$/.test(s2) || /\b(adalah|yaitu|disebut|merupakan|berikut)\b[^.!?…]*…\s*\.?$/.test(s2);
+    const blocks = [];
+    let cur = null;
+    let keyMode = false;
+    const keyList = [];
+    let bareKeyCount = 0;
+    const flush = () => {
+        if (cur && (cur.qtext.length || cur.opts.length || cur.imgs.length || cur.plains.length)) blocks.push(cur);
+        cur = null;
+    };
+    void 0;
+    for (const line0 of linesRaw) {
+        const t = (line0 || '').trim();
         if (!t) continue;
+        if (/^kunci\s*jawaban\s*:?\s*$/i.test(t) || /^kunci\s*:$/i.test(t)) { flush(); keyMode = true; continue; }
+        if (keyMode) {
+            const bare = t.replace(/^##Q##\s*/, '').trim();
+            const mNum = bare.match(/^(\d{1,3})\s*[.\):\-]?\s*([A-Ea-e])\b/);
+            if (mNum) { keyList[Number(mNum[1])] = mNum[2].toUpperCase(); continue; }
+            const bareLetter = bare.replace(/[\s.()]/g, '');
+            if (/^[A-Ea-e]$/.test(bareLetter) && bare.length <= 4) { bareKeyCount++; keyList[bareKeyCount] = bareLetter.toUpperCase(); continue; }
+            if (/^\d{1,3}$/.test(bare)) continue;
+            keyMode = false;
+        }
+        if (t.startsWith('##IMG##')) {
+            if (!cur) cur = { qtext: [], opts: [], imgs: [], plains: [] };
+            cur.imgs.push(t.slice(7).trim());
+            continue;
+        }
         if (t.startsWith('##Q##')) {
             const body = t.slice(5).trim();
-            // Soal "angka murni" (mis. Word me-render opsi 11-15 sbg daftar bernomor):
-            // bila soal berjalan belum punya opsi, perlakukan sebagai opsi.
-            if (/^\d{1,3}$/.test(body) && out.length) {
-                // Angka murni setelah teks soal (Word me-render opsi sbg daftar bernomor)
-                let opCount = 0;
-                for (let i = out.length - 1; i >= 0; i--) {
-                    if (/^\d+\. /.test(out[i])) break;
-                    if (/^[A-E]\. /.test(out[i])) opCount++;
-                }
-                const letters2 = ['A','B','C','D','E'];
-                if (opCount < 5) { out.push(`${letters2[opCount]}. ${body}`); continue; }
+            if (/^\d{1,3}$/.test(body) && cur && cur.opts.length < 5 && !cur.plains.length) {
+                cur.opts.push(body); continue; // quirk Word: opsi dirender desimal
             }
-            qNum++;
-            inOptions = false;
-            out.push(`${qNum}. ${body}`);
-        } else if (t.startsWith('##O##')) {
-            inOptions = true;
-            const idx = out.length - 1;
-            // hitung huruf opsi berikutnya utk soal terakhir
-            const last = out[idx] || '';
-            const letters = ['A','B','C','D','E'];
-            let cnt = 0;
-            const m = out.filter(l => /^A\. |^B\. |^C\. |^D\. |^E\. /.test(l));
-            // perlu konteks: hitung opsi sejak soal terakhir
-            let opCount = 0;
-            for (let i = out.length - 1; i >= 0; i--) {
-                if (/^\d+\.\s/.test(out[i])) break;
-                if (/^[A-E]\.\s/.test(out[i])) opCount++;
-            }
-            out.push(`${letters[Math.min(opCount, 4)]}. ${t.slice(5).trim()}`);
+            flush();
+            cur = { qtext: [body], opts: [], optsAfter: [], imgs: [], plains: [] };
+            continue;
+        }
+        if (t.startsWith('##O##')) {
+            if (!cur) cur = { qtext: [], opts: [], optsAfter: [], imgs: [], plains: [] };
+            if (cur.dividerSeen) cur.optsAfter.push(t.slice(5).trim()); else cur.opts.push(t.slice(5).trim());
+            continue;
+        }
+        if (!cur) cur = { qtext: [], opts: [], optsAfter: [], imgs: [], plains: [] };
+        // plain line continuation di tengah opsi = pembatas data-list vs opsi
+        if (!cur.dividerSeen && cur.opts.length && isContinuation(t)) {
+            cur.dividerSeen = true;
+            cur.qtext.push(t);
+            continue;
+        }
+        cur.plains.push(t);
+    }
+    flush();
+
+    // baris polos = lanjutan soal (berakhiran …./adalah/yaitu dsb.) atau opsi polos
+    const out = [];
+    const isJunkHeader = (b) => !b.qtext.length && !b.opts.length && !b.imgs.length && b.plains.length <= 3 && b.plains.every(p2 => !/…/.test(p2));
+    const cleanBlocks = blocks.filter(b => !isJunkHeader(b));
+    cleanBlocks.forEach((b, bi) => {
+        let qText = b.qtext.join('\n');
+        let opts = b.opts.slice();
+        const plains = b.plains.slice();
+        // data-list: opsi sebelum pembatas >5 item -> jadikan daftar a-f di dalam soal
+        if (opts.length > 5) {
+            qText = (qText ? qText + '\n' : '') + opts.map((o, i2) => '• ' + letters[i2] + '. ' + o).join('\n');
+            opts = (b.optsAfter || []).slice();
+        } else if ((b.optsAfter || []).length) {
+            opts = b.optsAfter.slice();
+        }
+        const contIdx = plains.findIndex(isContinuation);
+        let plainsRest = plains;
+        if (contIdx >= 0) {
+            qText = (qText ? qText + '\n' : '') + plains[contIdx];
+            plainsRest = plains.filter((_, i2) => i2 !== contIdx);
+        }
+        if (!opts.length && plainsRest.length && plainsRest.length <= 5) {
+            opts = plainsRest; // gaya opsi polos (tanpa huruf)
         } else {
-            out.push(t);
+            for (const o of plainsRest) { if (opts.length < 5) opts.push(o); else qText += '\n' + o; }
         }
-    }
-    // Kunci jawaban di akhir dokumen: "KUNCI JAWABAN" lalu "1. C", "2. A", dst.
-    const keyStart = out.findIndex(l => /^(kunci\s*jawaban|kunci|jawaban)\s*:?\s*$/i.test(l.trim()));
-    if (keyStart >= 0) {
-        let inserted = 0;
-        const keyMap = {};
-        for (const l of out.slice(keyStart + 1)) {
-            const m = l.trim().match(/^(\d{1,3})\s*[.\):\-]?\s*([A-Ea-e])\b/);
-            if (m) keyMap[Number(m[1])] = m[2].toUpperCase();
-        }
-        if (Object.keys(keyMap).length) {
-            const qStarts = [];
-            for (let i = 0; i < keyStart; i++) {
-                const m = out[i].match(/^(\d{1,3})\. /);
-                if (m) qStarts.push({ i, qn: Number(m[1]) });
-            }
-            for (let k = 0; k < qStarts.length; k++) {
-                const { i, qn } = qStarts[k];
-                if (!keyMap[qn]) continue;
-                const end = (k + 1 < qStarts.length ? qStarts[k + 1].i : keyStart) + inserted;
-                out.splice(end, 0, `Kunci: ${keyMap[qn]}`);
-                inserted++;
-            }
-        }
-        // buang blok kunci dari teks soal (kompensasi penyisipan Kunci)
-        out.splice(keyStart + inserted);
-    }
+        const num = bi + 1;
+        out.push(num + '. ' + qText);
+        opts.slice(0, 5).forEach((o, i2) => out.push(letters[i2] + '. ' + o));
+        b.imgs.forEach(img => out.push('##IMG##' + img));
+        if (keyList[num]) out.push('Kunci: ' + keyList[num]);
+    });
     return out.join('\n');
 }
-window.extractDocxTextWithMath = extractDocxTextWithMath;
-window.assembleQuestionTextFromDocxLines = assembleQuestionTextFromDocxLines;
-
 
 function handleConvertWordFileUpload(e) {
     const file = e.target.files[0];
