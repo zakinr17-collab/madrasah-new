@@ -344,6 +344,34 @@
     if (typeof showToast === 'function') showToast(msg, missing.length ? 'info' : 'success');
   };
 
+  // Buka sub-menu dulu bila target berada "di dalam menu lain" (hub Pengaturan,
+  // tab modul, dsb). Return true bila ada kartu/tab yang diklik.
+  window.aiAssistantOpenNestedMenu = function (text) {
+    const key = String(text || '').trim().toLowerCase();
+    if (!key) return false;
+    const words = key.split(/\s+/).filter((w) => w.length > 2);
+    if (!words.length) return false;
+    // Kartu hub Pengaturan (data-kw kaya sinonim)
+    const cards = Array.from(document.querySelectorAll('[data-hub-item]'));
+    for (const card of cards) {
+      const hay = ((card.getAttribute('data-kw') || '') + ' ' + card.textContent).toLowerCase();
+      if (words.some((w) => hay.includes(w))) {
+        card.click();
+        return true;
+      }
+    }
+    // Tab / tombol sub-navigasi lain yang teksnya mirip
+    const tabs = Array.from(document.querySelectorAll('#main-app button, #main-app a, #main-app [role="tab"]'));
+    for (const tab of tabs) {
+      const t = (tab.textContent || '').trim().toLowerCase();
+      if (t && t.length < 60 && words.some((w) => t.includes(w))) {
+        tab.click();
+        return true;
+      }
+    }
+    return false;
+  };
+
   // Cari elemen APA PUN di halaman yang memuat teks tertentu (untuk sorot bebas).
   // Sinonim umum -> selector khusus (fitur yang tidak berlabel jelas di halaman)
   const SPECIAL_TARGETS = [
@@ -384,7 +412,11 @@
   // Sorot teks apa pun di halaman (tanpa peta elemen): "sorot nama siswa Budi"
   window.aiAssistantHighlightText = function (label, attempt = 0) {
     try {
-      const el = window.aiAssistantFindTextOnPage(label);
+      let el = window.aiAssistantFindTextOnPage(label);
+      if (!el && (attempt === 2 || attempt === 6)) {
+        // Target mungkin di dalam menu lain (sub-tab/kartu hub) -> buka dulu lalu cari lagi
+        window.aiAssistantOpenNestedMenu(label);
+      }
       if (!el) {
         if (attempt < 16) { setTimeout(() => window.aiAssistantHighlightText(label, attempt + 1), 500); return; }
         if (typeof showToast === 'function') showToast('Tidak menemukan "' + label + '" di halaman ini. Pastikan halamannya sudah benar.', 'error');
@@ -425,7 +457,9 @@
       let el = document.querySelector(map[element]);
       if (!el) {
         // Fallback teks universal: cari elemen APA PUN yang memuat kata kunci label
-        const found = window.aiAssistantFindTextOnPage(label || element);
+        let found = window.aiAssistantFindTextOnPage(label || element);
+        if (!found && attempt === 2) window.aiAssistantOpenNestedMenu(label || element);
+        if (!found) found = window.aiAssistantFindTextOnPage(label || element);
         if (found) el = found;
       }
       if (!el) {
