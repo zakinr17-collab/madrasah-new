@@ -6158,6 +6158,7 @@ async function erHandleFile(ev) {
     if (!file) return;
     try {
         const data = await file.arrayBuffer();
+        erState.originalData = data.slice(0); // simpan byte asli untuk export style-preserving
         const wb = XLSX.read(data, { type: 'array', cellStyles: true, cellDates: false });
         if (!wb.SheetNames || !wb.SheetNames.length) throw new Error('File tidak punya sheet.');
         erState.wb = wb;
@@ -6342,53 +6343,131 @@ function erApplyAutoToSheet() {
 }
 
 function erDownload() {
-    try {
-        const wb = erState.wb;
-        erCollectGridEdits();
-        // auto-fill kolom Nilai di SEMUA sheet lain (yang kosong) pakai rumus yang sama
-        const examId = erState.examId;
-        if (examId) {
-            erState.sheetNames.forEach(name => {
-                const ws = wb.Sheets[name];
-                if (!ws) return;
-                const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    // Export style-preserving: patch nilai pada XML asli via JSZip, TIDAK lewat XLSX.write
+    // (XLSX.write menghancurkan style/col width/sheet view template).
+    (async () => {
+        try {
+            if (!erState.originalData) throw new Error('Data template asli tidak ada — import ulang template.');
+            erCollectGridEdits();
+            const JSZipMod = window.JSZip || (await import('jszip')).default;
+            const JSZip = JSZipMod.default || JSZipMod;
+            const zip = await JSZip.loadAsync(erState.originalData);
+            // map sheet name -> worksheet file path dari workbook.xml + rels
+            const wbXml = await zip.file('xl/workbook.xml').async('string');
+            const relsXml = await zip.file('xl/_rels/workbook.xml.rels').async('string');
+            const relMap = {};
+            relsXml.replace(/<Relationship[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"[^>]*\/>/g, (m, id, target) => { relMap[id] = target; return m; });
+            const sheetPaths = {};
+            wbXml.replace(/<sheet[^>]*name="([^"]*)"[^>]*r:id="([^"]+)"[^>]*\/>/g, (m, name, rid) => {
+                let t = relMap[rid] || '';
+                if (t && !t.startsWith('xl/')) t = 'xl/' + t.replace(/^\/+/, '');
+                sheetPaths[name] = t; return m;
+            });
+            const examId = erState.examId;
+            const patchedSheets = [];
+            for (const sheetName of erState.sheetNames) {
+                const path = sheetPaths[sheetName];
+                if (!path || !zip.file(path)) continue;
+                let xml = await zip.file(path).async('string');
+                // temukan header row & kolom Nama/Nilai dari XML (row dengan <c t="s" ...><v>idx</v> — resolve via sharedStrings)
+                const ssXml = zip.file('xl/sharedStrings.xml') ? await zip.file('xl/sharedStrings.xml').async('string') : '';
+                const sst = [];
+                if (ssXml) {
+                    const re = /<si>([\s\S]*?)<\/si>/g; let mm;
+                    while ((mm = re.exec(ssXml))) {
+                        sst.push((mm[1].match(/<t[^>]*>([\s\S]*?)<\/t>/g) || []).map(t => t.replace(/<[^>]+>/g, '')).join(''));
+                    }
+                }
+                const cellStr = (cxml) => {
+                    const t = /t="([^"]+)"/.exec(cxml);
+                    const v = /<v>([\s\S]*?)<\/v>/.exec(cxml);
+                    if (!v) return '';
+                    if (t && t[1] === 's' && v) { const i = parseInt(v[1], 10); return (sst[i] !== undefined) ? sst[i] : ''; }
+                    return v[1];
+                };
+                // parse rows: cari header
                 let headerRow = -1, colNama = -1, colNilai = -1;
-                for (let r = range.s.r; r <= Math.min(range.e.r, 15); r++) {
-                    for (let c = range.s.c; c <= range.e.c; c++) {
-                        const v = String((ws[XLSX.utils.encode_cell({ r, c })] || {}).v || '').trim().toLowerCase();
-                        if (v === 'nama') headerRow = r, colNama = c;
-                        if (v === 'nilai') colNilai = c;
+                const rowRe = /<row[^>]*r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g;
+                let rm;
+                const rowsFound = [];
+                while ((rm = rowRe.exec(xml))) rowsFound.push({ r: parseInt(rm[1], 10), body: rm[2] });
+                for (const row of rowsFound.slice(0, 15)) {
+                    const cellRe = /<c[^>]*r="([A-Z]+)(\d+)"[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g;
+                    let cm;
+                    while ((cm = cellRe.exec(row.body))) {
+                        const v = cellStr(cm[0]).trim().toLowerCase();
+                        if (v === 'nama') { headerRow = row.r; colNama = colNameToIdx(cm[1]); }
+                        if (v === 'nilai') colNilai = colNameToIdx(cm[1]);
                     }
                     if (headerRow !== -1 && colNilai !== -1) break;
                 }
-                if (headerRow === -1 || colNilai === -1) return;
-                for (let r = headerRow + 1; r <= range.e.r; r++) {
-                    const name = String((ws[XLSX.utils.encode_cell({ r, c: colNama })] || {}).v || '').trim();
+                if (headerRow === -1 || colNilai === -1) continue;
+                // nilai final per baris: dari workbook state (sudah termasuk edit manual grid)
+                const wbWs = erState.wb.Sheets[sheetName];
+                if (!wbWs) continue;
+                const range = XLSX.utils.decode_range(wbWs['!ref'] || 'A1');
+                const changes = {}; // excelRow (1-based) -> {colLetter, value}
+                // headerRow dari XML = 1-based; workbook SheetJS = 0-based → workbook row = r - 1
+                for (let r = headerRow + 1; r <= range.e.r + 1; r++) {
+                    const nameC = wbWs[XLSX.utils.encode_cell({ r: r - 1, c: colNama })];
+                    const name = String(nameC && nameC.v || '').trim();
                     if (!name) continue;
                     const m = erFindStudent(name);
-                    if (!m.student) continue;
-                    const refV = XLSX.utils.encode_cell({ r, c: colNilai });
-                    const cur = ws[refV];
-                    if (cur && cur.v !== undefined && cur.v !== null && cur.v !== '') continue; // hormati nilai yang sudah ada (termasuk edit manual)
-                    const tabCount = erTabSwitchesFor(examId, m.student.id);
-                    const res = erComputeRow({ studentId: m.student.id, name, tabCount });
-                    if (res.nilai !== '') { ws[refV] = { t: 'n', v: res.nilai }; }
+                    const ref = XLSX.utils.encode_cell({ r: r - 1, c: colNilai });
+                    const cur = wbWs[ref];
+                    let val;
+                    if (cur && cur.v !== undefined && cur.v !== null && cur.v !== '') {
+                        val = cur.v; // nilai di workbook state (auto + manual edits)
+                    } else if (m.student && examId) {
+                        const tabCount = erTabSwitchesFor(examId, m.student.id);
+                        const res = erComputeRow({ studentId: m.student.id, name, tabCount });
+                        val = (res.nilai === '') ? '' : res.nilai;
+                    } else {
+                        continue; // tidak match & tidak ada nilai state → biarkan template
+                    }
+                    const colLetter = colIdxToName(colNilai);
+                    // r = baris 0-based di SheetJS; XML pakai 1-based → +1
+                    changes[r] = { colLetter, val };
                 }
-            });
+                if (!Object.keys(changes).length) continue;
+                // patch XML: replace nilai di <c r="F7" ...>...</c> untuk baris terkait
+                xml = xml.replace(/<c[^>]*r="([A-Z]+)(\d+)"[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g, (cxml, colL, rowS) => {
+                    const r = parseInt(rowS, 10);
+                    if (!changes[r] || changes[r].colLetter !== colL) return cxml;
+                    const val = changes[r].val;
+                    if (val === '') return ''; // kosongkan: hapus cell (template punya nilai lama)
+                    // pertahankan style attr s=".."
+                    const sAttr = / s="(\d+)"/.exec(cxml);
+                    return `<c r="${colL}${rowS}"${sAttr ? ` s="${sAttr[1]}"` : ''} t="n"><v>${val}</v></c>`;
+                });
+                zip.file(path, xml);
+                patchedSheets.push(sheetName);
+            }
+            const blob = await zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', compression: 'DEFLATE' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'Template_Nilai_Sumatif_TERISI.xlsx';
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            showToast('Template e-Raport terisi berhasil diunduh (' + patchedSheets.length + ' sheet)!', 'success');
+        } catch (err) {
+            showToast('Gagal membuat file: ' + (err.message || err), 'error');
         }
-        const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true });
-        const blob = new Blob([out], { type: 'application/octet-stream' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = 'Template_Nilai_Sumatif_TERISI.xlsx';
-        document.body.appendChild(a); a.click(); document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-        showToast('Template e-Raport terisi berhasil diunduh!', 'success');
-    } catch (err) {
-        showToast('Gagal membuat file: ' + (err.message || err), 'error');
-    }
+    })();
 }
+function colNameToIdx(letters) {
+    let n = 0;
+    for (const ch of letters) n = n * 26 + (ch.charCodeAt(0) - 64);
+    return n - 1;
+}
+function colIdxToName(idx) {
+    let s = '';
+    idx++;
+    while (idx > 0) { const m = (idx - 1) % 26; s = String.fromCharCode(65 + m) + s; idx = Math.floor((idx - 1) / 26); }
+    return s;
+}
+
 window.openERaportModal = openERaportModal;
 window.erHandleFile = erHandleFile;
 window.erCloseModal;
