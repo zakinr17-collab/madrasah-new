@@ -47,6 +47,7 @@ const UI_ELEMENT_MAP: Record<string, Record<string, UIElementDef>> = {
   },
   bank_soal: {
     question_search: { sel: "input[placeholder*='cari soal' i], input[placeholder*='Cari soal' i], #question-search-input", desc: "Kolom pencarian soal" },
+    add_question_btn: { sel: "button[onclick*='openQuestionModal'], button[onclick*='addQuestion']", desc: "Tombol tambah soal baru" },
   },
   asesmen: {
     exam_list: { sel: "#exam-list-container, #assessment-list", desc: "Daftar ujian/sesi asesmen" },
@@ -60,10 +61,7 @@ const UI_ELEMENT_MAP: Record<string, Record<string, UIElementDef>> = {
     camera_box: { sel: "video, #attendance-camera", desc: "Area kamera absensi" },
     class_picker: { sel: "#attendance-class-select, select[onchange*='attendance']", desc: "Pilih kelas untuk absensi" },
   },
-  bank_soal: {
-    question_search: { sel: "input[placeholder*='cari soal' i]", desc: "Kolom pencarian soal" },
-    add_question_btn: { sel: "button[onclick*='openQuestionModal'], button[onclick*='addQuestion']", desc: "Tombol tambah soal baru" },
-  },
+
   nilai: {
     grades_table: { sel: "table, #grades-container, #evaluasi-container", desc: "Tabel/daftar nilai & evaluasi" },
   },
