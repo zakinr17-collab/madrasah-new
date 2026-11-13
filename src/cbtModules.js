@@ -1677,6 +1677,9 @@ function renderGradesModule(container) {
                             </button>
                         </div>
                         <div class="flex items-center space-x-2">
+                            <button type="button" onclick="openERaportModal()" class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-bold shadow transition flex items-center space-x-1 cursor-pointer">
+                                <i class="fa-solid fa-file-arrow-up"></i><span>e-Raport</span>
+                            </button>
                             <button type="button" onclick="exportGradesMatrixExcel()" class="px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white rounded-2xl text-xs font-bold shadow transition flex items-center space-x-1 cursor-pointer">
                                 <i class="fa-solid fa-file-excel"></i><span>Ekspor Excel</span>
                             </button>
@@ -6044,3 +6047,397 @@ Object.assign(window, {
   saveSingleQuestion
 });
 
+
+// ===================== E-RAPORT TEMPLATE FILLER (Manajemen Nilai) =====================
+let erState = { wb: null, sheetNames: [], activeSheet: null, matchMap: {}, kkm: 75, penalty: 2, useTab: true };
+
+function erNormalizeName(s) {
+    return String(s || '').toLowerCase()
+        .replace(/[.,'"()\u060C]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function erFindStudent(nameRaw) {
+    const norm = erNormalizeName(nameRaw);
+    if (!norm) return null;
+    const students = (appState.students || []).filter(s => String(s.classId || s.class_id) === String(appState.activeGradeClassId));
+    let exact = students.find(s => erNormalizeName(s.name) === norm);
+    if (exact) return { student: exact, confidence: 'exact' };
+    const cand = students.filter(s => {
+        const n = erNormalizeName(s.name);
+        return n && (n.includes(norm) || norm.includes(n));
+    });
+    if (cand.length === 1) return { student: cand[0], confidence: 'fuzzy' };
+    if (cand.length > 1) return { student: null, confidence: 'ambiguous', candidates: cand.map(c => c.name) };
+    return { student: null, confidence: 'none' };
+}
+
+function erExamGradeFor(examId, studentId) {
+    const key = studentId + '_' + examId;
+    const grades = appState.studentExamGrades || JSON.parse(localStorage.getItem('madrasah_student_exam_grades') || '{}') || {};
+    const g = grades[key] || grades[String(studentId) + '_' + String(examId)] || {};
+    const finalVal = g.finalScore;
+    if (finalVal === null || finalVal === undefined || finalVal === '') return null;
+    return Number(finalVal);
+}
+
+function erTabSwitchesFor(examId, studentId) {
+    const map = appState.studentTabSwitches || JSON.parse(localStorage.getItem('madrasah_student_tab_switches') || '{}') || {};
+    const v = map[studentId + '_' + examId] || map[String(studentId) + '_' + String(examId)] || 0;
+    return Number(v) || 0;
+}
+
+function erDailyAverage(subjectName, studentId) {
+    const gs = (appState.grades || []).filter(g =>
+        String(g.studentId) === String(studentId) &&
+        (String(g.subjectName || '').trim().toLowerCase() === String(subjectName || '').trim().toLowerCase()) &&
+        g.score !== undefined && g.score !== null && g.score !== ''
+    );
+    if (!gs.length) return null;
+    return gs.reduce((a, g) => a + Number(g.score), 0) / gs.length;
+}
+
+function erComputeRow(row) {
+    // row: {studentId, name, tabCount}
+    const cfg = erState;
+    const examId = cfg.examId;
+    // Nilai ujian akhir = penentu: belum ujian → kosong
+    const examVal = examId ? erExamGradeFor(examId, row.studentId) : null;
+    if (examVal === null || examVal === undefined || isNaN(examVal)) return { nilai: '', ket: row.tabCount > 0 ? (row.tabCount + 'x keluar tab') : '' };
+    const daily = erDailyAverage(cfg.subjectName, row.studentId);
+    let base;
+    if (daily === null || isNaN(daily)) base = examVal;
+    else base = (daily * (cfg.wHar / 100)) + (examVal * (cfg.wUjian / 100));
+    let ket = [];
+    if (cfg.useTab && row.tabCount > 0) {
+        ket.push(row.tabCount + 'x keluar tab');
+        base = base - (row.tabCount * (cfg.penalty || 0));
+    }
+    let nilai = Math.round(base * 100) / 100;
+    let kkmApplied = false;
+    if (cfg.kkm && nilai < cfg.kkm) { nilai = cfg.kkm; kkmApplied = true; }
+    if (kkmApplied) ket.push('KKM');
+    return { nilai: nilai, ket: ket.join(', ') };
+}
+
+function openERaportModal() {
+    if (!window.XLSX) { showToast('Library Excel belum dimuat.', 'error'); return; }
+    const modal = document.getElementById('modal-container');
+    if (!modal) return;
+    modal.innerHTML = `
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
+            <div class="bg-white w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden my-6">
+                <div class="p-5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white flex items-center justify-between">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-10 h-10 bg-white/20 rounded-2xl flex items-center justify-center text-xl"><i class="fa-solid fa-file-arrow-up"></i></div>
+                        <div>
+                            <h3 class="font-bold text-base">e-Raport — Isi Template Nilai Sumatif</h3>
+                            <p class="text-xs text-indigo-100">Import template, nilai terisi otomatis (bobot + KKM + penalti keluar tab), edit langsung, lalu unduh.</p>
+                        </div>
+                    </div>
+                    <button type="button" onclick="erCloseModal()" class="text-white/80 hover:text-white text-lg cursor-pointer"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="p-5 space-y-4 text-xs">
+                    <div id="er-upload-zone" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 rounded-2xl p-6 text-center bg-slate-50/50">
+                        <i class="fa-solid fa-cloud-arrow-up text-2xl text-slate-400 mb-2 block"></i>
+                        <p class="text-xs text-slate-600 mb-2 font-medium">Import template e-Raport (.xlsx) — 15 sheet SUM akan tampil dan bisa diedit langsung</p>
+                        <input type="file" id="er-file-input" accept=".xlsx" onchange="erHandleFile(event)" class="hidden" />
+                        <button type="button" onclick="document.getElementById('er-file-input').click()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow transition cursor-pointer">Pilih File Template</button>
+                    </div>
+                    <div id="er-work-area" class="hidden space-y-4"></div>
+                </div>
+            </div>
+        </div>
+    `;
+    window.erCloseModal = () => { modal.innerHTML = ''; erState.wb = null; };
+}
+
+async function erHandleFile(ev) {
+    const file = ev.target.files[0];
+    if (!file) return;
+    try {
+        const data = await file.arrayBuffer();
+        const wb = XLSX.read(data, { type: 'array', cellStyles: true, cellDates: false });
+        if (!wb.SheetNames || !wb.SheetNames.length) throw new Error('File tidak punya sheet.');
+        erState.wb = wb;
+        erState.sheetNames = wb.SheetNames.slice();
+        erState.activeSheet = wb.SheetNames[0];
+        // default config: subject of active grades page
+        erState.subjectName = (appState.activeGradeSubject && appState.activeGradeSubject !== 'ALL') ? appState.activeGradeSubject : ((appState.subjects[0] || {}).name || '');
+        erState.kkm = 75; erState.penalty = 2; erState.useTab = true; erState.wHar = 50; erState.wUjian = 50;
+        // default exam: latest exam matching subject
+        const exams = (appState.exams || []).filter(e => String(e.subject || e.subjectName || '').toLowerCase() === erState.subjectName.toLowerCase());
+        erState.examId = exams.length ? exams[exams.length - 1].id : '';
+        erRenderWorkArea();
+    } catch (err) {
+        showToast('Gagal membaca template: ' + (err.message || err), 'error');
+    }
+}
+
+function erRenderWorkArea() {
+    const wb = erState.wb;
+    const area = document.getElementById('er-work-area');
+    if (!wb || !area) return;
+    const exams = (appState.exams || []).filter(e => !erState.subjectName || String(e.subject || e.subjectName || '').toLowerCase() === erState.subjectName.toLowerCase());
+    area.classList.remove('hidden');
+    area.innerHTML = `
+        <div class="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
+            <div>
+                <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Sheet</label>
+                <select id="er-sheet-select" onchange="erSwitchSheet(this.value)" class="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold">
+                    ${erState.sheetNames.map(n => `<option value="${n}" ${n === erState.activeSheet ? 'selected' : ''}>${n}</option>`).join('')}
+                </select>
+            </div>
+            <div class="col-span-2">
+                <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Ujian CBT (nilai akhir — penentu)</label>
+                <select id="er-exam-select" onchange="erRecompute()" class="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold">
+                    <option value="">— Tidak ada (nilai kosong) —</option>
+                    ${(appState.exams || []).map(e => `<option value="${e.id}" ${String(e.id) === String(erState.examId || '') ? 'selected' : ''}>${qbEscapeHtml(e.title || e.name || e.id)}</option>`).join('')}
+                </select>
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Bobot Harian %</label>
+                <input type="number" id="er-whar" value="${erState.wHar}" min="0" max="100" onchange="erRecompute()" class="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold"/>
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Bobot Ujian %</label>
+                <input type="number" id="er-wujian" value="${erState.wUjian}" min="0" max="100" onchange="erRecompute()" class="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold"/>
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">KKM (batas bawah)</label>
+                <input type="number" id="er-kkm" value="${erState.kkm}" min="0" max="100" onchange="erRecompute()" class="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold"/>
+            </div>
+            <div>
+                <label class="block text-[10px] font-bold uppercase text-slate-500 mb-1">Potongan / keluar tab</label>
+                <input type="number" id="er-penalty" value="${erState.penalty}" min="0" max="100" onchange="erRecompute()" class="w-full px-2.5 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold"/>
+            </div>
+            <div class="flex items-center gap-2 pb-1">
+                <input type="checkbox" id="er-usetab" ${erState.useTab ? 'checked' : ''} onchange="erRecompute()" class="w-4 h-4 text-indigo-600 rounded cursor-pointer"/>
+                <label for="er-usetab" class="text-[11px] font-semibold text-slate-600">Keterangan keluar tab</label>
+            </div>
+            <div class="flex items-end gap-2 lg:col-span-2">
+                <button type="button" onclick="erRecompute()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow transition cursor-pointer"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Hitung Otomatis</button>
+                <button type="button" onclick="erDownload()" class="px-4 py-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-xl font-bold shadow transition cursor-pointer"><i class="fa-solid fa-download mr-1"></i>Unduh .xlsx</button>
+            </div>
+        </div>
+        <div id="er-match-summary" class="text-[11px] font-semibold text-slate-600"></div>
+        <div class="border border-slate-200 rounded-2xl overflow-hidden">
+            <div class="overflow-x-auto max-h-[420px] overflow-y-auto"><div id="er-grid"></div></div>
+        </div>
+    `;
+    erRenderGrid();
+}
+
+function erSwitchSheet(name) {
+    erState.activeSheet = name;
+    erRenderGrid();
+    erApplyAutoToSheet();
+}
+
+function erRenderGrid() {
+    const wb = erState.wb;
+    const grid = document.getElementById('er-grid');
+    if (!wb || !grid) return;
+    const ws = wb.Sheets[erState.activeSheet];
+    if (!ws) { grid.innerHTML = '<div class="p-6 text-slate-400 text-xs">Sheet tidak ditemukan.</div>'; return; }
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    // locate header row: row containing 'Nama' + 'Nilai'
+    let headerRow = -1, colNama = -1, colNilai = -1, colKet = -1;
+    for (let r = range.s.r; r <= Math.min(range.e.r, 15); r++) {
+        for (let c = range.s.c; c <= range.e.c; c++) {
+            const cell = ws[XLSX.utils.encode_cell({ r, c })];
+            const v = String(cell && cell.v || '').trim().toLowerCase();
+            if (v === 'nama') { headerRow = r; colNama = c; }
+            if (v === 'nilai') colNilai = c;
+        }
+        if (headerRow !== -1 && colNilai !== -1) break;
+    }
+    if (headerRow === -1 || colNilai === -1) {
+        grid.innerHTML = '<div class="p-6 text-slate-400 text-xs">Format tidak dikenal: butuh kolom "Nama" dan "Nilai".</div>';
+        return;
+    }
+    erState.headerRow = headerRow; erState.colNama = colNama; erState.colNilai = colNilai;
+    // Keterangan column: add after last column that actually has data (bukan cuma dimension)
+    let lastDataCol = colNilai;
+    for (let r2 = headerRow; r2 <= range.e.r; r2++) {
+        for (let c2 = range.e.c; c2 > lastDataCol; c2--) {
+            const cc = ws[XLSX.utils.encode_cell({ r: r2, c: c2 })];
+            if (cc && cc.v !== undefined && String(cc.v).trim() !== '') { lastDataCol = c2; break; }
+        }
+    }
+    colKet = lastDataCol + 1;
+    erState.colKet = colKet;
+    let html = '<table class="w-full text-xs border-collapse bg-white"><thead><tr>';
+    for (let c = range.s.c; c <= colKet; c++) {
+        const isNama = c === colNama, isNilai = c === colNilai, isKet = c === colKet;
+        const label = (c <= range.e.c) ? String((ws[XLSX.utils.encode_cell({ r: headerRow, c })] || {}).v || '') : 'Keterangan';
+        html += `<th class="px-2 py-2 border border-slate-200 bg-slate-100 font-bold text-[11px] ${isNama || isNilai || isKet ? 'text-indigo-700' : 'text-slate-500'}">${qbEscapeHtml(label) || '&nbsp;'}</th>`;
+    }
+    html += '</tr></thead><tbody>';
+    let stats = { exact: 0, fuzzy: 0, ambiguous: 0, none: 0 };
+    erState.matchMap = {};
+    const examId = erState.examId;
+    for (let r = headerRow + 1; r <= range.e.r; r++) {
+        const nameCell = ws[XLSX.utils.encode_cell({ r, c: colNama })];
+        const name = String(nameCell && nameCell.v || '').trim();
+        if (!name) continue;
+        const m = erFindStudent(name);
+        const st = m.student;
+        erState.matchMap[r] = st ? st.id : null;
+        if (st && m.confidence === 'exact') stats.exact++;
+        else if (st && m.confidence === 'fuzzy') stats.fuzzy++;
+        else if (m.confidence === 'ambiguous') stats.ambiguous++;
+        else stats.none++;
+        const tabCount = st ? erTabSwitchesFor(examId, st.id) : 0;
+        const rowBg = (!st || m.confidence !== 'exact') ? 'bg-amber-50' : (r % 2 ? '' : 'bg-slate-50/50');
+        html += `<tr class="${rowBg}" data-er-row="${r}">`;
+        for (let c = range.s.c; c <= colKet; c++) {
+            if (c === colNilai) {
+                const cur = ws[XLSX.utils.encode_cell({ r, c })];
+                html += `<td class="px-2 py-1.5 border border-slate-200"><input data-er-nilai="${r}" type="number" value="${cur && cur.v !== undefined && cur.v !== null && cur.v !== '' ? cur.v : ''}" class="w-16 px-1.5 py-1 border border-slate-200 rounded-lg text-xs font-bold text-center focus:ring-2 focus:ring-indigo-500"/></td>`;
+            } else if (c === colKet) {
+                const curKet = ws[XLSX.utils.encode_cell({ r, c })];
+                const tabTxt = tabCount > 0 ? tabCount + 'x keluar tab' : '';
+                html += `<td class="px-2 py-1.5 border border-slate-200"><input data-er-ket="${r}" value="${qbEscapeAttr(String(curKet && curKet.v || tabTxt || ''))}" class="w-32 px-1.5 py-1 border border-slate-200 rounded-lg text-xs"/></td>`;
+            } else {
+                const cell = ws[XLSX.utils.encode_cell({ r, c })];
+                const disp = (st && c === colNama) ? st.name : String(cell && cell.v !== undefined ? cell.v : '');
+                html += `<td class="px-2 py-1.5 border border-slate-200 whitespace-nowrap ${c === colNama ? 'font-semibold text-slate-800' : 'text-slate-600'}" ${c === colNama ? `title="Template: ${qbEscapeAttr(name)}"` : ''}>${qbEscapeHtml(disp) || '&nbsp;'}</td>`;
+            }
+        }
+        html += '</tr>';
+    }
+    html += '</tbody></table>';
+    grid.innerHTML = html;
+    const ms = document.getElementById('er-match-summary');
+    if (ms) ms.innerHTML = `Match siswa: <b class="text-emerald-700">${stats.exact} cocok</b>, ${stats.fuzzy} mirip, ${stats.ambiguous} ragu, ${stats.none} tidak ketemu. Baris kuning perlu dicek (nama tidak cocok pasti — bisa diisi manual).`;
+}
+
+function erRecompute() {
+    const g = id => document.getElementById(id);
+    if (!g('er-kkm')) return;
+    erState.kkm = Number(g('er-kkm').value || 0);
+    erState.penalty = Number(g('er-penalty').value || 0);
+    erState.useTab = g('er-usetab').checked;
+    erState.wHar = Number(g('er-whar').value || 0);
+    erState.wUjian = Number(g('er-wujian').value || 0);
+    erState.examId = g('er-exam-select') ? g('er-exam-select').value : '';
+    // re-render grid (fresh values from computation) but keep manual edits? simplest: recompute + rerender
+    erRenderGrid();
+    erRenderGrid();
+    erApplyAutoToSheet();
+}
+
+function erCollectGridEdits() {
+    const wb = erState.wb;
+    const ws = wb.Sheets[erState.activeSheet];
+    document.querySelectorAll('[data-er-nilai]').forEach(inp => {
+        const r = Number(inp.getAttribute('data-er-nilai'));
+        const ref = XLSX.utils.encode_cell({ r, c: erState.colNilai });
+        const v = inp.value;
+        if (v === '') { delete ws[ref]; }
+        else {
+            ws[ref] = ws[ref] || { t: 'n' };
+            ws[ref].t = 'n'; ws[ref].v = Number(v);
+        }
+    });
+    document.querySelectorAll('[data-er-ket]').forEach(inp => {
+        const r = Number(inp.getAttribute('data-er-ket'));
+        const ref = XLSX.utils.encode_cell({ r, c: erState.colKet });
+        const v = inp.value;
+        if (v === '') { delete ws[ref]; }
+        else { ws[ref] = ws[ref] || { t: 's' }; ws[ref].t = 's'; ws[ref].v = v; }
+    });
+    // extend !ref to include Keterangan column
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    if (erState.colKet > range.e.c) range.e.c = erState.colKet;
+    ws['!ref'] = XLSX.utils.encode_range(range);
+    // clear autofilter/merges overlapping new col? keep as-is.
+}
+
+function erApplyAutoToSheet() {
+    // compute for every matched row & write into grid inputs
+    const wb = erState.wb, ws = wb.Sheets[erState.activeSheet];
+    document.querySelectorAll('[data-er-nilai]').forEach(inp => {
+        const r = Number(inp.getAttribute('data-er-nilai'));
+        const sid = erState.matchMap[r];
+        const nameCell = ws[XLSX.utils.encode_cell({ r, c: erState.colNama })];
+        const name = String(nameCell && nameCell.v || '').trim();
+        if (!sid || !name) return;
+        const tabCount = erTabSwitchesFor(erState.examId, sid);
+        const res = erComputeRow({ studentId: sid, name, tabCount });
+        // belum ujian → kosongkan (penentu = nilai ujian akhir), sisanya pakai hasil hitung
+        inp.value = (res.nilai === '') ? '' : res.nilai;
+        if (res.nilai === '' && erState.examId) {
+            const ketInp0 = document.querySelector(`[data-er-ket="${r}"]`);
+            if (ketInp0) ketInp0.value = '';
+        }
+        const ketInp = document.querySelector(`[data-er-ket="${r}"]`);
+        if (ketInp && res.ket) ketInp.value = res.ket;
+    });
+}
+
+function erDownload() {
+    try {
+        const wb = erState.wb;
+        // apply current grid edits to ALL sheets that were rendered? Only active sheet edits exist; save them, then loop sheets: recompute? Keep simple: current sheet edits + auto-fill other sheets via same computation when values empty.
+        erCollectGridEdits();
+        // auto-fill other sheets: use same exam/config, but only fill empty Nilai cells for matched students
+        const examId = erState.examId;
+        if (examId) {
+            erState.sheetNames.forEach(name => {
+                const ws = wb.Sheets[name];
+                if (!ws) return;
+                const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+                let headerRow = -1, colNama = -1, colNilai = -1;
+                for (let r = range.s.r; r <= Math.min(range.e.r, 15); r++) {
+                    for (let c = range.s.c; c <= range.e.c; c++) {
+                        const v = String((ws[XLSX.utils.encode_cell({ r, c })] || {}).v || '').trim().toLowerCase();
+                        if (v === 'nama') headerRow = r, colNama = c;
+                        if (v === 'nilai') colNilai = c;
+                    }
+                    if (headerRow !== -1 && colNilai !== -1) break;
+                }
+                if (headerRow === -1 || colNilai === -1) return;
+                const colKet = range.e.c + 1;
+                for (let r = headerRow + 1; r <= range.e.r; r++) {
+                    const name = String((ws[XLSX.utils.encode_cell({ r, c: colNama })] || {}).v || '').trim();
+                    if (!name) continue;
+                    const m = erFindStudent(name);
+                    if (!m.student) continue;
+                    const refV = XLSX.utils.encode_cell({ r, c: colNilai });
+                    const cur = ws[refV];
+                    if (cur && cur.v !== undefined && cur.v !== null && cur.v !== '') continue; // respect existing (incl manual edits of active sheet)
+                    const tabCount = erTabSwitchesFor(examId, m.student.id);
+                    const res = erComputeRow({ studentId: m.student.id, name, tabCount });
+                    if (res.nilai !== '') { ws[refV] = { t: 'n', v: res.nilai }; }
+                    if (res.ket) {
+                        const refK = XLSX.utils.encode_cell({ r, c: colKet });
+                        ws[refK] = { t: 's', v: res.ket };
+                        const rng = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+                        if (colKet > rng.e.c) { rng.e.c = colKet; ws['!ref'] = XLSX.utils.encode_range(rng); }
+                    }
+                }
+            });
+        }
+        const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array', cellStyles: true });
+        const blob = new Blob([out], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'Template_Nilai_Sumatif_TERISI.xlsx';
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showToast('Template e-Raport terisi berhasil diunduh!', 'success');
+    } catch (err) {
+        showToast('Gagal membuat file: ' + (err.message || err), 'error');
+    }
+}
+window.openERaportModal = openERaportModal;
+window.erHandleFile = erHandleFile;
+window.erCloseModal;
+window.erSwitchSheet = erSwitchSheet;
+window.erRecompute = erRecompute;
+window.erDownload = erDownload;
+window.erApplyAutoToSheet = erApplyAutoToSheet;
