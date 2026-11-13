@@ -6258,9 +6258,17 @@ function erRenderGrid() {
         return;
     }
     erState.headerRow = headerRow; erState.colNama = colNama; erState.colNilai = colNilai;
-    // Tampilan = template persis: hanya kolom asli (sampai range.e.c), TANPA kolom tambahan
+    // kolom ID Siswa disembunyikan di tampilan (terlalu panjang) — tetap utuh di file export
+    let colID = -1;
+    for (let c = range.s.c; c <= range.e.c; c++) {
+        const v = String((ws[XLSX.utils.encode_cell({ r: headerRow, c })] || {}).v || '').trim().toLowerCase();
+        if (v === 'id siswa') { colID = c; break; }
+    }
+    erState.colID = colID;
+    // Tampilan = template persis, kecuali ID Siswa disembunyikan
     let html = '<table class="w-full text-xs border-collapse bg-white"><thead><tr>';
     for (let c = range.s.c; c <= range.e.c; c++) {
+        if (c === colID) continue;
         const isNilai = c === colNilai;
         const label = String((ws[XLSX.utils.encode_cell({ r: headerRow, c })] || {}).v || '');
         html += `<th class="px-2 py-2 border border-slate-200 bg-slate-100 font-bold text-[11px] ${isNilai ? 'text-indigo-700' : 'text-slate-500'}">${qbEscapeHtml(label) || '&nbsp;'}</th>`;
@@ -6282,6 +6290,7 @@ function erRenderGrid() {
         const rowBg = (!st || m.confidence !== 'exact') ? 'bg-amber-50' : (r % 2 ? '' : 'bg-slate-50/50');
         html += `<tr class="${rowBg}" data-er-row="${r}">`;
         for (let c = range.s.c; c <= range.e.c; c++) {
+            if (c === colID) continue;
             if (c === colNilai) {
                 const cur = ws[XLSX.utils.encode_cell({ r, c })];
                 html += `<td class="px-2 py-1.5 border border-slate-200"><input data-er-nilai="${r}" type="number" value="${cur && cur.v !== undefined && cur.v !== null && cur.v !== '' ? cur.v : ''}" class="w-16 px-1.5 py-1 border border-slate-200 rounded-lg text-xs font-bold text-center focus:ring-2 focus:ring-indigo-500"/></td>`;
