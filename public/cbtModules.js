@@ -6049,6 +6049,9 @@ Object.assign(window, {
 
 
 // ===================== E-RAPORT TEMPLATE FILLER (Manajemen Nilai) =====================
+// Template ditampilkan PERSIS apa adanya; satu-satunya perubahan: kolom Nilai
+// terisi otomatis dari rumus (bobot harian+ujian, penalti keluar tab, floor KKM)
+// dan bisa diedit manual. Tidak ada kolom tambahan.
 let erState = { wb: null, sheetNames: [], activeSheet: null, matchMap: {}, kkm: 75, penalty: 2, useTab: true };
 
 function erNormalizeName(s) {
@@ -6100,25 +6103,22 @@ function erDailyAverage(subjectName, studentId) {
 
 function erComputeRow(row) {
     // row: {studentId, name, tabCount}
+    // Rumus: (bobot harian × rata harian + bobot ujian × nilai ujian) − (keluar tab × potongan)
+    // lalu floor KKM. Belum ujian akhir → kosong (penentu = nilai ujian akhir).
     const cfg = erState;
     const examId = cfg.examId;
-    // Nilai ujian akhir = penentu: belum ujian → kosong
     const examVal = examId ? erExamGradeFor(examId, row.studentId) : null;
-    if (examVal === null || examVal === undefined || isNaN(examVal)) return { nilai: '', ket: row.tabCount > 0 ? (row.tabCount + 'x keluar tab') : '' };
+    if (examVal === null || examVal === undefined || isNaN(examVal)) return { nilai: '' };
     const daily = erDailyAverage(cfg.subjectName, row.studentId);
     let base;
     if (daily === null || isNaN(daily)) base = examVal;
     else base = (daily * (cfg.wHar / 100)) + (examVal * (cfg.wUjian / 100));
-    let ket = [];
     if (cfg.useTab && row.tabCount > 0) {
-        ket.push(row.tabCount + 'x keluar tab');
         base = base - (row.tabCount * (cfg.penalty || 0));
     }
     let nilai = Math.round(base * 100) / 100;
-    let kkmApplied = false;
-    if (cfg.kkm && nilai < cfg.kkm) { nilai = cfg.kkm; kkmApplied = true; }
-    if (kkmApplied) ket.push('KKM');
-    return { nilai: nilai, ket: ket.join(', ') };
+    if (cfg.kkm && nilai < cfg.kkm) nilai = cfg.kkm;
+    return { nilai: nilai };
 }
 
 function openERaportModal() {
@@ -6130,10 +6130,10 @@ function openERaportModal() {
             <div class="bg-white w-full max-w-5xl rounded-3xl shadow-2xl overflow-hidden my-6">
                 <div class="p-5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white flex items-center justify-between">
                     <div class="flex items-center space-x-3">
-                        <div class="w-10 h-10 bg-white/20 rounded-2xl flex items-center justify-center text-xl"><i class="fa-solid fa-file-arrow-up"></i></div>
+                        <div class="w-10 h-10 bg-white/20 rounded-2xl flex items-center justify-between text-xl"><i class="fa-solid fa-file-arrow-up"></i></div>
                         <div>
                             <h3 class="font-bold text-base">e-Raport — Isi Template Nilai Sumatif</h3>
-                            <p class="text-xs text-indigo-100">Import template, nilai terisi otomatis (bobot + KKM + penalti keluar tab), edit langsung, lalu unduh.</p>
+                            <p class="text-xs text-indigo-100">Import template (tampil persis apa adanya), kolom Nilai terisi otomatis sesuai rumus, edit manual bila perlu, lalu unduh.</p>
                         </div>
                     </div>
                     <button type="button" onclick="erCloseModal()" class="text-white/80 hover:text-white text-lg cursor-pointer"><i class="fa-solid fa-xmark"></i></button>
@@ -6141,7 +6141,7 @@ function openERaportModal() {
                 <div class="p-5 space-y-4 text-xs">
                     <div id="er-upload-zone" class="border-2 border-dashed border-slate-300 hover:border-indigo-500 rounded-2xl p-6 text-center bg-slate-50/50">
                         <i class="fa-solid fa-cloud-arrow-up text-2xl text-slate-400 mb-2 block"></i>
-                        <p class="text-xs text-slate-600 mb-2 font-medium">Import template e-Raport (.xlsx) — 15 sheet SUM akan tampil dan bisa diedit langsung</p>
+                        <p class="text-xs text-slate-600 mb-2 font-medium">Import template e-Raport (.xlsx) — template tampil persis apa adanya, hanya kolom Nilai yang diisi</p>
                         <input type="file" id="er-file-input" accept=".xlsx" onchange="erHandleFile(event)" class="hidden" />
                         <button type="button" onclick="document.getElementById('er-file-input').click()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold shadow transition cursor-pointer">Pilih File Template</button>
                     </div>
@@ -6179,7 +6179,6 @@ function erRenderWorkArea() {
     const wb = erState.wb;
     const area = document.getElementById('er-work-area');
     if (!wb || !area) return;
-    const exams = (appState.exams || []).filter(e => !erState.subjectName || String(e.subject || e.subjectName || '').toLowerCase() === erState.subjectName.toLowerCase());
     area.classList.remove('hidden');
     area.innerHTML = `
         <div class="bg-indigo-50 border border-indigo-100 rounded-2xl p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 items-end">
@@ -6214,7 +6213,7 @@ function erRenderWorkArea() {
             </div>
             <div class="flex items-center gap-2 pb-1">
                 <input type="checkbox" id="er-usetab" ${erState.useTab ? 'checked' : ''} onchange="erRecompute()" class="w-4 h-4 text-indigo-600 rounded cursor-pointer"/>
-                <label for="er-usetab" class="text-[11px] font-semibold text-slate-600">Keterangan keluar tab</label>
+                <label for="er-usetab" class="text-[11px] font-semibold text-slate-600">Penalti keluar tab aktif</label>
             </div>
             <div class="flex items-end gap-2 lg:col-span-2">
                 <button type="button" onclick="erRecompute()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow transition cursor-pointer"><i class="fa-solid fa-wand-magic-sparkles mr-1"></i>Hitung Otomatis</button>
@@ -6243,7 +6242,7 @@ function erRenderGrid() {
     if (!ws) { grid.innerHTML = '<div class="p-6 text-slate-400 text-xs">Sheet tidak ditemukan.</div>'; return; }
     const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
     // locate header row: row containing 'Nama' + 'Nilai'
-    let headerRow = -1, colNama = -1, colNilai = -1, colKet = -1;
+    let headerRow = -1, colNama = -1, colNilai = -1;
     for (let r = range.s.r; r <= Math.min(range.e.r, 15); r++) {
         for (let c = range.s.c; c <= range.e.c; c++) {
             const cell = ws[XLSX.utils.encode_cell({ r, c })];
@@ -6258,26 +6257,16 @@ function erRenderGrid() {
         return;
     }
     erState.headerRow = headerRow; erState.colNama = colNama; erState.colNilai = colNilai;
-    // Keterangan column: add after last column that actually has data (bukan cuma dimension)
-    let lastDataCol = colNilai;
-    for (let r2 = headerRow; r2 <= range.e.r; r2++) {
-        for (let c2 = range.e.c; c2 > lastDataCol; c2--) {
-            const cc = ws[XLSX.utils.encode_cell({ r: r2, c: c2 })];
-            if (cc && cc.v !== undefined && String(cc.v).trim() !== '') { lastDataCol = c2; break; }
-        }
-    }
-    colKet = lastDataCol + 1;
-    erState.colKet = colKet;
+    // Tampilan = template persis: hanya kolom asli (sampai range.e.c), TANPA kolom tambahan
     let html = '<table class="w-full text-xs border-collapse bg-white"><thead><tr>';
-    for (let c = range.s.c; c <= colKet; c++) {
-        const isNama = c === colNama, isNilai = c === colNilai, isKet = c === colKet;
-        const label = (c <= range.e.c) ? String((ws[XLSX.utils.encode_cell({ r: headerRow, c })] || {}).v || '') : 'Keterangan';
-        html += `<th class="px-2 py-2 border border-slate-200 bg-slate-100 font-bold text-[11px] ${isNama || isNilai || isKet ? 'text-indigo-700' : 'text-slate-500'}">${qbEscapeHtml(label) || '&nbsp;'}</th>`;
+    for (let c = range.s.c; c <= range.e.c; c++) {
+        const isNilai = c === colNilai;
+        const label = String((ws[XLSX.utils.encode_cell({ r: headerRow, c })] || {}).v || '');
+        html += `<th class="px-2 py-2 border border-slate-200 bg-slate-100 font-bold text-[11px] ${isNilai ? 'text-indigo-700' : 'text-slate-500'}">${qbEscapeHtml(label) || '&nbsp;'}</th>`;
     }
     html += '</tr></thead><tbody>';
     let stats = { exact: 0, fuzzy: 0, ambiguous: 0, none: 0 };
     erState.matchMap = {};
-    const examId = erState.examId;
     for (let r = headerRow + 1; r <= range.e.r; r++) {
         const nameCell = ws[XLSX.utils.encode_cell({ r, c: colNama })];
         const name = String(nameCell && nameCell.v || '').trim();
@@ -6289,17 +6278,12 @@ function erRenderGrid() {
         else if (st && m.confidence === 'fuzzy') stats.fuzzy++;
         else if (m.confidence === 'ambiguous') stats.ambiguous++;
         else stats.none++;
-        const tabCount = st ? erTabSwitchesFor(examId, st.id) : 0;
         const rowBg = (!st || m.confidence !== 'exact') ? 'bg-amber-50' : (r % 2 ? '' : 'bg-slate-50/50');
         html += `<tr class="${rowBg}" data-er-row="${r}">`;
-        for (let c = range.s.c; c <= colKet; c++) {
+        for (let c = range.s.c; c <= range.e.c; c++) {
             if (c === colNilai) {
                 const cur = ws[XLSX.utils.encode_cell({ r, c })];
                 html += `<td class="px-2 py-1.5 border border-slate-200"><input data-er-nilai="${r}" type="number" value="${cur && cur.v !== undefined && cur.v !== null && cur.v !== '' ? cur.v : ''}" class="w-16 px-1.5 py-1 border border-slate-200 rounded-lg text-xs font-bold text-center focus:ring-2 focus:ring-indigo-500"/></td>`;
-            } else if (c === colKet) {
-                const curKet = ws[XLSX.utils.encode_cell({ r, c })];
-                const tabTxt = tabCount > 0 ? tabCount + 'x keluar tab' : '';
-                html += `<td class="px-2 py-1.5 border border-slate-200"><input data-er-ket="${r}" value="${qbEscapeAttr(String(curKet && curKet.v || tabTxt || ''))}" class="w-32 px-1.5 py-1 border border-slate-200 rounded-lg text-xs"/></td>`;
             } else {
                 const cell = ws[XLSX.utils.encode_cell({ r, c })];
                 const disp = (st && c === colNama) ? st.name : String(cell && cell.v !== undefined ? cell.v : '');
@@ -6311,7 +6295,7 @@ function erRenderGrid() {
     html += '</tbody></table>';
     grid.innerHTML = html;
     const ms = document.getElementById('er-match-summary');
-    if (ms) ms.innerHTML = `Match siswa: <b class="text-emerald-700">${stats.exact} cocok</b>, ${stats.fuzzy} mirip, ${stats.ambiguous} ragu, ${stats.none} tidak ketemu. Baris kuning perlu dicek (nama tidak cocok pasti — bisa diisi manual).`;
+    if (ms) ms.innerHTML = `Match siswa: <b class="text-emerald-700">${stats.exact} cocok</b>, ${stats.fuzzy} mirip, ${stats.ambiguous} ragu, ${stats.none} tidak ketemu. Baris kuning = nama tidak cocok pasti — kolom Nilai bisa diisi manual. Nilai di bawah KKM otomatis jadi KKM; keluar tab memotong nilai (tidak tampil di template).`;
 }
 
 function erRecompute() {
@@ -6323,8 +6307,6 @@ function erRecompute() {
     erState.wHar = Number(g('er-whar').value || 0);
     erState.wUjian = Number(g('er-wujian').value || 0);
     erState.examId = g('er-exam-select') ? g('er-exam-select').value : '';
-    // re-render grid (fresh values from computation) but keep manual edits? simplest: recompute + rerender
-    erRenderGrid();
     erRenderGrid();
     erApplyAutoToSheet();
 }
@@ -6342,22 +6324,10 @@ function erCollectGridEdits() {
             ws[ref].t = 'n'; ws[ref].v = Number(v);
         }
     });
-    document.querySelectorAll('[data-er-ket]').forEach(inp => {
-        const r = Number(inp.getAttribute('data-er-ket'));
-        const ref = XLSX.utils.encode_cell({ r, c: erState.colKet });
-        const v = inp.value;
-        if (v === '') { delete ws[ref]; }
-        else { ws[ref] = ws[ref] || { t: 's' }; ws[ref].t = 's'; ws[ref].v = v; }
-    });
-    // extend !ref to include Keterangan column
-    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-    if (erState.colKet > range.e.c) range.e.c = erState.colKet;
-    ws['!ref'] = XLSX.utils.encode_range(range);
-    // clear autofilter/merges overlapping new col? keep as-is.
 }
 
 function erApplyAutoToSheet() {
-    // compute for every matched row & write into grid inputs
+    // hitung tiap baris match & tulis ke input Nilai di grid (belum ujian → kosong)
     const wb = erState.wb, ws = wb.Sheets[erState.activeSheet];
     document.querySelectorAll('[data-er-nilai]').forEach(inp => {
         const r = Number(inp.getAttribute('data-er-nilai'));
@@ -6367,23 +6337,15 @@ function erApplyAutoToSheet() {
         if (!sid || !name) return;
         const tabCount = erTabSwitchesFor(erState.examId, sid);
         const res = erComputeRow({ studentId: sid, name, tabCount });
-        // belum ujian → kosongkan (penentu = nilai ujian akhir), sisanya pakai hasil hitung
         inp.value = (res.nilai === '') ? '' : res.nilai;
-        if (res.nilai === '' && erState.examId) {
-            const ketInp0 = document.querySelector(`[data-er-ket="${r}"]`);
-            if (ketInp0) ketInp0.value = '';
-        }
-        const ketInp = document.querySelector(`[data-er-ket="${r}"]`);
-        if (ketInp) ketInp.value = res.ket || '';
     });
 }
 
 function erDownload() {
     try {
         const wb = erState.wb;
-        // apply current grid edits to ALL sheets that were rendered? Only active sheet edits exist; save them, then loop sheets: recompute? Keep simple: current sheet edits + auto-fill other sheets via same computation when values empty.
         erCollectGridEdits();
-        // auto-fill other sheets: use same exam/config, but only fill empty Nilai cells for matched students
+        // auto-fill kolom Nilai di SEMUA sheet lain (yang kosong) pakai rumus yang sama
         const examId = erState.examId;
         if (examId) {
             erState.sheetNames.forEach(name => {
@@ -6400,15 +6362,6 @@ function erDownload() {
                     if (headerRow !== -1 && colNilai !== -1) break;
                 }
                 if (headerRow === -1 || colNilai === -1) return;
-                // kolom keterangan setelah kolom data terakhir yang benar-benar terisi (bukan dimension)
-                let lastDataCol = colNilai;
-                for (let r2 = headerRow; r2 <= range.e.r; r2++) {
-                    for (let c2 = range.e.c; c2 > lastDataCol; c2--) {
-                        const cc = ws[XLSX.utils.encode_cell({ r: r2, c: c2 })];
-                        if (cc && cc.v !== undefined && String(cc.v).trim() !== '') { lastDataCol = c2; break; }
-                    }
-                }
-                const colKet = lastDataCol + 1;
                 for (let r = headerRow + 1; r <= range.e.r; r++) {
                     const name = String((ws[XLSX.utils.encode_cell({ r, c: colNama })] || {}).v || '').trim();
                     if (!name) continue;
@@ -6416,16 +6369,10 @@ function erDownload() {
                     if (!m.student) continue;
                     const refV = XLSX.utils.encode_cell({ r, c: colNilai });
                     const cur = ws[refV];
-                    if (cur && cur.v !== undefined && cur.v !== null && cur.v !== '') continue; // respect existing (incl manual edits of active sheet)
+                    if (cur && cur.v !== undefined && cur.v !== null && cur.v !== '') continue; // hormati nilai yang sudah ada (termasuk edit manual)
                     const tabCount = erTabSwitchesFor(examId, m.student.id);
                     const res = erComputeRow({ studentId: m.student.id, name, tabCount });
                     if (res.nilai !== '') { ws[refV] = { t: 'n', v: res.nilai }; }
-                    if (res.ket) {
-                        const refK = XLSX.utils.encode_cell({ r, c: colKet });
-                        ws[refK] = { t: 's', v: res.ket };
-                        const rng = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-                        if (colKet > rng.e.c) { rng.e.c = colKet; ws['!ref'] = XLSX.utils.encode_range(rng); }
-                    }
                 }
             });
         }
