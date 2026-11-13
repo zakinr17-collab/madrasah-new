@@ -6051,6 +6051,11 @@ function openManageRoomModal(roomId) {
                             <label class="flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-white border rounded-xl px-3 py-2 cursor-pointer select-none">
                                 <input type="checkbox" id="room-check-all" onchange="toggleRoomCheckAll(${assessmentInlineArg(room.id)})" class="accent-emerald-600"> Centang Semua
                             </label>
+                            <div class="flex items-center gap-1 text-[11px] font-semibold text-slate-600 bg-white border rounded-xl px-3 py-2">
+                                <span>Ambil</span>
+                                <input type="number" min="0" id="room-import-count" placeholder="0" onchange="applyRoomImportCount()" oninput="applyRoomImportCount()" class="w-14 px-1.5 py-0.5 border rounded-lg text-xs text-center" title="Centang otomatis N siswa pertama pada daftar">
+                                <span>anak pertama</span>
+                            </div>
                         </div>
                         <div id="room-candidate-list" class="max-h-56 overflow-y-auto border rounded-2xl p-2 bg-white space-y-1"></div>
                         <button type="button" onclick="addCheckedStudentsToRoom(${assessmentInlineArg(room.id)})" class="w-full px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold">
@@ -9596,7 +9601,23 @@ window.addStudentToRoom = addStudentToRoom;
 
 function getRoomCandidates(room) {
     const members = new Set((room.members || []).map(m => String(m)));
-    return (appState.students || []).filter(st => !members.has(String(st.id)));
+    // ROOM_UNIQUE_MEMBER_V1: siswa yang sudah masuk ruang LAIN tidak ditampilkan lagi
+    const taken = new Set();
+    (appState.rooms || []).forEach(r => {
+        if (String(r.id) === String(room.id)) return;
+        (r.members || []).forEach(m => taken.add(String(m)));
+    });
+    return (appState.students || []).filter(st => !members.has(String(st.id)) && !taken.has(String(st.id)));
+}
+
+// ROOM_UNIQUE_MEMBER_V1: centang otomatis N siswa pertama pada daftar kandidat
+function applyRoomImportCount() {
+    const el = document.getElementById('room-import-count');
+    const n = Math.max(0, parseInt(el && el.value, 10) || 0);
+    const boxes = [...document.querySelectorAll('#room-candidate-list .room-candidate-check')];
+    boxes.forEach((cb, i) => { cb.checked = i < n; });
+    const checkAll = document.getElementById('room-check-all');
+    if (checkAll) checkAll.checked = boxes.length > 0 && boxes.every(cb => cb.checked);
 }
 
 function renderRoomCandidateList(roomId) {
@@ -9651,6 +9672,7 @@ function addCheckedStudentsToRoom(roomId) {
     openManageRoomModal(roomId);
     setTimeout(() => renderRoomCandidateList(roomId), 50);
 }
+window.applyRoomImportCount = applyRoomImportCount;
 window.filterRoomCandidateList = filterRoomCandidateList;
 window.toggleRoomCheckAll = toggleRoomCheckAll;
 window.addCheckedStudentsToRoom = addCheckedStudentsToRoom;
