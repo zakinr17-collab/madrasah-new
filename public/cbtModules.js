@@ -6374,7 +6374,7 @@ function erApplyAutoToSheet() {
             if (ketInp0) ketInp0.value = '';
         }
         const ketInp = document.querySelector(`[data-er-ket="${r}"]`);
-        if (ketInp && res.ket) ketInp.value = res.ket;
+        if (ketInp) ketInp.value = res.ket || '';
     });
 }
 
@@ -6400,7 +6400,15 @@ function erDownload() {
                     if (headerRow !== -1 && colNilai !== -1) break;
                 }
                 if (headerRow === -1 || colNilai === -1) return;
-                const colKet = range.e.c + 1;
+                // kolom keterangan setelah kolom data terakhir yang benar-benar terisi (bukan dimension)
+                let lastDataCol = colNilai;
+                for (let r2 = headerRow; r2 <= range.e.r; r2++) {
+                    for (let c2 = range.e.c; c2 > lastDataCol; c2--) {
+                        const cc = ws[XLSX.utils.encode_cell({ r: r2, c: c2 })];
+                        if (cc && cc.v !== undefined && String(cc.v).trim() !== '') { lastDataCol = c2; break; }
+                    }
+                }
+                const colKet = lastDataCol + 1;
                 for (let r = headerRow + 1; r <= range.e.r; r++) {
                     const name = String((ws[XLSX.utils.encode_cell({ r, c: colNama })] || {}).v || '').trim();
                     if (!name) continue;
