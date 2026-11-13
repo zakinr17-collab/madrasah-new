@@ -2276,6 +2276,10 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                         <button type="button" onclick="cetakNilaiEvaluasi()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/10 transition cursor-pointer">
                                             <i class="fa-solid fa-file-pdf"></i><span>Cetak PDF</span>
                                         </button>
+                                        <label class="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 bg-white/70 border border-slate-200 rounded-xl px-2.5 py-2 cursor-pointer select-none" title="Tambahkan kolom Keterangan: jumlah keluar tab saat ujian">
+                                            <input type="checkbox" id="evx-ket-toggle" class="w-3.5 h-3.5 text-teal-600 rounded cursor-pointer"/>
+                                            <span>Ket. keluar tab</span>
+                                        </label>
                                         <!-- Cetak Nilai Excel -->
                                         <button type="button" onclick="exportNilaiExcelEvaluasi()" class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-teal-600/10 transition cursor-pointer">
                                             <i class="fa-solid fa-file-excel"></i><span>Ekspor Excel (.xlsx)</span>
@@ -9326,6 +9330,10 @@ function openDownloadPreviewModal() {
                         <p class="text-[10px] text-slate-400 font-semibold mt-0.5">Silakan tinjau dan sesuaikan pengaturan download sebelum mengunduh PDF.</p>
                     </div>
                     <div class="flex items-center space-x-2">
+                        <label class="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 bg-white border border-slate-200 rounded-xl px-2.5 py-2 cursor-pointer select-none" title="Tambahkan kolom Keterangan: jumlah keluar tab saat ujian">
+                            <input type="checkbox" id="evx-ket-toggle-2" class="w-3.5 h-3.5 text-teal-600 rounded cursor-pointer"/>
+                            <span>Ket. keluar tab</span>
+                        </label>
                         <button type="button" onclick="exportNilaiExcelEvaluasi()" class="px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-md transition cursor-pointer">
                             <i class="fa-solid fa-file-excel"></i><span>Ekspor Excel</span>
                         </button>
@@ -9740,7 +9748,9 @@ function exportNilaiExcelEvaluasi() {
         const essayVal = gradeObj.isGraded ? gradeObj.essayScore : (gradeObj.pgScore !== undefined ? 'Belum Koreksi' : '-');
         const finalVal = gradeObj.finalScore !== null && gradeObj.finalScore !== undefined ? gradeObj.finalScore : '-';
 
-        return {
+        const ketToggle = document.getElementById('evx-ket-toggle') || document.getElementById('evx-ket-toggle-2');
+        const includeKet = ketToggle && ketToggle.checked;
+        const row = {
             'No': idx + 1,
             'NIS': st.nis || '-',
             'Nama Siswa': st.name,
@@ -9748,9 +9758,15 @@ function exportNilaiExcelEvaluasi() {
             'Mata Pelajaran': ex.subject || '-',
             'Judul Ujian': ex.title || '-',
             [`Nilai PG (${ex.weightPg || 50}%)`]: pgVal,
-            [`Nilai Esay (${ex.weightEssay || 50}%)`]: essayVal,
+            [`Nilai Essay (${ex.weightEssay || 50}%)`]: essayVal,
             'Nilai Akhir': finalVal
         };
+        if (includeKet) {
+            const tabMap = appState.studentTabSwitches || JSON.parse(localStorage.getItem('madrasah_student_tab_switches') || '{}') || {};
+            const tabCount = Number(tabMap[k1] || tabMap[k2] || 0) || 0;
+            row['Keterangan'] = tabCount > 0 ? (tabCount + 'x keluar tab') : '';
+        }
+        return row;
     });
 
     if (window.XLSX) {
@@ -9760,15 +9776,17 @@ function exportNilaiExcelEvaluasi() {
         
         const max_width = data.reduce((w, r) => Math.max(w, String(r['Nama Siswa'] || '').length), 10);
         worksheet['!cols'] = [
-            { wch: 5 }, { wch: 12 }, { wch: Math.max(max_width, 22) }, { wch: 12 }, { wch: 18 }, { wch: 22 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 16 }
+            { wch: 5 }, { wch: 12 }, { wch: Math.max(max_width, 22) }, { wch: 12 }, { wch: 18 }, { wch: 22 }, { wch: 14 }, { wch: 14 }, { wch: 12 },
+            ...(data.length && data[0]['Keterangan'] !== undefined ? [{ wch: 20 }] : [])
         ];
 
         XLSX.writeFile(workbook, `Nilai_Evaluasi_CBT_${cls.name}_${ex.subject || 'Ujian'}.xlsx`);
         showToast('File Excel Nilai Evaluasi berhasil diunduh!', 'success');
     } else {
-        let csvContent = "data:text/csv;charset=utf-8,No,NIS,Nama Siswa,Kelas,Mata Pelajaran,Judul Ujian,Nilai PG,Nilai Esay,Nilai Akhir,Status Evaluasi\n";
+        const ketOn = data.length && data[0]['Keterangan'] !== undefined;
+        let csvContent = "data:text/csv;charset=utf-8,No,NIS,Nama Siswa,Kelas,Mata Pelajaran,Judul Ujian,Nilai PG,Nilai Essay,Nilai Akhir" + (ketOn ? ",Keterangan" : "") + "\n";
         data.forEach(r => {
-            csvContent += `${r['No']},"${r['NIS']}","${r['Nama Siswa']}","${r['Kelas']}","${r['Mata Pelajaran']}","${r['Judul Ujian']}","${r[`Nilai PG (${ex.weightPg || 50}%)`]}","${r[`Nilai Esay (${ex.weightEssay || 50}%)`]}","${r['Nilai Akhir']}","${r['Status Evaluasi']}"\n`;
+            csvContent += `${r['No']},"${r['NIS']}","${r['Nama Siswa']}","${r['Kelas']}","${r['Mata Pelajaran']}","${r['Judul Ujian']}","${r[`Nilai PG (${ex.weightPg || 50}%)`]}","${r[`Nilai Essay (${ex.weightEssay || 50}%)`]}","${r['Nilai Akhir']}"${ketOn ? `,"${r['Keterangan'] || ''}"` : ""}\n`;
         });
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
