@@ -521,7 +521,9 @@
   window.aiAssistantPickImage = function (input) {
     const file = input && input.files && input.files[0];
     if (!file) return;
-    if (file.size > 4 * 1024 * 1024) { if (typeof showToast === 'function') showToast('Gambar terlalu besar (maks 4 MB).', 'error'); input.value = ''; return; }
+    const isPdf = (file.type || '') === 'application/pdf';
+    const maxBytes = isPdf ? 8 * 1024 * 1024 : 4 * 1024 * 1024;
+    if (file.size > maxBytes) { if (typeof showToast === 'function') showToast(isPdf ? 'PDF terlalu besar (maks 8 MB).' : 'Gambar terlalu besar (maks 4 MB).', 'error'); input.value = ''; return; }
     const reader = new FileReader();
     reader.onload = () => {
       pendingImage = { mime: file.type || 'image/jpeg', data: String(reader.result).split(',')[1] || '', name: file.name };
@@ -585,17 +587,19 @@
     if (!text && !imgToSend) return;
     input.value = '';
     input.style.height = 'auto';
-    appendBubble('user', text || ('Lampiran gambar: ' + (imgToSend.name || 'gambar')));
+    appendBubble('user', text || ('Lampiran ' + (imgToSend && imgToSend.mime === 'application/pdf' ? 'PDF' : 'gambar') + ': ' + ((imgToSend && imgToSend.name) || '')));
     if (imgToSend) window.aiAssistantClearImage();
     showTyping();
     if (sendBtn) { sendBtn.disabled = true; sendBtn.classList.add('opacity-50'); }
     try {
       const endpoint = isTeacherUser() ? '/api/ai-assistant/teacher/chat' : '/api/ai-assistant/chat';
+      const isPdfAtt = imgToSend && imgToSend.mime === 'application/pdf';
+      const attPayload = imgToSend ? { mime: imgToSend.mime, data: imgToSend.data } : undefined;
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ message: text, image: imgToSend ? { mime: imgToSend.mime, data: imgToSend.data } : undefined }),
+        body: JSON.stringify({ message: text, image: !isPdfAtt ? attPayload : undefined, document: isPdfAtt ? attPayload : undefined }),
       });
       const data = await res.json();
       hideTyping();

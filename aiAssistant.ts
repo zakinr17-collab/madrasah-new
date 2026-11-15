@@ -387,7 +387,7 @@ function makeWriteTools(): ToolDef[] {
       parameters: {
         type: "object",
         properties: {
-          action: { type: "string", description: "Salah satu: create_student | create_exam | set_running_text" },
+          action: { type: "string", description: "Salah satu: create_student | create_exam | set_running_text | create_subject | set_schedule_entry" },
           args: { type: "object", description: "Argumen aksi sesuai skema di deskripsi" },
         },
         required: ["action", "args"],
@@ -409,6 +409,7 @@ function makeWriteTools(): ToolDef[] {
           set_schedule_entry: (x) => `Set jadwal ${x.day} ${x.time} kelas ${x.classId} → mapel ID ${x.subjectId}${x.teacherId ? ` guru ID ${x.teacherId}` : ""}.`,
           assign_homeroom: (x) => `Tetapkan wali kelas ${x.classId} = guru ID ${x.teacherId || "(kosong)"}.`,
           fix_bank_question: (x) => `Revisi soal "${x.questionId}" di bank ${x.code}: ${Array.isArray(x.fixes) ? x.fixes.join("; ") : (x.fixes && x.fixes.note) || "perbaikan"}.`,
+          create_subject: (x) => `Tambah mata pelajaran "${x.name || x.nama || "(tanpa nama)"}" (kode ${x.code || "-"}).`,
         };
         if (!summaries[action]) return { error: "Aksi tidak dikenal. Gunakan: create_student, create_exam, set_running_text." };
         const id = newPendingId();
@@ -837,7 +838,7 @@ function makeMediaTools(): ToolDef[] {
     },
     {
       name: "analyze_image",
-      description: "Menganalisis gambar yang dilampirkan admin di chat (OCR naskah/soal, baca tabel nilai, jelaskan isi gambar).",
+      description: "Menganalisis gambar ATAU dokumen PDF yang dilampirkan admin di chat (OCR naskah/soal, baca tabel nilai/roster jadwal, jelaskan isi).",
       parameters: {
         type: "object",
         properties: { question: { type: "string", description: "Pertanyaan/tugas terhadap gambar" } },
@@ -883,7 +884,7 @@ KAMU PUNYA KEMAMPUAN AGENT:
   * generate_document: buat dokumen (modul ajar, RPP, silabus, kisi-kisi, naskah soal, ringkasan, surat, dokumen bebas) - file unduhan muncul otomatis di chat.
   * generate_image: buat gambar/ilustrasi.
   * generate_speech: ubah teks jadi audio (bacakan teks).
-  * analyze_image: analisis gambar yang dilampirkan admin (OCR, baca tabel, jelaskan isi).
+  * analyze_image: analisis GAMBAR atau DOKUMEN PDF yang dilampirkan (OCR, baca tabel/roster jadwal, jelaskan isi). Untuk PDF roster jadwal: ekstrak semua baris (hari, jam, kelas, mapel, guru), TAMPILKAN hasil ekstraksi untuk konfirmasi admin sebelum menulis data, dan gunakan list_schedules + list_subjects untuk mencari baris yang BELUM ada di aplikasi.
 - Bila tool media mengembalikan error "Provider tidak mendukung", sampaikan apa adanya dengan sopan: kemampuan itu butuh Gemini (GEMINI_API_KEY) dan sarankan admin mengaturnya di server, TANPA menyebut nama tool secara teknis.
 - Kamu bisa MEMANGGIL navigate_to untuk MENGANTAR admin langsung ke halaman tertentu — gunakan saat admin bertanya "di mana", "buka", "tunjukkan", atau setelah menjelaskan cara pakai sebuah fitur agar admin langsung diantar ke sana. Dalam jawaban, sebutkan secara natural bahwa kamu sudah mengantarkan/membuka halamannya.
 - Peta halaman yang BENAR (pakai ini, jangan mengarang): dashboard, siswa (Data Murid), guru (Data Guru), kelas, jadwal (Jadwal & Mapel), absen (Absensi), asesmen (Asesmen/ujian CBT: jadwal & monitoring), evaluasi (sub-tab Evaluasi CBT: hasil & lembar jawaban ujian), monitoring (Monitoring Ujian), bank_soal, modul_ajar, nilai (Manajemen Nilai: matriks/import nilai per kelas-mapel), jurnal, kalender, setting (Pengaturan), profil_guru, learning_teacher (Materi Pembelajaran). Alias: "mapel"/"mata pelajaran" -> jadwal; "hasil ujian"/"lembar jawaban" -> evaluasi; "perizinan" -> setting. JANGAN samakan evaluasi dengan nilai.
@@ -1266,9 +1267,10 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
   // Perizinan (mode 'allowed' pakai AI bersama ATAU 'own' dengan key terpasang).
   app.post("/api/ai-assistant/teacher/chat", h.requireAuth, h.requireRole(["teacher", "guru"]), async (req: Request, res: Response) => {
     try {
-      const { message, image } = (req.body || {}) as { message?: string; image?: { mime?: string; data?: string } };
+      const { message, image, document } = (req.body || {}) as { message?: string; image?: { mime?: string; data?: string }; document?: { mime?: string; data?: string } };
       const text = String(message || "").trim();
-      if (!text && !(image && image.data)) return res.status(400).json({ success: false, message: "Pesan tidak boleh kosong." });
+      const docDataT = String(document?.data || "").replace(/^data:[^,]+,/, "");
+      if (!text && !(image && image.data) && !docDataT) return res.status(400).json({ success: false, message: "Pesan tidak boleh kosong." });
 
       const authUser: any = h.getAuthUser(req);
       const userId = String(authUser?.id || "");
@@ -1288,7 +1290,9 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       (globalThis as any).__assistantAuthUser = authUser;
       const { session } = getSession(req);
       const imgDataT = String(image?.data || "").replace(/^data:[^,]+,/, "");
-      (globalThis as any).__assistantPendingImage = imgDataT ? { mime: String(image?.mime || "image/jpeg"), data: imgDataT } : null;
+      const pendingDataT = docDataT || imgDataT;
+      const pendingMimeT = docDataT ? String(document?.mime || "application/pdf") : (imgDataT ? String(image?.mime || "image/jpeg") : "");
+      (globalThis as any).__assistantPendingImage = pendingDataT ? { mime: pendingMimeT || "application/pdf", data: pendingDataT } : null;
       const effectiveText = text || "Analisis gambar yang saya lampirkan.";
       pushTurn(session, "user", effectiveText);
 
@@ -1319,15 +1323,18 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
 
   app.post("/api/ai-assistant/chat", h.requireAuth, h.requireRole(["admin", "administrator", "bos", "superadmin"]), async (req: Request, res: Response) => {
     try {
-      const { message, image } = (req.body || {}) as { message?: string; image?: { mime?: string; data?: string } };
+      const { message, image, document } = (req.body || {}) as { message?: string; image?: { mime?: string; data?: string }; document?: { mime?: string; data?: string } };
       const text = String(message || "").trim();
-      if (!text && !(image && image.data)) return res.status(400).json({ success: false, message: "Pesan tidak boleh kosong." });
+      const docData = String(document?.data || "").replace(/^data:[^,]+,/, "");
+      if (!text && !(image && image.data) && !docData) return res.status(400).json({ success: false, message: "Pesan tidak boleh kosong." });
 
       (globalThis as any).__assistantAuthUser = h.getAuthUser(req);
       const { session } = getSession(req);
       const imgMime = String(image?.mime || "image/jpeg");
       const imgData = String(image?.data || "").replace(/^data:[^,]+,/, "");
-      (globalThis as any).__assistantPendingImage = imgData ? { mime: imgMime, data: imgData } : null;
+      const pendingMime = docData ? String(document?.mime || "application/pdf") : (imgData ? imgMime : "");
+      const pendingData = docData || imgData;
+      (globalThis as any).__assistantPendingImage = pendingData ? { mime: pendingMime || "application/pdf", data: pendingData } : null;
       const effectiveText = text || "Analisis gambar yang saya lampirkan.";
       pushTurn(session, "user", effectiveText);
 

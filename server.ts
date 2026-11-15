@@ -3881,6 +3881,19 @@ setAssistantDataStore({ get students(){ return students; }, get teachers(){ retu
     if (tid && t) { t.homeroom_class_id = cid; await saveData('teachers', teachers); }
     return { ok: true, message: 'Wali kelas ' + cls.name + ' = ' + (t ? t.name : '(kosong)') + '.' };
   }
+  if (action === 'create_subject') {
+    const code = String(args.code || '').trim();
+    const name = String(args.name || args.nama || '').trim();
+    if (!code || !name) throw new Error('Kode dan Nama mapel wajib diisi.');
+    const dup = filterByMadrasah(subjects, req).find((s: any) =>
+      String(s.name || '').trim().toLowerCase() === name.toLowerCase() ||
+      String(s.code || '').trim().toLowerCase() === code.toLowerCase());
+    if (dup) throw new Error('Mata pelajaran dengan Nama "' + name + '" atau Kode "' + code + '" sudah terdaftar (ID ' + dup.id + ').');
+    const newSub = tagNewRecord({ id: nextPrefixedNumericId(subjects, "S"), code, name }, req);
+    subjects.push(newSub);
+    await saveData('subjects', subjects);
+    return { ok: true, message: 'Mata pelajaran ' + name + ' (kode ' + code + ') ditambahkan.', subjectId: newSub.id };
+  }
   if (action === 'fix_bank_question') {
     const qid = String(args.questionId || '').trim();
     const code = String(args.code || '').trim();
