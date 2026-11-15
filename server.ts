@@ -3881,6 +3881,42 @@ setAssistantDataStore({ get students(){ return students; }, get teachers(){ retu
     if (tid && t) { t.homeroom_class_id = cid; await saveData('teachers', teachers); }
     return { ok: true, message: 'Wali kelas ' + cls.name + ' = ' + (t ? t.name : '(kosong)') + '.' };
   }
+  if (action === 'create_questions_batch') {
+    const items = Array.isArray(args.items) ? args.items : [];
+    if (!items.length) throw new Error('Tidak ada soal untuk diimport.');
+    if (items.length > 100) throw new Error('Maksimal 100 soal per import.');
+    const subjectId = String(args.subjectId || '').trim();
+    const subj = subjects.find((s: any) => String(s.id) === subjectId && isItemForCurrentMadrasah(s, req));
+    if (!subj) throw new Error('Mapel tidak ditemukan (ID ' + subjectId + '). Panggil list_subjects dulu.');
+    const classId = String(args.classId || '').trim();
+    const code = String(args.code || '').trim();
+    const created: any[] = [];
+    const errors: string[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i] || {};
+      const q = String(it.question || it.pertanyaan || '').trim();
+      if (!q) { errors.push('Soal #' + (i + 1) + ': teks kosong, dilewati.'); continue; }
+      const optsRaw = Array.isArray(it.options) ? it.options : [];
+      const options = optsRaw.map((o: any) => String(o || '').trim()).filter(Boolean);
+      const ans = String(it.answer || it.kunci || '').trim();
+      let answer = ans;
+      if (options.length && /^[A-E]$/i.test(ans)) {
+        const oi = ans.toUpperCase().charCodeAt(0) - 65;
+        answer = options[oi] !== undefined ? String(options[oi]) : ans.toUpperCase();
+      }
+      const type = options.length >= 2 ? 'mc' : 'essay';
+      const newQ = tagNewRecord({
+        id: 'Q_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6) + '_' + i,
+        code, subjectId, classId, type, question: q, options, answer,
+        explanation: String(it.explanation || it.pembahasan || '').trim(), imageUrl: ''
+      }, req);
+      questions.push(newQ);
+      created.push(newQ);
+    }
+    if (!created.length) throw new Error('Semua soal tidak valid: ' + errors.join(' '));
+    await saveData('questions', questions);
+    return { ok: true, message: created.length + ' soal diimport ke mapel ' + subj.name + (classId ? ' kelas ' + classId : '') + (code ? ' bank ' + code : '') + '.', created: created.length, warnings: errors };
+  }
   if (action === 'create_subject') {
     const code = String(args.code || '').trim();
     const name = String(args.name || args.nama || '').trim();

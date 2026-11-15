@@ -387,7 +387,7 @@ function makeWriteTools(): ToolDef[] {
       parameters: {
         type: "object",
         properties: {
-          action: { type: "string", description: "Salah satu: create_student | create_exam | set_running_text | create_subject | set_schedule_entry" },
+          action: { type: "string", description: "Salah satu: create_student | create_exam | set_running_text | create_subject | set_schedule_entry | create_questions_batch" },
           args: { type: "object", description: "Argumen aksi sesuai skema di deskripsi" },
         },
         required: ["action", "args"],
@@ -410,6 +410,7 @@ function makeWriteTools(): ToolDef[] {
           assign_homeroom: (x) => `Tetapkan wali kelas ${x.classId} = guru ID ${x.teacherId || "(kosong)"}.`,
           fix_bank_question: (x) => `Revisi soal "${x.questionId}" di bank ${x.code}: ${Array.isArray(x.fixes) ? x.fixes.join("; ") : (x.fixes && x.fixes.note) || "perbaikan"}.`,
           create_subject: (x) => `Tambah mata pelajaran "${x.name || x.nama || "(tanpa nama)"}" (kode ${x.code || "-"}).`,
+          create_questions_batch: (x) => `Import ${Array.isArray(x.items) ? x.items.length : 0} soal (PG/essay) ke mapel "${x.subjectName || x.subjectId || "?"}"${x.classId ? ` kelas ${x.classId}` : ""}${x.code ? ` bank ${x.code}` : ""}.`,
         };
         if (!summaries[action]) return { error: "Aksi tidak dikenal. Gunakan: create_student, create_exam, set_running_text." };
         const id = newPendingId();
@@ -884,7 +885,7 @@ KAMU PUNYA KEMAMPUAN AGENT:
   * generate_document: buat dokumen (modul ajar, RPP, silabus, kisi-kisi, naskah soal, ringkasan, surat, dokumen bebas) - file unduhan muncul otomatis di chat.
   * generate_image: buat gambar/ilustrasi.
   * generate_speech: ubah teks jadi audio (bacakan teks).
-  * analyze_image: analisis GAMBAR atau DOKUMEN PDF yang dilampirkan (OCR, baca tabel/roster jadwal, jelaskan isi). Untuk PDF roster jadwal: ekstrak semua baris (hari, jam, kelas, mapel, guru), TAMPILKAN hasil ekstraksi untuk konfirmasi admin sebelum menulis data, dan gunakan list_schedules + list_subjects untuk mencari baris yang BELUM ada di aplikasi.
+  * analyze_image: analisis GAMBAR atau DOKUMEN PDF yang dilampirkan (OCR, baca tabel/roster jadwal/naskah soal, jelaskan isi). Untuk PDF roster jadwal: ekstrak semua baris (hari, jam, kelas, mapel, guru), TAMPILKAN hasil ekstraksi untuk konfirmasi admin sebelum menulis data, dan gunakan list_schedules + list_subjects untuk mencari baris yang BELUM ada di aplikasi. Untuk PDF/gambar NASKAH SOAL: ekstrak setiap soal (teks soal, opsi A-E bila pilihan ganda, kunci jawaban, pembahasan bila ada), TAMPILKAN ringkasan soal yang terbaca (nomor + tipe + kunci) untuk dikonfirmasi admin, lalu setelah disetujui panggil create_questions_batch dengan subjectId/classId yang admin maksud (gunakan list_subjects + list_classes untuk resolve nama ke ID).
 - Bila tool media mengembalikan error "Provider tidak mendukung", sampaikan apa adanya dengan sopan: kemampuan itu butuh Gemini (GEMINI_API_KEY) dan sarankan admin mengaturnya di server, TANPA menyebut nama tool secara teknis.
 - Kamu bisa MEMANGGIL navigate_to untuk MENGANTAR admin langsung ke halaman tertentu — gunakan saat admin bertanya "di mana", "buka", "tunjukkan", atau setelah menjelaskan cara pakai sebuah fitur agar admin langsung diantar ke sana. Dalam jawaban, sebutkan secara natural bahwa kamu sudah mengantarkan/membuka halamannya.
 - Peta halaman yang BENAR (pakai ini, jangan mengarang): dashboard, siswa (Data Murid), guru (Data Guru), kelas, jadwal (Jadwal & Mapel), absen (Absensi), asesmen (Asesmen/ujian CBT: jadwal & monitoring), evaluasi (sub-tab Evaluasi CBT: hasil & lembar jawaban ujian), monitoring (Monitoring Ujian), bank_soal, modul_ajar, nilai (Manajemen Nilai: matriks/import nilai per kelas-mapel), jurnal, kalender, setting (Pengaturan), profil_guru, learning_teacher (Materi Pembelajaran). Alias: "mapel"/"mata pelajaran" -> jadwal; "hasil ujian"/"lembar jawaban" -> evaluasi; "perizinan" -> setting. JANGAN samakan evaluasi dengan nilai.
