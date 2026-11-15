@@ -925,9 +925,9 @@ async function parseXlsxAsync(buf: Buffer): Promise<{ header: string[]; rows: st
     const grid: string[][] = [];
     for (const rm of sheetXml.matchAll(/<row[^>]*r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g)) {
       const rowArr: string[] = [];
-      for (const cm of rm[2].matchAll(/<c\s+([^>]*?)\s*\/?>(?:<([\s\S]*?)<\/c>)?/g)) {
-        const attrs = cm[1];
-        const inner = cm[2] || "";
+      for (const cm of rm[2].matchAll(/<c\s+([^>]*?)\/>|<c\s+([^>]*?)>([\s\S]*?)<\/c>/g)) {
+        const attrs = cm[1] || cm[2] || "";
+        const inner = cm[3] || "";
         const colM = attrs.match(/r="([A-Z]+)\d+"/);
         if (!colM) continue;
         const idx = colToIdx(colM[1]);
