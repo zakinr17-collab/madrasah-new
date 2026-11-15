@@ -2941,7 +2941,7 @@ function renderExamModalForm(editId = null, eventId = null) {
                             <select id="ex-class-dropdown" onchange="addExamClass(this.value)" class="w-full px-4 py-2.5 bg-slate-50 border rounded-2xl text-xs sm:text-sm cursor-pointer focus:ring-2 focus:ring-emerald-500">
                                 <option value="">-- Pilih Kelas untuk Ditambahkan --</option>
                                 <option value="ALL">Semua Kelas / Semua Tingkat</option>
-                                ${classes.map(c => `<option value="${assessmentEscapeAttr(c.id)}">${assessmentEscapeHtml(c.name)}</option>`).join('')}
+                                ${buildGradeClassOptions(classes)}
                             </select>
                         </div>
                         <div id="ex-selected-classes-container" class="flex flex-wrap gap-2 p-3 bg-slate-50 rounded-2xl border min-h-[48px] items-center">
@@ -3053,12 +3053,45 @@ function renderExamModalForm(editId = null, eventId = null) {
     renderExamClassChips();
 }
 
+function buildGradeClassOptions(classes) {
+    const grades = typeof window.getClassGrades === 'function' ? window.getClassGrades() : [];
+    const known = new Set(grades.map(g => String(g)));
+    const seen = new Set(known);
+    // tingkat yang ada di kelas tapi belum terdaftar (mis. kelas tanpa grade) tetap tampil
+    (classes || []).forEach(c => { const g = String(c.grade || '').trim(); if (g && !seen.has(g)) { seen.add(g); known.add(g); } });
+    const gradeList = Array.from(known);
+    return gradeList.map(g => {
+        const inGrade = (classes || []).filter(c => String(c.grade || '').trim() === g);
+        if (!inGrade.length) return '';
+        const gAttr = assessmentEscapeAttr(g);
+        const opts = inGrade.map(c => `<option value="${assessmentEscapeAttr(c.id)}">${assessmentEscapeHtml(c.name)}</option>`).join('');
+        return `<optgroup label="Tingkat ${assessmentEscapeHtml(g)}">
+            <option value="GRADE:${gAttr}">+ Tambah SEMUA Kelas ${assessmentEscapeHtml(g)} (${inGrade.length} kelas)</option>
+            ${opts}
+        </optgroup>`;
+    }).join('') + (classes || []).filter(c => !String(c.grade || '').trim()).map(c => `<option value="${assessmentEscapeAttr(c.id)}">${assessmentEscapeHtml(c.name)}</option>`).join('');
+}
+
+function addExamClassByGrade(gradeVal) {
+    if (!gradeVal) return;
+    const classes = (appState.classes || []).filter(c => String(c.grade || '').trim() === String(gradeVal));
+    if (tempExamClasses.includes('ALL')) tempExamClasses = [];
+    classes.forEach(c => {
+        if (!tempExamClasses.includes(String(c.id))) tempExamClasses.push(String(c.id));
+    });
+    renderExamClassChips();
+}
+
 function addExamClass(paramVal = null) {
     const dropdown = document.getElementById('ex-class-dropdown');
     const val = paramVal || (dropdown ? dropdown.value : '');
     if (!val) return;
     if (val === 'ALL') {
         tempExamClasses = ['ALL'];
+    } else if (val.startsWith('GRADE:')) {
+        addExamClassByGrade(val.slice(6));
+        if (dropdown) dropdown.value = '';
+        return;
     } else {
         if (tempExamClasses.includes('ALL')) {
             tempExamClasses = [];
