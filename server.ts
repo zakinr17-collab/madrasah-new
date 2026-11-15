@@ -3881,6 +3881,50 @@ setAssistantDataStore({ get students(){ return students; }, get teachers(){ retu
     if (tid && t) { t.homeroom_class_id = cid; await saveData('teachers', teachers); }
     return { ok: true, message: 'Wali kelas ' + cls.name + ' = ' + (t ? t.name : '(kosong)') + '.' };
   }
+  if (action === 'create_students_batch') {
+    const items = Array.isArray(args.items) ? args.items : [];
+    if (!items.length) throw new Error('Tidak ada siswa untuk diimport.');
+    if (items.length > 300) throw new Error('Maksimal 300 siswa per import.');
+    const classId = String(args.classId || '').trim();
+    const cls = classes.find((c: any) => String(c.id) === classId && isItemForCurrentMadrasah(c, req));
+    if (!cls) throw new Error('Kelas tidak ditemukan (ID ' + classId + '). Panggil list_classes dulu.');
+    const created: any[] = [];
+    const skipped: string[] = [];
+    const errors: string[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const it = items[i] || {};
+      const name = String(it.name || it.nama || '').trim();
+      const nisn = String(it.nisn || '').trim().replace(/[^0-9]/g, '');
+      if (!name) { errors.push('Siswa #' + (i + 1) + ': nama kosong, dilewati.'); continue; }
+      const dup = students.find((s: any) => isItemForCurrentMadrasah(s, req) && (
+        (nisn && String(s.nisn || '').trim() === nisn) ||
+        String(s.name || '').trim().toLowerCase() === name.toLowerCase()));
+      if (dup) { skipped.push(name + ' (sudah ada: ' + (dup.nisn || dup.name) + ')'); continue; }
+      const rawPassword = 's' + Math.random().toString(36).slice(2, 8);
+      const username = nisn || ('siswa_' + Date.now() + '_' + i);
+      const existsUser = students.find((s: any) => String(s.username || '') === username);
+      const finalUsername = existsUser ? (username + '_' + Math.random().toString(36).slice(2, 5)) : username;
+      const newSt = tagNewRecord({
+        id: 'ST_' + Date.now() + '_' + i,
+        nis: String(it.nis || '').trim(),
+        nisn,
+        name,
+        classId,
+        class_id: classId,
+        username: finalUsername,
+        password: hashPassword(rawPassword),
+        passwordAdminCipher: encryptStudentAdminPassword(rawPassword),
+        photo: '',
+        no_hp: String(it.no_hp || '').trim(),
+        role: normalizeStudentStoredRole('student'),
+        gender: String(it.gender || it.jk || '').trim(),
+      }, req);
+      students.push(newSt);
+      created.push({ name, nisn, username: finalUsername, temporaryPassword: rawPassword });
+    }
+    await saveData('students', students);
+    return { ok: true, message: created.length + ' siswa diimport ke kelas ' + cls.name + (skipped.length ? ', ' + skipped.length + ' dilewati (sudah ada)' : '') + '.', created: created.length, skipped, credentials: created, errors };
+  }
   if (action === 'create_questions_batch') {
     const items = Array.isArray(args.items) ? args.items : [];
     if (!items.length) throw new Error('Tidak ada soal untuk diimport.');
@@ -18552,13 +18596,28 @@ ATURAN WAJIB:
 
 INSTRUKSI KHUSUS DARI GURU (WAJIB DIIKUTI): ${extraInstr}` : "";
 
+    // ANTI_DUP_GENERATE_V1: beri daftar soal existing ke model agar tidak membuat soal serupa
+    const tenantQs = filterByMadrasah(questions || [], req);
+    const existingSample = tenantQs
+      .map((q: any) => String(q.question || '').trim())
+      .filter(Boolean)
+      .slice(0, 60);
+    const existingBlock = existingSample.length
+      ? `
+
+=== SOAL YANG SUDAH ADA DI BANK (DILARANG membuat soal yang mirip/sama dgn daftar ini) ===
+${existingSample.map((q: string, i: number) => `${i + 1}. ${q.slice(0, 150)}`).join('\n')}
+=== AKHIR DAFTAR SOAL EXISTING ===
+WAJIB: Setiap soal yang kamu buat harus BERBEDA pembukaan, konteks, angka, dan sudut pandang dari semua soal di daftar di atas.`
+      : "";
+
     const prompt = `
 Buatkan soal ujian untuk madrasah.
 Topik: ${topic || (materialText ? "Sesuai sumber materi guru di bawah" : "Materi Umum")}
 Tingkat kesulitan: ${level}
 Jumlah soal pilihan ganda: ${mcCount}
 Jumlah soal esay: ${essayCount}
-Jumlah opsi pilihan ganda: ${optionCount}${sumberMateriBlock}${instruksiKhususBlock}
+Jumlah opsi pilihan ganda: ${optionCount}${existingBlock}${sumberMateriBlock}${instruksiKhususBlock}
 
 WAJIB: Setiap soal, TANPA TERKECUALI (termasuk soal esay/uraian), HARUS punya "answer" (kunci jawaban lengkap) dan "explanation" (penjelasan pembelajaran yang jelas). Untuk soal esay, "answer" adalah kunci jawaban model berupa uraian lengkap yang benar (bukan kosong, bukan "-"). Untuk soal pilihan ganda, "answer" adalah teks opsi yang benar persis sama dengan salah satu item di "options". "options" hanya diisi untuk soal 'mc' (array string, boleh array kosong untuk essay).
 Format JSON array of objects dengan properti: type ('mc' atau 'essay'), question, options (array string), answer, explanation. Jangan pernah mengosongkan atau memotong field answer dan explanation.
@@ -18586,7 +18645,62 @@ ${NO_DASHES_PROMPT}
       const missing = (Array.isArray(data) ? data : []).filter((q: any) => q && (!String(q.answer || '').trim() || !String(q.explanation || '').trim()));
       if (missing.length) console.warn(`[GenerateQuestions] ${missing.length} soal tanpa answer/explanation dari provider`);
     } catch (_) {}
-    res.json({ success: true, data });
+    // ANTI_DUP_GENERATE_V1: buang soal mirip dgn bank, lalu minta model buat pengganti (maks 2 putaran)
+    const dupCheck = (items: any[]) => {
+      const bad = new Set<number>();
+      for (let i = 0; i < items.length; i++) {
+        const norm = normalizeQuestionText(items[i]?.question);
+        if (!norm || norm.length < 10) continue;
+        const normWords = new Set(norm.split(' '));
+        for (const ex of tenantQs) {
+          const exNorm = normalizeQuestionText(ex.question);
+          if (!exNorm) continue;
+          let score = exNorm === norm ? 1 : 0;
+          if (score < 1) {
+            const exWords = new Set(exNorm.split(' '));
+            let inter = 0;
+            for (const w of normWords) if (exWords.has(w)) inter++;
+            const union = normWords.size + exWords.size - inter;
+            score = union > 0 ? inter / union : 0;
+          }
+          if (score >= 0.85) { bad.add(i); break; }
+        }
+      }
+      return bad;
+    };
+    let current = Array.isArray(data) ? data : [];
+    let dupCount = 0;
+    for (let round = 0; round < 2; round++) {
+      const bad = dupCheck(current);
+      if (!bad.size) break;
+      dupCount += bad.size;
+      const kept = current.filter((_: any, idx: number) => !bad.has(idx));
+      const needMc = Math.max(0, (Number(mcCount) || 0) - kept.filter((q: any) => q?.type === 'mc').length);
+      const needEssay = Math.max(0, (Number(essayCount) || 0) - kept.filter((q: any) => q?.type === 'essay').length);
+      if (!needMc && !needEssay) { current = kept; break; }
+      const avoidList = current.map((q: any) => String(q?.question || '').slice(0, 120));
+      const retryPrompt = `${prompt}
+
+CATATAN PENTING: ${bad.size} soal sebelumnya MIRIP dengan soal yang sudah ada di bank sehingga DIBUANG. Buat ${needMc} soal pilihan ganda${needEssay ? ` dan ${needEssay} soal esay` : ''} pengganti yang SAMA SEKALI BERBEDA dari soal-soal berikut (larang memakai pembukaan/konteks yang sama):
+${avoidList.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}`;
+      try {
+        const retryResp = await callAI(ai, {
+          model: "gemini-3.7-flash",
+          contents: retryPrompt,
+          config: { responseMimeType: "application/json", maxOutputTokens: 32768, thinkingConfig: { thinkingBudget: 0 } }
+        });
+        const retryData = safeParseGeminiJSON(retryResp.text || "[]", null);
+        const retryItems = sanitizeGeneratedData(retryData || []);
+        if (Array.isArray(retryItems) && retryItems.length) current = [...kept, ...retryItems];
+        else { current = kept; break; }
+      } catch (e: any) {
+        console.warn("[GenerateQuestions] regenerasi anti-dup gagal:", e?.message || e);
+        current = kept;
+        break;
+      }
+    }
+    if (dupCount > 0) console.log(`[GenerateQuestions] anti-dup: ${dupCount} soal dibuang & diganti`);
+    res.json({ success: true, data: current, duplicatesReplaced: dupCount });
   } catch (error: any) {
     console.error("Gemini AI error (using fallback):", error);
     const { topic, mcCount = 5, essayCount = 0, optionCount = 4 } = req.body || {};

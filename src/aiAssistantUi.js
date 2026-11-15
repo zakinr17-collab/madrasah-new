@@ -76,7 +76,7 @@
             class="flex-1 resize-none max-h-28 px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400"></textarea>
           <button id="ai-assistant-attach" onclick="document.getElementById('ai-assistant-file').click()" title="Lampirkan gambar"
             class="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center shrink-0 cursor-pointer"><i class="fa-solid fa-image text-sm"></i></button>
-          <input type="file" id="ai-assistant-file" accept="image/*" class="hidden" onchange="window.aiAssistantPickImage(this)">
+          <input type="file" id="ai-assistant-file" accept="image/*,application/pdf,.xlsx,.xls" class="hidden" onchange="window.aiAssistantPickImage(this)">
           <button id="ai-assistant-send" onclick="window.sendAiAssistantMessage()"
             class="w-10 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center shrink-0 cursor-pointer"><i class="fa-solid fa-paper-plane text-sm"></i></button>
         </div>
@@ -522,8 +522,9 @@
     const file = input && input.files && input.files[0];
     if (!file) return;
     const isPdf = (file.type || '') === 'application/pdf';
-    const maxBytes = isPdf ? 8 * 1024 * 1024 : 4 * 1024 * 1024;
-    if (file.size > maxBytes) { if (typeof showToast === 'function') showToast(isPdf ? 'PDF terlalu besar (maks 8 MB).' : 'Gambar terlalu besar (maks 4 MB).', 'error'); input.value = ''; return; }
+    const isXlsx = /\.(xlsx|xls)$/i.test(file.name || '');
+    const maxBytes = (isPdf || isXlsx) ? 8 * 1024 * 1024 : 4 * 1024 * 1024;
+    if (file.size > maxBytes) { if (typeof showToast === 'function') showToast((isPdf || isXlsx) ? 'Dokumen terlalu besar (maks 8 MB).' : 'Gambar terlalu besar (maks 4 MB).', 'error'); input.value = ''; return; }
     const reader = new FileReader();
     reader.onload = () => {
       pendingImage = { mime: file.type || 'image/jpeg', data: String(reader.result).split(',')[1] || '', name: file.name };
@@ -587,19 +588,19 @@
     if (!text && !imgToSend) return;
     input.value = '';
     input.style.height = 'auto';
-    appendBubble('user', text || ('Lampiran ' + (imgToSend && imgToSend.mime === 'application/pdf' ? 'PDF' : 'gambar') + ': ' + ((imgToSend && imgToSend.name) || '')));
+    appendBubble('user', text || ('Lampiran ' + (isDocAtt ? 'dokumen' : 'gambar') + ': ' + ((imgToSend && imgToSend.name) || '')));
     if (imgToSend) window.aiAssistantClearImage();
     showTyping();
     if (sendBtn) { sendBtn.disabled = true; sendBtn.classList.add('opacity-50'); }
     try {
       const endpoint = isTeacherUser() ? '/api/ai-assistant/teacher/chat' : '/api/ai-assistant/chat';
-      const isPdfAtt = imgToSend && imgToSend.mime === 'application/pdf';
+      const isDocAtt = imgToSend && (imgToSend.mime === 'application/pdf' || /\.(xlsx|xls)$/i.test(imgToSend.name || ''));
       const attPayload = imgToSend ? { mime: imgToSend.mime, data: imgToSend.data } : undefined;
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ message: text, image: !isPdfAtt ? attPayload : undefined, document: isPdfAtt ? attPayload : undefined }),
+        body: JSON.stringify({ message: text, image: !isDocAtt ? attPayload : undefined, document: isDocAtt ? attPayload : undefined }),
       });
       const data = await res.json();
       hideTyping();

@@ -849,16 +849,9 @@ async function executeAIGenerator(e, code) {
             });
             const dupData = await dupRes.json();
             if (dupData.success && Array.isArray(dupData.duplicates) && dupData.duplicates.length) {
-                const proceed = window.confirm(
-                    dupData.duplicates.length + ' soal terdeteksi MIRIP dengan soal yang sudah ada di bank:\n\n' +
-                    dupData.duplicates.slice(0, 3).map(d => '• "' + d.newQuestion.slice(0, 60) + '..." (mirip ' + d.similarity + ')').join('\n') +
-                    (dupData.duplicates.length > 3 ? '\n… dan ' + (dupData.duplicates.length - 3) + ' lagi' : '') +
-                    '\n\nLanjutkan simpan? (Batal = soal mirip tidak disimpan semua)'
-                );
-                if (!proceed) {
-                    showToast('Simpan dibatalkan — soal mirip terdeteksi. Ubah topik/materi lalu generate ulang.', 'warning');
-                    return;
-                }
+                // Server sudah otomatis membuang & meregenerasi soal mirip (ANTI_DUP_GENERATE_V1).
+                // Sisa duplikat di sini hanya sisa-sisa di bawah ambang — simpan tanpa dialog blokir.
+                showToast(dupData.duplicates.length + ' soal masih sedikit mirip dgn bank (di bawah ambang) — tetap disimpan.', 'info');
             }
         } catch (dupErr) { console.warn('duplicate-check gagal (abaikan):', dupErr); }
 

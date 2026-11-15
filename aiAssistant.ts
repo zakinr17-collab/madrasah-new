@@ -387,7 +387,7 @@ function makeWriteTools(): ToolDef[] {
       parameters: {
         type: "object",
         properties: {
-          action: { type: "string", description: "Salah satu: create_student | create_exam | set_running_text | create_subject | set_schedule_entry | create_questions_batch" },
+          action: { type: "string", description: "Salah satu: create_student | create_exam | set_running_text | create_subject | set_schedule_entry | create_questions_batch | create_students_batch" },
           args: { type: "object", description: "Argumen aksi sesuai skema di deskripsi" },
         },
         required: ["action", "args"],
@@ -411,6 +411,7 @@ function makeWriteTools(): ToolDef[] {
           fix_bank_question: (x) => `Revisi soal "${x.questionId}" di bank ${x.code}: ${Array.isArray(x.fixes) ? x.fixes.join("; ") : (x.fixes && x.fixes.note) || "perbaikan"}.`,
           create_subject: (x) => `Tambah mata pelajaran "${x.name || x.nama || "(tanpa nama)"}" (kode ${x.code || "-"}).`,
           create_questions_batch: (x) => `Import ${Array.isArray(x.items) ? x.items.length : 0} soal (PG/essay) ke mapel "${x.subjectName || x.subjectId || "?"}"${x.classId ? ` kelas ${x.classId}` : ""}${x.code ? ` bank ${x.code}` : ""}.`,
+          create_students_batch: (x) => `Import ${Array.isArray(x.items) ? x.items.length : 0} siswa${x.classId ? ` ke kelas ${x.classId}` : ""} (NISN sesuai sumber).`,
         };
         if (!summaries[action]) return { error: "Aksi tidak dikenal. Gunakan: create_student, create_exam, set_running_text." };
         const id = newPendingId();
@@ -838,6 +839,18 @@ function makeMediaTools(): ToolDef[] {
       },
     },
     {
+      name: "read_pending_xlsx",
+      description: "Baca lampiran file Excel (.xlsx) yang dilampirkan di pesan ini (data siswa/nilai/tabel). WAJIB dipanggil sebelum mengimport/memakai data dari Excel.",
+      parameters: { type: "object", properties: {}, required: [] },
+      exec: async (_args: any, _req: any) => {
+        const g: any = globalThis as any;
+        const xl = g.__assistantPendingXlsx;
+        if (!xl) return { ok: false, error: "Tidak ada file Excel terlampir di pesan ini." };
+        g.__assistantPendingXlsx = null;
+        return { ok: true, sheetName: xl.sheetName, header: xl.header, rowCount: xl.rowCount, rows: xl.rows.slice(0, 300) };
+      },
+    },
+    {
       name: "analyze_image",
       description: "Menganalisis gambar ATAU dokumen PDF yang dilampirkan admin di chat (OCR naskah/soal, baca tabel nilai/roster jadwal, jelaskan isi).",
       parameters: {
@@ -866,6 +879,108 @@ function makeMediaTools(): ToolDef[] {
     },
   ];
 }
+// XLSX-lite parser (jszip -> sharedStrings -> sheet pertama) untuk lampiran Excel di chat asisten.
+function parseXlsxLite(buf: Buffer): { header: string[]; rows: string[][] } | null {
+  try {
+    const JSZip: any = require("jszip");
+    // sinkron tidak tersedia: gunakan loadAsync via deasync-free approach -> fungsi ini dibuat async di pemanggil.
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function parseXlsxAsync(buf: Buffer): Promise<{ header: string[]; rows: string[][]; sheetName: string } | null> {
+  try {
+    const JSZip: any = require("jszip");
+    const zip = await JSZip.loadAsync(buf);
+    const wbXml = await zip.file("xl/workbook.xml").async("string");
+    const relsXml = await zip.file("xl/_rels/workbook.xml.rels").async("string");
+    const sheets: Array<{ name: string; rid: string }> = [];
+    const relMap = new Map<string, string>();
+    for (const m of relsXml.matchAll(/<Relationship[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"[^>]*\/??>/g)) relMap.set(m[1], m[2]);
+    for (const m of wbXml.matchAll(/<sheet[^>]*name="([^"]+)"[^>]*r:id="([^"]+)"[^>]*\/??>/g)) sheets.push({ name: m[1], rid: m[2] });
+    if (!sheets.length) {
+      for (const m of wbXml.matchAll(/<sheet[^>]*r:id="([^"]+)"[^>]*name="([^"]+)"[^>]*\/??>/g)) sheets.push({ name: m[2], rid: m[1] });
+    }
+    const sheetInfo = sheets[0];
+    if (!sheetInfo) return null;
+    let target = relMap.get(sheetInfo.rid) || "";
+    target = target.replace(/^\//, "").replace(/^xl\//, "");
+    const sheetPath = target.startsWith("xl/") ? target : ("xl/" + target);
+    const sheetFile = zip.file(sheetPath) || zip.file("xl/worksheets/sheet1.xml");
+    if (!sheetFile) return null;
+    const sheetXml = await sheetFile.async("string");
+    const ssFile = zip.file("xl/sharedStrings.xml");
+    let shared: string[] = [];
+    if (ssFile) {
+      const ssXml = await ssFile.async("string");
+      for (const m of ssXml.matchAll(/<si>([\s\S]*?)<\/si>/g)) {
+        const texts = [...m[1].matchAll(/<t[^>]*>([^<]*)<\/t>/g)].map((t: any) => t[1]);
+        shared.push(texts.join(""));
+      }
+    }
+    const decode = (s: string) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0?39;/g, "").replace(/&amp;/g, "&");
+    const colToIdx = (letters: string) => { let n = 0; for (const ch of letters) n = n * 26 + (ch.charCodeAt(0) - 64); return n - 1; };
+    const grid: string[][] = [];
+    for (const rm of sheetXml.matchAll(/<row[^>]*r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g)) {
+      const rowArr: string[] = [];
+      for (const cm of rm[2].matchAll(/<c\s+([^>]*?)\s*\/?>(?:<([\s\S]*?)<\/c>)?/g)) {
+        const attrs = cm[1];
+        const inner = cm[2] || "";
+        const colM = attrs.match(/r="([A-Z]+)\d+"/);
+        if (!colM) continue;
+        const idx = colToIdx(colM[1]);
+        const tM = attrs.match(/\bt="(\w+)"/);
+        const vM = inner.match(/<v>([^<]*)<\/v>/);
+        let val = "";
+        if (vM) {
+          val = tM && tM[1] === "s" ? (shared[parseInt(vM[1], 10)] || "") : vM[1];
+        }
+        rowArr[idx] = decode(val).trim();
+      }
+      grid[parseInt(rm[1], 10) - 1] = rowArr;
+    }
+    // cari baris header: baris pertama yang punya >=3 kolom terisi dan mengandung teks alfabet
+    let headerIdx = grid.findIndex(r => r && r.filter(Boolean).length >= 3 && r.some(c => /[A-Za-z]/.test(c || "")));
+    if (headerIdx < 0) headerIdx = 0;
+    const header = (grid[headerIdx] || []).map(c => c || "");
+    const rows = grid.slice(headerIdx + 1).filter(r => r && r.some(c => (c || "").trim()));
+    return { header, rows, sheetName: sheetInfo.name };
+  } catch (e: any) {
+    console.warn("[AIAssistant] parseXlsxAsync gagal:", e?.message || e);
+    return null;
+  }
+}
+
+// Slot lampiran Excel: di-parse di server (bukan ke Gemini) lalu disediakan ke agent sebagai konteks tabel.
+async function ingestAssistantXlsx(doc: { mime?: string; data?: string } | undefined): Promise<any> {
+  const g: any = globalThis as any;
+  g.__assistantPendingXlsx = null;
+  const raw = String(doc?.data || "").replace(/^data:[^,]+,/, "");
+  if (!raw) return null;
+  const mime = String(doc?.mime || "");
+  const looksXlsx = mime.includes("spreadsheetml") || mime.includes("ms-excel");
+  if (!looksXlsx) return null; // PDF ditangani jalur vision biasa
+  try {
+    const buf = Buffer.from(raw, "base64");
+    const parsed = await parseXlsxAsync(buf);
+    if (!parsed) return null;
+    const header = parsed.header.filter(h => String(h || "").trim());
+    const rows = parsed.rows.slice(0, 300).map(r => {
+      const obj: Record<string, string> = {};
+      parsed.header.forEach((h, i) => { if (String(h || "").trim()) obj[String(h).trim()] = String(r[i] ?? ""); });
+      return obj;
+    });
+    const result = { sheetName: parsed.sheetName, header, rows, rowCount: parsed.rows.length };
+    g.__assistantPendingXlsx = result;
+    return result;
+  } catch (e: any) {
+    console.warn("[AIAssistant] ingestAssistantXlsx gagal:", e?.message || e);
+    return null;
+  }
+}
+
 function toolDefsForProvider(tools: ToolDef[]) {
   return tools.map((t) => ({
     type: "function",
@@ -885,7 +1000,7 @@ KAMU PUNYA KEMAMPUAN AGENT:
   * generate_document: buat dokumen (modul ajar, RPP, silabus, kisi-kisi, naskah soal, ringkasan, surat, dokumen bebas) - file unduhan muncul otomatis di chat.
   * generate_image: buat gambar/ilustrasi.
   * generate_speech: ubah teks jadi audio (bacakan teks).
-  * analyze_image: analisis GAMBAR atau DOKUMEN PDF yang dilampirkan (OCR, baca tabel/roster jadwal/naskah soal, jelaskan isi). Untuk PDF roster jadwal: ekstrak semua baris (hari, jam, kelas, mapel, guru), TAMPILKAN hasil ekstraksi untuk konfirmasi admin sebelum menulis data, dan gunakan list_schedules + list_subjects untuk mencari baris yang BELUM ada di aplikasi. Untuk PDF/gambar NASKAH SOAL: ekstrak setiap soal (teks soal, opsi A-E bila pilihan ganda, kunci jawaban, pembahasan bila ada), TAMPILKAN ringkasan soal yang terbaca (nomor + tipe + kunci) untuk dikonfirmasi admin, lalu setelah disetujui panggil create_questions_batch dengan subjectId/classId yang admin maksud (gunakan list_subjects + list_classes untuk resolve nama ke ID).
+  * analyze_image: analisis GAMBAR atau DOKUMEN PDF yang dilampirkan (OCR, baca tabel/roster jadwal/naskah soal, jelaskan isi). Untuk PDF roster jadwal: ekstrak semua baris (hari, jam, kelas, mapel, guru), TAMPILKAN hasil ekstraksi untuk konfirmasi admin sebelum menulis data, dan gunakan list_schedules + list_subjects untuk mencari baris yang BELUM ada di aplikasi. Untuk file Excel DATA SISWA: panggil read_pending_xlsx dulu, TAMPILKAN daftar siswa yang terbaca (nama + NISN + kelas) untuk konfirmasi admin, lalu setelah disetujui panggil create_students_batch dengan items {name, nisn, classId} per siswa dan classId kelas tujuan (resolve via list_classes). Selalu SKIP siswa yang NISN/namanya sudah ada (tool akan melaporkannya). Untuk PDF/gambar NASKAH SOAL: ekstrak setiap soal (teks soal, opsi A-E bila pilihan ganda, kunci jawaban, pembahasan bila ada), TAMPILKAN ringkasan soal yang terbaca (nomor + tipe + kunci) untuk dikonfirmasi admin, lalu setelah disetujui panggil create_questions_batch dengan subjectId/classId yang admin maksud (gunakan list_subjects + list_classes untuk resolve nama ke ID).
 - Bila tool media mengembalikan error "Provider tidak mendukung", sampaikan apa adanya dengan sopan: kemampuan itu butuh Gemini (GEMINI_API_KEY) dan sarankan admin mengaturnya di server, TANPA menyebut nama tool secara teknis.
 - Kamu bisa MEMANGGIL navigate_to untuk MENGANTAR admin langsung ke halaman tertentu — gunakan saat admin bertanya "di mana", "buka", "tunjukkan", atau setelah menjelaskan cara pakai sebuah fitur agar admin langsung diantar ke sana. Dalam jawaban, sebutkan secara natural bahwa kamu sudah mengantarkan/membuka halamannya.
 - Peta halaman yang BENAR (pakai ini, jangan mengarang): dashboard, siswa (Data Murid), guru (Data Guru), kelas, jadwal (Jadwal & Mapel), absen (Absensi), asesmen (Asesmen/ujian CBT: jadwal & monitoring), evaluasi (sub-tab Evaluasi CBT: hasil & lembar jawaban ujian), monitoring (Monitoring Ujian), bank_soal, modul_ajar, nilai (Manajemen Nilai: matriks/import nilai per kelas-mapel), jurnal, kalender, setting (Pengaturan), profil_guru, learning_teacher (Materi Pembelajaran). Alias: "mapel"/"mata pelajaran" -> jadwal; "hasil ujian"/"lembar jawaban" -> evaluasi; "perizinan" -> setting. JANGAN samakan evaluasi dengan nilai.
@@ -1294,7 +1409,8 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       const pendingDataT = docDataT || imgDataT;
       const pendingMimeT = docDataT ? String(document?.mime || "application/pdf") : (imgDataT ? String(image?.mime || "image/jpeg") : "");
       (globalThis as any).__assistantPendingImage = pendingDataT ? { mime: pendingMimeT || "application/pdf", data: pendingDataT } : null;
-      const effectiveText = text || "Analisis gambar yang saya lampirkan.";
+      const xlsxInfoT = await ingestAssistantXlsx(docDataT && !imgDataT ? document : undefined);
+      const effectiveText = text || (xlsxInfoT ? ("Import siswa dari file Excel berikut. " + (xlsxInfoT.rowCount || 0) + " baris data terbaca.") : "Analisis lampiran yang saya kirim.");
       pushTurn(session, "user", effectiveText);
 
       const { reply, navigation: agentNav, highlights: agentHl, assets: agentAssets, pendingWrites: agentPending } = await runAgent(effectiveText, session, req, h, { mode: "teacher", teacher });
@@ -1336,7 +1452,8 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       const pendingMime = docData ? String(document?.mime || "application/pdf") : (imgData ? imgMime : "");
       const pendingData = docData || imgData;
       (globalThis as any).__assistantPendingImage = pendingData ? { mime: pendingMime || "application/pdf", data: pendingData } : null;
-      const effectiveText = text || "Analisis gambar yang saya lampirkan.";
+      const xlsxInfo = await ingestAssistantXlsx(docData && !imgData ? document : undefined);
+      const effectiveText = text || (xlsxInfo ? ("Import siswa dari file Excel berikut. " + (xlsxInfo.rowCount || 0) + " baris data terbaca.") : "Analisis lampiran yang saya kirim.");
       pushTurn(session, "user", effectiveText);
 
       const { reply, navigation: agentNav, highlights: agentHl, assets: agentAssets, fillForms: agentFillForms, pendingWrites: pendingW } = await runAgent(effectiveText, session, req, h);
