@@ -599,6 +599,7 @@
     if (!text && !imgToSend) return;
     input.value = '';
     input.style.height = 'auto';
+    const isDocAtt = imgToSend && (imgToSend.mime === 'application/pdf' || /\.(xlsx|xls)$/i.test(imgToSend.name || ''));
     const attachLabel = imgToSend ? ((isDocAtt ? 'Dokumen terlampir: ' : 'Gambar terlampir: ') + ((imgToSend && imgToSend.name) || '')) : '';
     appendBubble('user', (text ? text + (attachLabel ? '<br><span style=\"display:inline-flex;align-items:center;gap:4px;margin-top:6px;padding:3px 8px;background:rgba(255,255,255,0.18);border-radius:8px;font-size:11px;font-weight:600;\"><i class=\"fa-solid fa-paperclip\"></i> ' + esc(imgToSend.name || '') + '</span>' : '') : attachLabel));
     if (imgToSend) window.aiAssistantClearImage();
@@ -606,7 +607,6 @@
     if (sendBtn) { sendBtn.disabled = true; sendBtn.classList.add('opacity-50'); }
     try {
       const endpoint = isTeacherUser() ? '/api/ai-assistant/teacher/chat' : '/api/ai-assistant/chat';
-      const isDocAtt = imgToSend && (imgToSend.mime === 'application/pdf' || /\.(xlsx|xls)$/i.test(imgToSend.name || ''));
       const attPayload = imgToSend ? { mime: imgToSend.mime, data: imgToSend.data } : undefined;
       const res = await fetch(endpoint, {
         method: 'POST',
