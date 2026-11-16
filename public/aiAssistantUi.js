@@ -74,11 +74,16 @@
         <div class="flex items-end gap-2">
           <textarea id="ai-assistant-input" rows="1" placeholder="Tanya apa saja… (fitur aplikasi / pertanyaan umum)"
             class="flex-1 resize-none max-h-28 px-3.5 py-2.5 text-sm border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-400"></textarea>
-          <button id="ai-assistant-attach" onclick="document.getElementById('ai-assistant-file').click()" title="Lampirkan gambar"
-            class="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center shrink-0 cursor-pointer"><i class="fa-solid fa-image text-sm"></i></button>
+          <button id="ai-assistant-attach" onclick="document.getElementById('ai-assistant-file').click()" title="Lampirkan gambar / PDF / Excel"
+            class="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center shrink-0 cursor-pointer"><i class="fa-solid fa-paperclip text-sm"></i></button>
           <input type="file" id="ai-assistant-file" accept="image/*,application/pdf,.xlsx,.xls" class="hidden" onchange="window.aiAssistantPickImage(this)">
           <button id="ai-assistant-send" onclick="window.sendAiAssistantMessage()"
             class="w-10 h-10 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center shrink-0 cursor-pointer"><i class="fa-solid fa-paper-plane text-sm"></i></button>
+        </div>
+        <div id="ai-assistant-imgbar" class="hidden mt-2 flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
+          <i id="ai-assistant-imgicon" class="fa-solid fa-image text-slate-500 text-sm"></i>
+          <span id="ai-assistant-imgname" class="flex-1 text-xs text-slate-700 font-semibold truncate"></span>
+          <button type="button" onclick="window.aiAssistantClearImage()" title="Buang lampiran" class="w-6 h-6 rounded-lg bg-slate-200 hover:bg-rose-100 text-slate-600 hover:text-rose-600 flex items-center justify-center cursor-pointer"><i class="fa-solid fa-xmark text-xs"></i></button>
         </div>
         <p class="text-[10px] text-slate-400 mt-1.5">${teacherMode ? 'Asisten hanya bisa melihat data kelas ampuan Anda — tidak bisa mengubah apa pun.' : 'Asisten memakai API key yang diaktifkan di Pengaturan.'}</p>
       </div>`;
@@ -529,7 +534,13 @@
     reader.onload = () => {
       pendingImage = { mime: file.type || 'image/jpeg', data: String(reader.result).split(',')[1] || '', name: file.name };
       const bar = document.getElementById('ai-assistant-imgbar');
-      if (bar) { bar.classList.remove('hidden'); document.getElementById('ai-assistant-imgname').textContent = file.name; }
+      if (bar) {
+        const icon = document.getElementById('ai-assistant-imgicon');
+        if (icon) icon.className = isXlsx ? 'fa-solid fa-file-excel text-emerald-600 text-sm'
+          : isPdf ? 'fa-solid fa-file-pdf text-rose-600 text-sm'
+          : 'fa-solid fa-image text-slate-500 text-sm';
+        bar.classList.remove('hidden'); document.getElementById('ai-assistant-imgname').textContent = file.name;
+      }
     };
     reader.readAsDataURL(file);
     input.value = '';
