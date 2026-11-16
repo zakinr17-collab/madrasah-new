@@ -847,7 +847,24 @@ function makeMediaTools(): ToolDef[] {
         const xl = g.__assistantPendingXlsx;
         if (!xl) return { ok: false, error: "Tidak ada file Excel terlampir di pesan ini." };
         g.__assistantPendingXlsx = null;
-        return { ok: true, sheetName: xl.sheetName, header: xl.header, rowCount: xl.rowCount, rows: xl.rows.slice(0, 300) };
+        // XLSX_RESULT_COMPACT_V1: hasil tool harus ringkas agar provider tidak menolak payload besar.
+        // Kolom panjang (alamat/NIK/TTL) dipangkas per baris; AI hanya butuh nama+NISN+kelas utk import.
+        const LONG_KEYS = ["alamat", "address", "nik", "tempat lahir", "ttl", "nomor kip", "kip", "umur"];
+        const compactRows = (xl.rows || []).slice(0, 150).map((row: any) => {
+          const out: any = {};
+          for (const [k, v] of Object.entries(row || {})) {
+            const kl = String(k).toLowerCase();
+            if (LONG_KEYS.some((lk) => kl.includes(lk))) continue;
+            out[k] = typeof v === "string" && v.length > 60 ? v.slice(0, 60) : v;
+          }
+          return out;
+        });
+        let payload = JSON.stringify({ header: xl.header, rows: compactRows });
+        if (payload.length > 12000) {
+          payload = JSON.stringify({ header: xl.header, rows: compactRows.slice(0, 80), note: "Dipangkas otomatis; sisa baris tetap diproses penuh oleh create_students_batch dari data yang tersimpan." });
+          (g as any).__assistantPendingXlsxFull = xl;
+        }
+        return { ok: true, sheetName: xl.sheetName, header: xl.header, rowCount: xl.rowCount, shownRows: compactRows.length, data: JSON.parse(payload) };
       },
     },
     {
@@ -1421,7 +1438,11 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       return res.json({ success: true, reply, navigation, highlights, assets: (agentAssets && agentAssets.length) ? agentAssets : undefined, pendingWrites: (agentPending && agentPending.length) ? agentPending : undefined, mode, turns: session.turns.length });
     } catch (err: any) {
       console.error("[AIAssistant] teacher chat gagal:", err?.message || err);
-      return res.status(500).json({ success: false, message: err?.message || "Asisten AI gagal merespons." });
+      const rawT = String(err?.message || "");
+      const msgT = (rawT.includes("Gemini client tidak tersedia") || rawT.includes("Semua AI provider gagal"))
+        ? "Provider AI sedang bermasalah sehingga permintaan ini gagal diproses. Coba kirim ulang pesan yang sama (biasanya berhasil pada percobaan kedua)."
+        : (err?.message || "Asisten AI gagal merespons.");
+      return res.status(500).json({ success: false, message: msgT });
     }
   });
 
@@ -1473,7 +1494,11 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       return res.json({ success: true, reply, navigation, highlights, assets, fillForms: fillFormsOut, pendingWrites: pendingW || [], turns: session.turns.length });
     } catch (err: any) {
       console.error("[AIAssistant] chat gagal:", err?.message || err);
-      return res.status(500).json({ success: false, message: err?.message || "Asisten AI gagal merespons." });
+      const rawA = String(err?.message || "");
+      const msgA = (rawA.includes("Gemini client tidak tersedia") || rawA.includes("Semua AI provider gagal"))
+        ? "Provider AI sedang bermasalah sehingga permintaan ini gagal diproses. Coba kirim ulang pesan yang sama (biasanya berhasil pada percobaan kedua). Kalau berulang, buka Pengaturan > AI dan tekan Cek Semua Key."
+        : (err?.message || "Asisten AI gagal merespons.");
+      return res.status(500).json({ success: false, message: msgA });
     }
   });
 
