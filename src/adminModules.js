@@ -357,12 +357,12 @@ async function saveClass(e, id) {
     }
 }
 
-async function deleteClass(id) {
+async function deleteClass(id, force = false) {
     const targetClass = (appState.classes || []).find(c => String(c.id) === String(id));
     const className = targetClass ? String(targetClass.name || targetClass.code || id) : String(id);
     showConfirmModal(`Hapus kelas "${className}"? Kelas yang masih memiliki siswa atau dipakai data akademik akan ditolak oleh server.`, async () => {
         try {
-            const res = await fetch(`/api/classes/${id}`, { method: 'DELETE' });
+            const res = await fetch(`/api/classes/${id}${force ? '?force=1' : ''}`, { method: 'DELETE' });
             const data = await res.json().catch(() => null);
             if (!res.ok || !data || !data.success) {
                 const err = new Error((data && data.message) || 'Gagal menghapus kelas');
@@ -386,7 +386,15 @@ async function deleteClass(id) {
                 }
             }
         } catch (err) {
-            showToast(err.message || 'Gagal menghapus kelas', 'error');
+            if (err.code === 'CLASS_IN_USE' && err.references && !force) {
+                const refs = Object.entries(err.references).map(([k, v]) => `${v} ${k}`).join(', ');
+                showConfirmModal(
+                    `Kelas "${className}" masih dipakai (${refs}). Hapus kelas ini BERSAMA seluruh isinya — siswa, absensi, dan nilai siswa di kelas ini IKUT TERHAPUS dan tidak bisa dibatalkan. Lanjutkan?`,
+                    async () => { await deleteClass(id, true); }
+                );
+            } else {
+                showToast(err.message || 'Gagal menghapus kelas', 'error');
+            }
         }
     });
 }

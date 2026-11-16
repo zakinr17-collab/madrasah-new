@@ -3891,6 +3891,7 @@ setAssistantDataStore({ get students(){ return students; }, get teachers(){ retu
     const created: any[] = [];
     const skipped: string[] = [];
     const errors: string[] = [];
+    const adopted: any[] = [];
     for (let i = 0; i < items.length; i++) {
       const it = items[i] || {};
       const name = String(it.name || it.nama || '').trim();
@@ -3899,14 +3900,28 @@ setAssistantDataStore({ get students(){ return students; }, get teachers(){ retu
       const dup = students.find((s: any) => isItemForCurrentMadrasah(s, req) && (
         (nisn && String(s.nisn || '').trim() === nisn) ||
         String(s.name || '').trim().toLowerCase() === name.toLowerCase()));
-      if (dup) { skipped.push(name + ' (sudah ada: ' + (dup.nisn || dup.name) + ')'); continue; }
+      if (dup) {
+        const dupClassAlive = dup.classId && classes.some((c: any) => String(c.id) === String(dup.classId));
+        if (!dupClassAlive) {
+          const prevClass = classes.find((c: any) => String(c.id) === String(dup.classId));
+          const prevName = prevClass ? prevClass.name : '(kelas sudah dihapus)';
+          dup.classId = classId;
+          dup.class_id = classId;
+          if (nisn && !String(dup.nisn || '').trim()) dup.nisn = nisn;
+          adopted.push({ name, from: prevName, to: cls.name });
+          continue;
+        }
+        const dupCls = classes.find((c: any) => String(c.id) === String(dup.classId));
+        skipped.push(name + ' (sudah ada di kelas ' + ((dupCls && dupCls.name) || 'lain') + ')');
+        continue;
+      }
       const rawPassword = 's' + Math.random().toString(36).slice(2, 8);
       const username = nisn || ('siswa_' + Date.now() + '_' + i);
       const existsUser = students.find((s: any) => String(s.username || '') === username);
       const finalUsername = existsUser ? (username + '_' + Math.random().toString(36).slice(2, 5)) : username;
       const newSt = tagNewRecord({
         id: 'ST_' + Date.now() + '_' + i,
-        nis: String(it.nis || '').trim(),
+        nis: (String(it.nis || '').trim() || nisn),
         nisn,
         name,
         classId,
@@ -3923,7 +3938,10 @@ setAssistantDataStore({ get students(){ return students; }, get teachers(){ retu
       created.push({ name, nisn, username: finalUsername, temporaryPassword: rawPassword });
     }
     await saveData('students', students);
-    return { ok: true, message: created.length + ' siswa diimport ke kelas ' + cls.name + (skipped.length ? ', ' + skipped.length + ' dilewati (sudah ada)' : '') + '.', created: created.length, skipped, credentials: created, errors };
+    let msg = created.length + ' siswa diimport ke kelas ' + cls.name;
+    if (adopted.length) msg += ', ' + adopted.length + ' dipindahkan ke kelas ini (data lama dipakai, tidak dobel)';
+    if (skipped.length) msg += ', ' + skipped.length + ' dilewati (sudah ada)';
+    return { ok: true, message: msg + '.', created: created.length, skipped, adopted, credentials: created, errors };
   }
   if (action === 'create_questions_batch') {
     const items = Array.isArray(args.items) ? args.items : [];
@@ -11758,17 +11776,50 @@ app.delete("/api/classes/:id", requireAuth, requireRole(['admin', 'bos', 'supera
     }, {});
 
   if (Object.keys(activeReferences).length > 0) {
-    const studentCount = referenceCounts.students || 0;
-    const primaryReason = studentCount > 0
-      ? `${studentCount} siswa masih terdaftar di kelas ini`
-      : 'kelas ini masih dipakai oleh data akademik lain';
+    // CLASS_DELETE_FORCE_V1: admin bisa memaksa hapus kelas berisi siswa (?force=1)
+    // cascade = pakai aturan yang sama dengan hapus siswa (foto, absensi, nilai ikut terhapus)
+    const force = String(req.query.force || '') === '1';
+    const nonStudentRefs = Object.keys(activeReferences).filter(k => ![
+      "students", "attendance", "grades", "journals", "rooms"
+    ].includes(k));
+    if (force && nonStudentRefs.length === 0) {
+      const doomedIds = new Set(students.filter(referencesClass).map((s: any) => String(s.id)));
+      const doomedNis = new Set(students.filter(referencesClass).map((s: any) => String(s.nis || '').trim()).filter(Boolean));
+      if (db) {
+        const attRecs = (attendance || []).filter((a: any) => isItemForCurrentMadrasah(a, req) &&
+          (doomedIds.has(String(a.studentId)) || (a.nis && doomedNis.has(String(a.nis)))));
+        for (const rec of attRecs) {
+          if (rec && rec.photo && rec.photo.startsWith('/api/photos/')) {
+            const docId = rec.photo.replace('/api/photos/', '');
+            if (docId) { try { await deleteDoc(doc(db, 'photos', docId)); } catch(e) {} }
+          }
+        }
+      }
+      students = students.filter((s: any) => !isItemForCurrentMadrasah(s, req) || !doomedIds.has(String(s.id)));
+      await saveData('students', students);
+      if (Array.isArray(attendance)) {
+        attendance = attendance.filter((a: any) => !isItemForCurrentMadrasah(a, req) ||
+          (!doomedIds.has(String(a.studentId)) && (!a.nis || !doomedNis.has(String(a.nis)))));
+        await saveData('attendance', attendance);
+      }
+      if (Array.isArray(grades)) {
+        grades = grades.filter((g: any) => !isItemForCurrentMadrasah(g, req) ||
+          (!doomedIds.has(String(g.studentId)) && (!g.nis || !doomedNis.has(String(g.nis)))));
+        await saveData('grades', grades);
+      }
+    } else {
+      const studentCount = referenceCounts.students || 0;
+      const primaryReason = studentCount > 0
+        ? `${studentCount} siswa masih terdaftar di kelas ini`
+        : 'kelas ini masih dipakai oleh data akademik lain';
 
-    return res.status(409).json({
-      success: false,
-      code: 'CLASS_IN_USE',
-      message: `Kelas tidak dapat dihapus karena ${primaryReason}. Pindahkan/hapus referensi terkait terlebih dahulu.`,
-      references: activeReferences
-    });
+      return res.status(409).json({
+        success: false,
+        code: 'CLASS_IN_USE',
+        message: `Kelas tidak dapat dihapus karena ${primaryReason}. Pindahkan/hapus referensi terkait terlebih dahulu.`,
+        references: activeReferences
+      });
+    }
   }
 
   classes = classes.filter((c: any) => !(String(c.id) === classId && isItemForCurrentMadrasah(c, req)));
