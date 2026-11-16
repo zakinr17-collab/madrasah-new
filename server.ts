@@ -3897,9 +3897,11 @@ setAssistantDataStore({ get students(){ return students; }, get teachers(){ retu
       const name = String(it.name || it.nama || '').trim();
       const nisn = String(it.nisn || '').trim().replace(/[^0-9]/g, '');
       if (!name) { errors.push('Siswa #' + (i + 1) + ': nama kosong, dilewati.'); continue; }
+      // DUP_MATCH_V2: match by NISN if both sides have it; name-match only when NISN absent
+      // (same name + different NISN = different person, must be allowed to import)
       const dup = students.find((s: any) => isItemForCurrentMadrasah(s, req) && (
         (nisn && String(s.nisn || '').trim() === nisn) ||
-        String(s.name || '').trim().toLowerCase() === name.toLowerCase()));
+        (!nisn && !String(s.nisn || '').trim() && String(s.name || '').trim().toLowerCase() === name.toLowerCase())));
       if (dup) {
         const dupClassAlive = dup.classId && classes.some((c: any) => String(c.id) === String(dup.classId));
         if (!dupClassAlive) {
