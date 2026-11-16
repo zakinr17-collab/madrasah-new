@@ -998,6 +998,63 @@ async function ingestAssistantXlsx(doc: { mime?: string; data?: string } | undef
   }
 }
 
+
+// ---------------------------------------------------------------------------
+// XLSX_DIRECT_IMPORT_V1: import siswa via Excel TANPA memanggil provider AI.
+// Deteksi intent deterministik dari teks admin + file ter-parse; bila cocok,
+// pendingWrite create_students_batch dibuat langsung (konfirmasi satu-kali tetap
+// via tombol di chat). Ini menyingkirkan kegagalan provider (timeout upstream,
+// payload besar) yang terjadi pada file ratusan baris.
+// ---------------------------------------------------------------------------
+function tryDirectXlsxStudentImport(text: string, xlsx: any, req: any): { handled: boolean; reply?: string; pendingWrite?: { id: string; summary: string } } {
+  const g: any = globalThis as any;
+  if (!xlsx || !Array.isArray(xlsx.rows) || !xlsx.rows.length) return { handled: false };
+  const t = String(text || "").toLowerCase();
+  const wantsImport = /(impor|import|masukkan|masukan|tambahkan|tambah|input|daftar|masuk)/.test(t);
+  const targetsStudents = /(siswa|murid|anak|pelajar|student)/.test(t);
+  if (!wantsImport || !targetsStudents) return { handled: false };
+  // Ekspresi "ikut/kirim/terlampir" saja tidak dianggap import
+  if (!/(impor|import|masukkan|masukan|tambahkan|input)/.test(t) && !/daftar siswa/.test(t)) return { handled: false };
+
+  const classes = scopedAll(g.__assistantStore?.classes || [], req);
+  // resolve kelas dari teks: "kelas VI", "kelas 6", "kelas vi-a", nama persis
+  const roman: Record<string, string> = { "vi": "6", "v": "5", "vii": "7", "viii": "8", "ix": "9", "x": "10", "xi": "11", "xii": "12" };
+  let target: any = null;
+  const mClass = t.match(/kelas\s+([a-z0-9\-\s]{1,20}?)(?=[,.;]|\s+dengan|\s+dari|\s+ke|\s+berikut|$)/);
+  if (mClass) {
+    let key = mClass[1].trim().toLowerCase();
+    key = roman[key] || key;
+    target = classes.find((c: any) => {
+      const nm = String(c.name || c.className || "").toLowerCase();
+      const gr = String(c.grade || "").toLowerCase();
+      return nm === key || nm === "kelas " + key || gr === key || nm.includes("kelas " + key) || (nm.includes(key) && key.length >= 1);
+    });
+  }
+  if (!target) target = classes.find((c: any) => t.includes(String(c.name || "").toLowerCase()));
+  if (!target) {
+    return { handled: true, reply: "File Excel terbaca: " + (xlsx.rowCount || xlsx.rows.length) + " baris. Tapi kelas yang kamu maksud tidak ketemu di daftar kelas. Sebutkan nama kelas persis seperti di aplikasi (contoh: \u201ckelas VI\u201d / \u201cKelas 6 - Kelas 6\u201d), lalu kirim ulang." };
+  }
+  const classId = String(target.id);
+  // items untuk create_students_batch: {name, nisn, nis, gender, no_hp}
+  const pick = (row: any, keys: string[]) => { for (const k of keys) { const found = Object.keys(row || {}).find(rk => rk.toLowerCase() === k.toLowerCase()); if (found && String(row[found] || "").trim()) return String(row[found]).trim().replace(/^'+/, ""); } return ""; };
+  const items = xlsx.rows.map((row: any) => ({
+    name: pick(row, ["nama lengkap", "nama", "name"]),
+    nisn: pick(row, ["nisn"]).replace(/[^0-9]/g, ""),
+    nis: pick(row, ["nis"]),
+    gender: pick(row, ["jenis kelamin", "jk", "gender"]),
+    no_hp: pick(row, ["no_hp", "nomor hp", "hp", "telepon"]),
+  })).filter((it: any) => it.name);
+  if (!items.length) return { handled: true, reply: "File Excel terbaca tapi tidak ada kolom nama yang dikenali. Pastikan ada kolom \u201cNama Lengkap\u201d." };
+  const args = { classId, items };
+  const authUser = g.__assistantAuthUser || {};
+  const id = newPendingId();
+  const summary = "Import " + items.length + " siswa dari file Excel ke kelas " + (target.name || target.className || classId) + " (NISN sesuai file; siswa yang namanya/NISN-nya sudah ada dilewati otomatis).";
+  pendingWrites.set(id, { id, action: "create_students_batch", summary, args, userId: String(authUser?.id || ""), createdAt: Date.now() });
+  for (const [k, v] of pendingWrites) if (Date.now() - v.createdAt > PENDING_TTL) pendingWrites.delete(k);
+  const reply = "File Excel terbaca: **" + items.length + " siswa** (sheet: " + (xlsx.sheetName || "-") + ").\n\nRencana: masukkan semuanya ke kelas **" + (target.name || target.className) + "**, username = NISN, duplikat (nama/NISN sudah ada) dilewati otomatis.\n\nTekan tombol konfirmasi di bawah untuk menjalankan. Tidak perlu AI provider untuk ini \u2014 datamu diproses langsung dari file.";
+  return { handled: true, reply, pendingWrite: { id, summary } };
+}
+
 function toolDefsForProvider(tools: ToolDef[]) {
   return tools.map((t) => ({
     type: "function",
@@ -1430,6 +1487,13 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       const effectiveText = text || (xlsxInfoT ? ("Import siswa dari file Excel berikut. " + (xlsxInfoT.rowCount || 0) + " baris data terbaca.") : "Analisis lampiran yang saya kirim.");
       pushTurn(session, "user", effectiveText);
 
+      const directT = tryDirectXlsxStudentImport(text, xlsxInfoT, req);
+      if (directT.handled) {
+        const pwT = directT.pendingWrite ? [directT.pendingWrite] : [];
+        if (directT.reply) pushTurn(session, "assistant", directT.reply);
+        return res.json({ success: true, reply: directT.reply || "", navigation: [], highlights: [], pendingWrites: pwT, turns: session.turns });
+      }
+
       const { reply, navigation: agentNav, highlights: agentHl, assets: agentAssets, pendingWrites: agentPending } = await runAgent(effectiveText, session, req, h, { mode: "teacher", teacher });
       const navigation = agentNav;
       const highlights = agentHl && agentHl.length ? agentHl : [];
@@ -1476,6 +1540,13 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
       const xlsxInfo = await ingestAssistantXlsx(docData && !imgData ? document : undefined);
       const effectiveText = text || (xlsxInfo ? ("Import siswa dari file Excel berikut. " + (xlsxInfo.rowCount || 0) + " baris data terbaca.") : "Analisis lampiran yang saya kirim.");
       pushTurn(session, "user", effectiveText);
+
+      const directA = tryDirectXlsxStudentImport(text, xlsxInfo, req);
+      if (directA.handled) {
+        const pwA = directA.pendingWrite ? [directA.pendingWrite] : [];
+        if (directA.reply) pushTurn(session, "assistant", directA.reply);
+        return res.json({ success: true, reply: directA.reply || "", navigation: [], highlights: [], pendingWrites: pwA, turns: session.turns });
+      }
 
       const { reply, navigation: agentNav, highlights: agentHl, assets: agentAssets, fillForms: agentFillForms, pendingWrites: pendingW } = await runAgent(effectiveText, session, req, h);
       // Jaminan navigasi nyata: bila model mengklaim mengantar tanpa tool call,
