@@ -2278,6 +2278,14 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                         </button>
                                         <label class="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 bg-white/70 border border-slate-200 rounded-xl px-2.5 py-2 cursor-pointer select-none" title="Tambahkan kolom Keterangan: jumlah keluar tab saat ujian">
                                             <input type="checkbox" id="evx-ket-toggle" class="w-3.5 h-3.5 text-teal-600 rounded cursor-pointer"/>
+                                    <div class="flex gap-4 mt-2 mb-1">
+                                        <label class="flex items-center gap-2 text-[11px] font-bold text-slate-600 cursor-pointer">
+                                            <input type="checkbox" ${window.kartuPesertaConfig.showStempel !== false ? 'checked' : ''} onchange="updateKartuConfig('showStempel', this.checked)" class="accent-emerald-600 w-3.5 h-3.5"> Tampilkan Stempel
+                                        </label>
+                                        <label class="flex items-center gap-2 text-[11px] font-bold text-slate-600 cursor-pointer">
+                                            <input type="checkbox" ${window.kartuPesertaConfig.showTtd !== false ? 'checked' : ''} onchange="updateKartuConfig('showTtd', this.checked)" class="accent-emerald-600 w-3.5 h-3.5"> Tampilkan TTD
+                                        </label>
+                                    </div>
                                             <span>Ket. keluar tab</span>
                                         </label>
                                         <!-- Cetak Nilai Excel -->
@@ -6969,6 +6977,8 @@ function initKartuPesertaConfigIfNeeded() {
         if (window.kartuPesertaConfig.stempelSize === undefined) window.kartuPesertaConfig.stempelSize = 85;
         if (window.kartuPesertaConfig.stempelOffsetLeft === undefined) window.kartuPesertaConfig.stempelOffsetLeft = -32;
         if (window.kartuPesertaConfig.stempelOffsetTop === undefined) window.kartuPesertaConfig.stempelOffsetTop = -12;
+        if (window.kartuPesertaConfig.showStempel === undefined) window.kartuPesertaConfig.showStempel = true;
+        if (window.kartuPesertaConfig.showTtd === undefined) window.kartuPesertaConfig.showTtd = true;
         if (window.kartuPesertaConfig.ttdSize === undefined) window.kartuPesertaConfig.ttdSize = 75;
         if (window.kartuPesertaConfig.ttdOffsetLeft === undefined) window.kartuPesertaConfig.ttdOffsetLeft = 10;
         if (window.kartuPesertaConfig.ttdOffsetTop === undefined) window.kartuPesertaConfig.ttdOffsetTop = 1;
@@ -7042,6 +7052,7 @@ function getLogoKanan() {
 
 function getStempelSvg(schoolName) {
     initKartuPesertaConfigIfNeeded();
+    if (window.kartuPesertaConfig.showStempel === false) return '';
     const size = window.kartuPesertaConfig.stempelSize || 85;
     if (window.kartuPesertaConfig.stempel) {
         return `<img src="${window.kartuPesertaConfig.stempel}" style="max-width: 100%; max-height: ${size}px; object-fit: contain;" />`;
@@ -7079,6 +7090,7 @@ function getStempelSvg(schoolName) {
 
 function getTtdHtml() {
     initKartuPesertaConfigIfNeeded();
+    if (window.kartuPesertaConfig.showTtd === false) return '';
     const size = window.kartuPesertaConfig.ttdSize || 75;
     if (window.kartuPesertaConfig.ttd) {
         return `<img src="${window.kartuPesertaConfig.ttd}" style="max-width: 100%; max-height: ${Math.round(size * 0.53)}px; object-fit: contain;" />`;
