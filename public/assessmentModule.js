@@ -1422,6 +1422,12 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             ${window.kartuPesertaConfig.ttd ? `<button onclick="updateKartuConfig('ttd', '')" class="text-rose-500 text-[9px] font-semibold underline">Reset</button>` : ''}
                                         </label>
                                         <input type="file" accept="image/*" onchange="handleKartuImageUpload(event, 'ttd')" class="w-full text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-lg file:border-0 file:text-[10px] file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer">
+                                    <label class="flex items-center gap-2 text-[11px] font-bold text-slate-600 cursor-pointer mt-2">
+                                        <input type="checkbox" ${window.kartuPesertaConfig.showTtd !== false ? 'checked' : ''} onchange="updateKartuConfig('showTtd', this.checked)" class="accent-emerald-600 w-3.5 h-3.5"> Tampilkan TTD
+                                    </label>
+                                    <label class="flex items-center gap-2 text-[11px] font-bold text-slate-600 cursor-pointer">
+                                        <input type="checkbox" ${window.kartuPesertaConfig.showStempel !== false ? 'checked' : ''} onchange="updateKartuConfig('showStempel', this.checked)" class="accent-emerald-600 w-3.5 h-3.5"> Tampilkan Stempel
+                                    </label>
                                     </div>
                                 </div>
                             </div>
@@ -2278,14 +2284,6 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                         </button>
                                         <label class="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600 bg-white/70 border border-slate-200 rounded-xl px-2.5 py-2 cursor-pointer select-none" title="Tambahkan kolom Keterangan: jumlah keluar tab saat ujian">
                                             <input type="checkbox" id="evx-ket-toggle" class="w-3.5 h-3.5 text-teal-600 rounded cursor-pointer"/>
-                                    <div class="flex gap-4 mt-2 mb-1">
-                                        <label class="flex items-center gap-2 text-[11px] font-bold text-slate-600 cursor-pointer">
-                                            <input type="checkbox" ${window.kartuPesertaConfig.showStempel !== false ? 'checked' : ''} onchange="updateKartuConfig('showStempel', this.checked)" class="accent-emerald-600 w-3.5 h-3.5"> Tampilkan Stempel
-                                        </label>
-                                        <label class="flex items-center gap-2 text-[11px] font-bold text-slate-600 cursor-pointer">
-                                            <input type="checkbox" ${window.kartuPesertaConfig.showTtd !== false ? 'checked' : ''} onchange="updateKartuConfig('showTtd', this.checked)" class="accent-emerald-600 w-3.5 h-3.5"> Tampilkan TTD
-                                        </label>
-                                    </div>
                                             <span>Ket. keluar tab</span>
                                         </label>
                                         <!-- Cetak Nilai Excel -->
