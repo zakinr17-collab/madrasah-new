@@ -9745,6 +9745,7 @@ window.openBroadcastMessageModal = openBroadcastMessageModal;
 window.sendBroadcastExamMessage = sendBroadcastExamMessage;
 window.dismissStudentExamMessage = dismissStudentExamMessage;
 window.onMonitoringFilterChange = onMonitoringFilterChange;
+window.onMonitoringExamSwitch = onMonitoringExamSwitch;
 window.renderStudentCBTList = renderStudentCBTList;
 
 function switchStudentCbtTab(tab) {
