@@ -1297,6 +1297,54 @@ function detectHighlightIntent(userText: string): Array<{ route: string; element
 // ---------------------------------------------------------------------------
 const MAX_TOOL_ROUNDS = 5;
 
+// AI_ASSISTANT_RETRY_V1: satu percobaan ulang otomatis untuk kegagalan provider sesaat
+// (timeout upstream, connection reset, 429/5xx). Free routers (LightVela/NVIDIA) often fail
+// mid-agent-loop on the second or third turn; a single silent retry turns that into a success.
+function isTransientAiError(err: any): boolean {
+  const m = String(err?.message || err || "").toLowerCase();
+  return (
+    m.includes("timeout") ||
+    m.includes("timed out") ||
+    m.includes("upstream") ||
+    m.includes("econnreset") ||
+    m.includes("socket hang up") ||
+    m.includes("fetch failed") ||
+    m.includes("network") ||
+    m.includes("429") ||
+    m.includes("502") ||
+    m.includes("503") ||
+    m.includes("504")
+  );
+}
+
+// AI_TOOL_FORCE_RETRY_V1: some providers (NVIDIA nemotron etc.) NARRATE the intended
+// tool call ("saya akan panggil prepare_write_action, tombol konfirmasi akan muncul")
+// without actually calling it, so the user never gets the confirm card. Detect that
+// claim-without-action and re-run once with an explicit instruction to call the tool.
+function claimsWriteWithoutAction(reply: string, pendingWrites: any[] | undefined): boolean {
+  if (pendingWrites && pendingWrites.length) return false;
+  const t = String(reply || "").toLowerCase();
+  const claimed =
+    (t.includes("prepare_write_action") || t.includes("tombol konfirmasi") || t.includes("konfirmasi akan muncul")) &&
+    (t.includes("akan saya") || t.includes("saya akan") || t.includes("setelah saya panggil") || t.includes("silakan tekan") || t.includes("anda tekan"));
+  return claimed;
+}
+
+async function withAiRetry<T>(fn: () => Promise<T>, attempts = 2): Promise<T> {
+  let lastErr: any = null;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastErr = err;
+      if (i === attempts - 1 || !isTransientAiError(err)) throw err;
+      console.warn("[AIAssistant] percobaan " + (i + 1) + " gagal (" + (err?.message || err) + "), mencoba ulang...");
+      await new Promise((r) => setTimeout(r, 900));
+    }
+  }
+  throw lastErr;
+}
+
 async function runAgent(text: string, session: any, req: any, h: AssistantHelpers, opts?: { mode?: "admin" | "teacher"; teacher?: any }) {
   const mode = opts?.mode || "admin";
   const bankCheckTools = makeBankCheckTools();
@@ -1494,7 +1542,14 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
         return res.json({ success: true, reply: directT.reply || "", navigation: [], highlights: [], pendingWrites: pwT, turns: session.turns });
       }
 
-      const { reply, navigation: agentNav, highlights: agentHl, assets: agentAssets, pendingWrites: agentPending } = await runAgent(effectiveText, session, req, h, { mode: "teacher", teacher });
+      const { reply, navigation: agentNav, highlights: agentHl, assets: agentAssets, pendingWrites: agentPending } = await (async () => {
+        let __r = await withAiRetry(() => runAgent(effectiveText, session, req, h, { mode: "teacher", teacher }));
+        if (claimsWriteWithoutAction(__r.reply, __r.pendingWrites)) {
+          console.warn("[AIAssistant] model menarasi tool call tanpa aksi — paksa ulang sekali");
+          __r = await withAiRetry(() => runAgent(effectiveText, session, req, h, { mode: "teacher", teacher }));
+        }
+        return __r;
+      })();
       const navigation = agentNav;
       const highlights = agentHl && agentHl.length ? agentHl : [];
       pushTurn(session, "assistant", reply);
@@ -1548,7 +1603,14 @@ export function registerAiAssistantEndpoints(app: Express, h: AssistantHelpers) 
         return res.json({ success: true, reply: directA.reply || "", navigation: [], highlights: [], pendingWrites: pwA, turns: session.turns });
       }
 
-      const { reply, navigation: agentNav, highlights: agentHl, assets: agentAssets, fillForms: agentFillForms, pendingWrites: pendingW } = await runAgent(effectiveText, session, req, h);
+      const { reply, navigation: agentNav, highlights: agentHl, assets: agentAssets, fillForms: agentFillForms, pendingWrites: pendingW } = await (async () => {
+        let __r = await withAiRetry(() => runAgent(effectiveText, session, req, h));
+        if (claimsWriteWithoutAction(__r.reply, __r.pendingWrites)) {
+          console.warn("[AIAssistant] model menarasi tool call tanpa aksi — paksa ulang sekali");
+          __r = await withAiRetry(() => runAgent(effectiveText, session, req, h));
+        }
+        return __r;
+      })();
       // Jaminan navigasi nyata: bila model mengklaim mengantar tanpa tool call,
       // ekstrak tujuan dari teks admin secara deterministik.
       const navigation = reconcileNavigation(reply, text, agentNav);

@@ -699,7 +699,7 @@
       }
     } catch (e) {
       hideTyping();
-      appendBubble('assistant', 'Tidak dapat menghubungi server. Periksa koneksi lalu coba lagi.', { pending: true });
+      appendBubble('assistant', 'Tidak dapat menghubungi server. Permintaan dokumen/AI bisa memakan waktu lama — periksa koneksi lalu kirim ulang pesan yang sama.', { pending: true });
     } finally {
       hideTyping();
       if (sendBtn) { sendBtn.disabled = false; sendBtn.classList.remove('opacity-50'); }
