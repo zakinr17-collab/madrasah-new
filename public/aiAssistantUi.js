@@ -115,7 +115,7 @@
         ? 'bg-indigo-600 text-white rounded-2xl rounded-br-md'
         : 'bg-white text-slate-800 border border-slate-200 rounded-2xl rounded-bl-md shadow-sm'} max-w-[85%] px-3.5 py-2.5 text-sm leading-relaxed ${opts.pending ? 'opacity-60' : ''}"
         ${opts.id ? `id="${opts.id}"` : ''}>
-        ${isUser ? esc(text) : mdLite(text)}
+        ${isUser ? (esc(text) + (opts.attachHtml || '')) : mdLite(text)}
       </div>`;
     box.appendChild(wrap);
     box.scrollTop = box.scrollHeight;
@@ -600,8 +600,8 @@
     input.value = '';
     input.style.height = 'auto';
     const isDocAtt = imgToSend && (imgToSend.mime === 'application/pdf' || /\.(xlsx|xls)$/i.test(imgToSend.name || ''));
-    const attachLabel = imgToSend ? ((isDocAtt ? 'Dokumen terlampir: ' : 'Gambar terlampir: ') + ((imgToSend && imgToSend.name) || '')) : '';
-    appendBubble('user', (text ? text + (attachLabel ? '<br><span style=\"display:inline-flex;align-items:center;gap:4px;margin-top:6px;padding:3px 8px;background:rgba(255,255,255,0.18);border-radius:8px;font-size:11px;font-weight:600;\"><i class=\"fa-solid fa-paperclip\"></i> ' + esc(imgToSend.name || '') + '</span>' : '') : attachLabel));
+    const attachHtml = imgToSend ? ('<br><span style="display:inline-flex;align-items:center;gap:4px;margin-top:6px;padding:3px 8px;background:rgba(255,255,255,0.18);border-radius:8px;font-size:11px;font-weight:600;"><i class="fa-solid fa-paperclip"></i> ' + esc(imgToSend.name || '') + '</span>') : '';
+    appendBubble('user', text, attachHtml ? { attachHtml } : {});
     if (imgToSend) window.aiAssistantClearImage();
     showTyping();
     if (sendBtn) { sendBtn.disabled = true; sendBtn.classList.add('opacity-50'); }
