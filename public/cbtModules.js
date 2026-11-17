@@ -3382,6 +3382,7 @@ function openConvertQuestionModal(activeCode = '') {
                         <div>
                             <label class="block font-bold text-slate-700 mb-1">Default Kunci [KJ]</label>
                             <select id="cvt-kj" class="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-bold text-xs focus:ring-2 focus:ring-indigo-500">
+                                <option value="AUTO" selected>Auto (deteksi dari teks)</option>
                                 <option value="A">A</option>
                                 <option value="B">B</option>
                                 <option value="C">C</option>
@@ -3618,7 +3619,8 @@ function runQuestionConversion(activeCode = '') {
     const ts = document.getElementById('cvt-ts')?.value || 'PG';
     const optionCount = parseInt(document.getElementById('cvt-opt-count')?.value || '5', 10);
     const kd = document.getElementById('cvt-kd')?.value || '1.0.1';
-    const kjDefault = document.getElementById('cvt-kj')?.value || 'A';
+    const kjSelVal = document.getElementById('cvt-kj')?.value || 'AUTO';
+    const kjDefault = (kjSelVal && kjSelVal.toUpperCase() !== 'AUTO') ? kjSelVal : '';
     const autoMath = document.getElementById('cvt-auto-math')?.checked ?? true;
     const mode = document.getElementById('cvt-mode')?.value || 'auto';
 
@@ -3774,7 +3776,7 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
                 num: currentNum++,
                 ts: defaultTS,
                 kd: defaultKD,
-                kj: (kj || defaultKJ).toUpperCase().trim(),
+                kj: (/^[A-E]+$/i.test(String(kj || '')) ? String(kj).toUpperCase().trim() : String(kj || '').trim() || String(defaultKJ || '').trim()),
                 abs: '',
                 questionText: finalQText,
                 options: opts
@@ -3784,7 +3786,7 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
             step = 0;
         }
 
-        const keyRegex = /^\s*(?:Kunci|KJ|Jawaban|Kunci\s+Jawaban|Answer|Ans)\s*[:=]?\s*([A-Ea-e])/i;
+        const keyRegex = /^\s*(?:Kunci|KJ|Jawaban|Kunci\s+Jawaban|Answer|Ans)\s*[:=]?\s*(.+)$/i;
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
@@ -3798,7 +3800,8 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
 
             const keyMatch = trimmed.match(keyRegex);
             if (keyMatch) {
-                kj = keyMatch[1].toUpperCase();
+                const kv = keyMatch[1].trim();
+                kj = /^[A-Ea-e]$/.test(kv) ? kv.toUpperCase() : kv;
                 pushEnterQuestion();
                 continue;
             }
@@ -3832,8 +3835,8 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
                         kj = trimmed.toUpperCase();
                         pushEnterQuestion();
                     } else if (/^(?:Kunci|KJ)/i.test(trimmed)) {
-                        const m = trimmed.match(/([A-Da-d])/i);
-                        if (m) kj = m[1].toUpperCase();
+                        const m = trimmed.match(/([A-Da-d])\s*$/i);
+                        if (m) kj = m[1].toUpperCase(); else kj = trimmed.replace(/^(?:Kunci|KJ)\s*[:=]?\s*/i, '').trim();
                         pushEnterQuestion();
                     } else {
                         pushEnterQuestion();
@@ -3858,8 +3861,8 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
                     kj = trimmed.toUpperCase();
                     pushEnterQuestion();
                 } else if (/^(?:Kunci|KJ)/i.test(trimmed)) {
-                    const m = trimmed.match(/([A-Ea-e])/i);
-                    if (m) kj = m[1].toUpperCase();
+                    const m = trimmed.match(/([A-Ea-e])\s*$/i);
+                    if (m) kj = m[1].toUpperCase(); else kj = trimmed.replace(/^(?:Kunci|KJ)\s*[:=]?\s*/i, '').trim();
                     pushEnterQuestion();
                 } else {
                     pushEnterQuestion();
@@ -3914,7 +3917,7 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
                 num: currentNum,
                 ts: isEssayInline ? 'ESY' : defaultTS,
                 kd: defaultKD,
-                kj: isEssayInline ? String(currentKey || '') : (currentKey || defaultKJ).toUpperCase().trim(),
+                kj: isEssayInline ? String(currentKey || '') : (/^[A-E]+$/i.test(String(currentKey || '')) ? String(currentKey).toUpperCase().trim() : String(currentKey || '').trim() || String(defaultKJ || '').trim()),
                 abs: '',
                 imageUrl: currentImageData || '',
                 questionText: qText,
@@ -3932,7 +3935,7 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
         let defaultTSInline = null;
         const qNumRegex = /^(?:Soal|No\.?)?\s*(\d+)[\.\)\:\-\s]\s*(.*)/i;
         const optRegex = /^\s*[\(\[]?([A-Ea-e])[\.\)\:\-\s\]]\s*(.*)/;
-        const keyRegex = /^\s*(?:Kunci|KJ|Jawaban|Kunci\s+Jawaban|Answer|Ans)\s*[:=]?\s*([A-Ea-e])/i;
+        const keyRegex = /^\s*(?:Kunci|KJ|Jawaban|Kunci\s+Jawaban|Answer|Ans)\s*[:=]?\s*(.+)$/i;
 
         // Lewati kop/header sekolah sebelum soal pertama: baris tanpa awalan
         // nomor soal/opsi/kunci di AWAL dokumen (sebelum ada "1. ...") = header.
@@ -3960,7 +3963,17 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
 
             const keyMatch = trimmed.match(keyRegex);
             if (keyMatch) {
-                currentKey = keyMatch[1].toUpperCase();
+                const kv = keyMatch[1].trim();
+                // PGX multi-kunci "A, B, D" -> "A,B,D"; huruf tunggal uppercase;
+                // selain itu (kunci panjang/esay) dipertahankan apa adanya.
+                const multi = kv.match(/[A-Ea-e](?:\s*[,;\/]\s*[A-Ea-e])+/);
+                if (multi && /^[A-Ea-e](?:\s*[,;\/]\s*[A-Ea-e])+\s*$/.test(kv)) {
+                    currentKey = kv.toUpperCase().split(/[;,\/]/).map(s => s.trim()).join(',');
+                } else if (/^[A-Ea-e]$/.test(kv)) {
+                    currentKey = kv.toUpperCase();
+                } else {
+                    currentKey = kv;
+                }
                 continue;
             }
 
@@ -4921,8 +4934,17 @@ function assembleQuestionTextFromDocxLines(raw) {
         if (/^kunci\s*jawaban\s*:?\s*$/i.test(t) || /^kunci\s*:$/i.test(t)) { flush(); keyMode = true; continue; }
         if (keyMode) {
             const bare = t.replace(/^##Q##\s*/, '').trim();
-            const mNum = bare.match(/^(\d{1,3})\s*[.\):\-]?\s*([A-Ea-e])\b/);
-            if (mNum) { keyList[Number(mNum[1])] = mNum[2].toUpperCase(); continue; }
+            // Kunci bisa: "1. A" / "1. A, B" / "1. Jakarta" (jawaban panjang).
+            // Simpan teks kunci apa adanya; multi-huruf dinormalkan jadi A,B.
+            const mNum = bare.match(/^(\d{1,3})\s*[.\):\-]?\s*(.+)$/);
+            if (mNum) {
+                const kv = mNum[2].trim();
+                const multi = kv.match(/^[A-Ea-e](?:\s*[,;\/]\s*[A-Ea-e])+\s*$/);
+                keyList[Number(mNum[1])] = multi
+                    ? kv.toUpperCase().split(/[;,\/]/).map(s2 => s2.trim()).join(',')
+                    : (/^[A-Ea-e]$/.test(kv) ? kv.toUpperCase() : kv);
+                continue;
+            }
             const bareLetter = bare.replace(/[\s.()]/g, '');
             if (/^[A-Ea-e]$/.test(bareLetter) && bare.length <= 4) { bareKeyCount++; keyList[bareKeyCount] = bareLetter.toUpperCase(); continue; }
             if (/^\d{1,3}$/.test(bare)) continue;

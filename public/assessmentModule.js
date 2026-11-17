@@ -1867,6 +1867,13 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                                 ${examClasses.map(c => `<option value="${c.id}" ${appState.monitoringFilterClassId === String(c.id) ? 'selected' : ''}>${c.name}</option>`).join('')}
                                             </select>
                                         </div>
+                                        <!-- Filter Jadwal (pindah ujian tanpa keluar dari monitoring) -->
+                                        <div class="flex items-center space-x-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/60 px-3.5 py-2 rounded-2xl transition duration-150 max-w-[220px]">
+                                            <span class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Jadwal</span>
+                                            <select id="monitor-exam-filter" onchange="onMonitoringExamSwitch(this.value)" class="bg-transparent text-xs font-bold text-slate-700 focus:outline-none cursor-pointer max-w-[170px] truncate">
+                                                ${displayExams.filter(ex => ex.recordType !== 'EVENT').map(ex => `<option value="${assessmentEscapeHtml(ex.id)}" ${String(appState.activeMonitoringExamId) === String(ex.id) ? 'selected' : ''}>${assessmentEscapeHtml(ex.title)}</option>`).join('')}
+                                            </select>
+                                        </div>
                                         <!-- Filter Ruang -->
                                         <div class="flex items-center space-x-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/60 px-3.5 py-2 rounded-2xl transition duration-150">
                                             <span class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Ruang</span>
@@ -6902,6 +6909,15 @@ async function toggleStudentLivecamMode(examId, studentId) {
         window.showToast('Spotlight Video Live sedang dinonaktifkan.', 'info');
     }
 }
+function onMonitoringExamSwitch(examId) {
+    if (!examId || String(examId) === String(appState.activeMonitoringExamId)) return;
+    appState.activeMonitoringExamId = examId;
+    // Reset filter kelas/ruang karena daftar kelas & anggota ruang berbeda per ujian
+    appState.monitoringFilterClassId = '';
+    appState.monitoringFilterRoomId = '';
+    renderAssessmentModule(document.getElementById('view-container'), 'monitoring', examId);
+}
+
 function onMonitoringFilterChange(examId) {
     const classIdEl = document.getElementById('monitor-class-filter');
     const roomIdEl = document.getElementById('monitor-room-filter');
