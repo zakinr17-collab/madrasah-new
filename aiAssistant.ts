@@ -720,7 +720,7 @@ async function uploadCloudinary(b64: string, mime: string, resourceType: "image"
 // ---------------------------------------------------------------------------
 // TOOLS GENERATE KONTEN (admin) - gambar, suara, dokumen, analisis gambar.
 // ---------------------------------------------------------------------------
-function makeMediaTools(): ToolDef[] {
+function makeMediaTools(h?: AssistantHelpers): ToolDef[] {
   return [
     {
       name: "generate_document",
@@ -879,8 +879,27 @@ function makeMediaTools(): ToolDef[] {
         const g: any = globalThis as any;
         const pendingImg = g.__assistantPendingImage;
         if (!pendingImg?.data) return { ok: false, error: "Tidak ada gambar terlampir di pesan ini." };
-        if (!geminiApiKey()) return { ok: false, error: NO_GEMINI_MSG };
         const question = String(args.question || "Jelaskan isi gambar ini.").trim();
+        const isPdf = String(pendingImg.mime || "").toLowerCase() === "application/pdf";
+        // VISION_ACTIVE_FIRST_V1: gambar dicoba lewat profil AKTIF (image_url) dulu,
+        // baru fallback Gemini REST. PDF text-based ditangani analyze_document_text.
+        if (!isPdf) {
+          try {
+            const resp = await (h ? h.callAI(null, {
+              contents: [{ text: question }, { inlineData: { mimeType: pendingImg.mime, data: pendingImg.data } }],
+              config: { generationConfig: { temperature: 0.4, maxOutputTokens: 2048 } },
+            }) : Promise.resolve(null as any));
+            const out = String(resp?.text || "").trim();
+            if (out) { g.__assistantPendingImage = null; return { ok: true, text: out }; }
+          } catch (e: any) {
+            console.warn("[AIAssistant] vision via profil aktif gagal, fallback Gemini:", e?.message);
+          }
+        }
+        if (!geminiApiKey()) {
+          return { ok: false, error: isPdf
+            ? "PDF ini tidak punya lapisan teks (hasil scan) dan vision Gemini belum dikonfigurasi. Minta admin mengaktifkan profil AI Gemini atau gunakan PDF asli (bukan scan)."
+            : NO_GEMINI_MSG };
+        }
         try {
           const data = await geminiREST("gemini-2.5-flash", {
             contents: [{ role: "user", parts: [{ text: question }, { inlineData: { mimeType: pendingImg.mime, data: pendingImg.data } }] }],
@@ -894,8 +913,72 @@ function makeMediaTools(): ToolDef[] {
         }
       },
     },
+    {
+      name: "analyze_document_text",
+      description: "Membaca isi DOKUMEN PDF terlampir secara deterministik (tanpa AI vision): ekstrak teks per halaman dengan tata baris dipertahankan. WAJIB dipakai untuk PDF roster jadwal/daftar/berita acara sebelum menyimpulkan isinya. Untuk GAMBAR/foto gunakan analyze_image.",
+      parameters: {
+        type: "object",
+        properties: { question: { type: "string", description: "Tugas analisis terhadap teks dokumen (opsional)" } },
+        required: [],
+      },
+      exec: async (args: any, req: any) => {
+        const g: any = globalThis as any;
+        const pendingDoc = g.__assistantPendingImage;
+        if (!pendingDoc?.data) return { ok: false, error: "Tidak ada dokumen terlampir di pesan ini." };
+        if (String(pendingDoc.mime || "").toLowerCase() !== "application/pdf") return { ok: false, error: "Dokumen bukan PDF." };
+        try {
+          const buf = Buffer.from(String(pendingDoc.data).replace(/^data:[^;]+;base64,/, ""), "base64");
+          const text = await extractPdfText(buf);
+          const cap = text.length > 60000 ? text.slice(0, 60000) + "\n\n[TERPOTONG — dokumen panjang; sebut bila butuh bagian lain]" : text;
+          g.__assistantPendingImage = null;
+          const q = String(args.question || "").trim();
+          return { ok: true, text: (q ? "Tugas: " + q + "\n\n" : "") + "ISI DOKUMEN:\n" + cap };
+        } catch (e: any) {
+          if (String(e?.message) === "PDF_SCAN_TANPA_TEKS") {
+            return { ok: false, error: "PDF ini tidak punya lapisan teks (hasil scan). Minta admin memfoto halamannya lalu lampirkan sebagai gambar." };
+          }
+          return { ok: false, error: "Gagal mengekstrak PDF: " + (e?.message || e) };
+        }
+      },
+    },
   ];
 }
+// PDF_TEXT_EXTRACT_V1: ekstrak teks PDF secara deterministik (pdfjs) — jalur tanpa
+// AI vision, sama seperti import Excel. Dipakai tool analyze_document_text sehingga
+// dokumen PDF tetap bisa dibaca walau GEMINI_API_KEY kosong.
+function extractPdfText(buf: Buffer): Promise<string> {
+  return (async () => {
+    const pdfjs: any = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), useSystemFonts: true }).promise;
+    let out = "";
+    const maxPages = Math.min(doc.numPages, 60);
+    for (let p = 1; p <= maxPages; p++) {
+      const page = await doc.getPage(p);
+      const content = await page.getTextContent();
+      const rows: any[] = [];
+      let curY: number | null = null;
+      let curLine: string[] = [];
+      for (const it of content.items as any[]) {
+        const y = Math.round(it.transform?.[5] ?? 0);
+        if (curY === null || Math.abs(y - curY) <= 2) {
+          curLine.push(String(it.str || ""));
+        } else {
+          rows.push(curLine.join(" "));
+          curLine = [String(it.str || "")];
+        }
+        curY = y;
+      }
+      if (curLine.length) rows.push(curLine.join(" "));
+      out += "\n[Halaman " + p + "]\n" + rows.filter(Boolean).join("\n");
+    }
+    const trimmed = out.trim();
+    if (trimmed.replace(/\[Halaman \d+\]/g, "").replace(/\s/g, "").length < 30) {
+      throw new Error("PDF_SCAN_TANPA_TEKS");
+    }
+    return trimmed;
+  })();
+}
+
 // XLSX-lite parser (jszip -> sharedStrings -> sheet pertama) untuk lampiran Excel di chat asisten.
 function parseXlsxLite(buf: Buffer): { header: string[]; rows: string[][] } | null {
   try {
@@ -1348,7 +1431,7 @@ async function withAiRetry<T>(fn: () => Promise<T>, attempts = 2): Promise<T> {
 async function runAgent(text: string, session: any, req: any, h: AssistantHelpers, opts?: { mode?: "admin" | "teacher"; teacher?: any }) {
   const mode = opts?.mode || "admin";
   const bankCheckTools = makeBankCheckTools();
-  const tools = mode === "teacher" ? [...makeTeacherTools(String(opts?.teacher?.id || ""), opts?.teacher), ...bankCheckTools] : [...makeTools(), ...bankCheckTools, ...makeWriteTools(), ...makeMediaTools()];
+  const tools = mode === "teacher" ? [...makeTeacherTools(String(opts?.teacher?.id || ""), opts?.teacher), ...bankCheckTools] : [...makeTools(), ...bankCheckTools, ...makeWriteTools(), ...makeMediaTools(h)];
   const sysPrompt = mode === "teacher" ? buildTeacherSystemPrompt(opts?.teacher) : buildAssistantSystemPrompt();
   const g: any = globalThis as any;
   const runtime = g.__aiProviderRuntime || {};
