@@ -10998,6 +10998,41 @@ setInterval(() => {
     } else if (activeAdminPeerCount() > 0) closeAllAdminPeerConnections();
 }, 3000);
 
+// Pecah teks soal jadi segmen teks dan tabel ("• sel1 | sel2") untuk PDF.
+// Aturan sama seperti qbRenderQuestionText: min. 2 baris "• ... | ..."
+// berurutan = tabel, baris pertama = judul.
+function assessmentSplitQuestionTextForPdf(text) {
+    const lines = String(text || '').split('\n');
+    const isRow = (line) => {
+        const t = line.trim();
+        return t.startsWith('• ') && t.indexOf(' | ') !== -1;
+    };
+    const segments = [];
+    let i = 0;
+    while (i < lines.length) {
+        if (isRow(lines[i])) {
+            const rows = [];
+            while (i < lines.length && isRow(lines[i])) {
+                rows.push(lines[i].trim().slice(2).split(' | ').map(c => c.trim()));
+                i++;
+            }
+            if (rows.length >= 2) {
+                segments.push({ kind: 'table', head: rows[0], body: rows.slice(1) });
+            } else {
+                segments.push({ kind: 'text', text: rows[0].join(' | ') });
+            }
+        } else {
+            const textLines = [];
+            while (i < lines.length && !isRow(lines[i])) {
+                textLines.push(lines[i]);
+                i++;
+            }
+            segments.push({ kind: 'text', text: textLines.join('\n') });
+        }
+    }
+    return segments;
+}
+
 async function downloadStudentExamPDF(examId) {
     if (!window.jspdf) {
         showToast('Library PDF belum siap.', 'error');
@@ -11098,7 +11133,31 @@ async function downloadStudentExamPDF(examId) {
         
         // Calculate estimated height needed for this question block
         const rawQuestionText = String(q.question || '').replace(/<[^>]*>/g, ''); // strip HTML tags
-        const questionLines = doc.splitTextToSize(`${idx + 1}. ${rawQuestionText}`, 175);
+        const questionSegments = assessmentSplitQuestionTextForPdf(rawQuestionText);
+        // Nomor soal menempel di segmen pertama
+        if (questionSegments.length > 0 && questionSegments[0].kind === 'text') {
+            questionSegments[0].text = `${idx + 1}. ` + questionSegments[0].text;
+        } else {
+            questionSegments.unshift({ kind: 'text', text: `${idx + 1}.` });
+        }
+        const hasAutoTable = typeof doc.autoTable === 'function';
+        let questionTextLineCount = 0;
+        let questionTableHeight = 0;
+        questionSegments.forEach(seg => {
+            if (seg.kind === 'table' && hasAutoTable) {
+                // Perkiraan tinggi tabel: tiap baris ~4 mm per baris teks + 4 mm padding
+                const cols = Math.max(1, seg.head.length);
+                const charsPerLine = Math.max(10, Math.floor((175 / cols) / 1.8));
+                const rowH = (cells) => Math.max(...cells.map(c => Math.ceil(String(c).length / charsPerLine))) * 4 + 4;
+                questionTableHeight += rowH(seg.head) + seg.body.reduce((s, r) => s + rowH(r), 0) + 2;
+            } else if (seg.kind === 'table') {
+                // Fallback tanpa plugin: baris tabel dihitung sebagai baris teks
+                questionTextLineCount += doc.splitTextToSize('• ' + seg.head.join(' | '), 175).length;
+                seg.body.forEach(r => { questionTextLineCount += doc.splitTextToSize('• ' + r.join(' | '), 175).length; });
+            } else {
+                questionTextLineCount += doc.splitTextToSize(seg.text, 175).length;
+            }
+        });
         
         const userAns = q.studentAnswer !== undefined && q.studentAnswer !== null && String(q.studentAnswer).trim() !== ''
             ? q.studentAnswer
@@ -11114,7 +11173,7 @@ async function downloadStudentExamPDF(examId) {
         const essayScoreLines = q.isCorrect === null && q.essayScore !== null && q.essayScore !== undefined
             ? doc.splitTextToSize(`Nilai Esai: ${q.essayScore}`, 175)
             : [];
-        let blockHeight = (questionLines.length * 5) + (userAnsLines.length * 5) + (correctAnsLines.length * 5) + (explanationLines.length * 5) + (essayScoreLines.length * 5) + 14;
+        let blockHeight = (questionTextLineCount * 5) + questionTableHeight + (userAnsLines.length * 5) + (correctAnsLines.length * 5) + (explanationLines.length * 5) + (essayScoreLines.length * 5) + 14;
 
         if (q.options && Array.isArray(q.options) && q.options.length > 0) {
             q.options.forEach((opt, oIdx) => {
@@ -11139,9 +11198,27 @@ async function downloadStudentExamPDF(examId) {
         doc.setFont("helvetica", "bold");
         doc.setFontSize(9.5);
         doc.setTextColor(30, 41, 59); // slate-800
-        questionLines.forEach(line => {
-            doc.text(line, 15, y);
-            y += 5;
+        questionSegments.forEach(seg => {
+            if (seg.kind === 'table' && hasAutoTable) {
+                doc.autoTable({
+                    startY: y,
+                    head: [seg.head],
+                    body: seg.body,
+                    theme: 'grid',
+                    styles: { fontSize: 8.5, cellPadding: 2, textColor: [30, 41, 59] },
+                    headStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: 'bold' },
+                    margin: { left: 15, right: 20 },
+                });
+                y = doc.lastAutoTable.finalY + 2;
+            } else if (seg.kind === 'table') {
+                // Fallback tanpa plugin: baris tabel sebagai teks (seperti sebelumnya)
+                const rows = ['• ' + seg.head.join(' | ')].concat(seg.body.map(r => '• ' + r.join(' | ')));
+                rows.forEach(row => {
+                    doc.splitTextToSize(row, 175).forEach(line => { doc.text(line, 15, y); y += 5; });
+                });
+            } else {
+                doc.splitTextToSize(seg.text, 175).forEach(line => { doc.text(line, 15, y); y += 5; });
+            }
         });
 
         // Write Options if MC
