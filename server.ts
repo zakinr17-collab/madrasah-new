@@ -6204,6 +6204,60 @@ function teacherRecordForRequest(req: any): any | null {
   return owned.length === 1 ? owned[0] : null;
 }
 
+// TEACHER_STUDENT_SCOPE_V1: per-teacher visibility of students.
+// studentScope: 'taught' (default) = homeroom class + classes on the teacher's
+// schedule; 'all' = every tenant class; 'custom' = admin-chosen visibleClassIds.
+// Returns null for unlimited, otherwise the (possibly empty) set of visible
+// class ids. Fail closed: a teacher whose record cannot be found sees nothing.
+// NOTE: subjects in this codebase are global definitions (code/name only) and
+// carry no class link, so taught classes are derived from homeroom + schedules
+// (+ subjects.teacherId defensively), never from teacher.mapel names.
+function normalizeTeacherStudentScope(value: any): 'taught' | 'all' | 'custom' {
+  const v = String(value || '').trim().toLowerCase();
+  return v === 'all' || v === 'custom' ? (v as 'taught' | 'all' | 'custom') : 'taught';
+}
+function normalizeVisibleClassIds(value: any): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(new Set(value.map((v: any) => String(v || '').trim()).filter(Boolean)));
+}
+function teacherVisibleClassIds(req: any): Set<string> | null {
+  if (!isTeacherRequest(req)) return null;
+  const teacher = teacherRecordForRequest(req);
+  if (!teacher) return new Set<string>();
+  const scope = normalizeTeacherStudentScope(teacher.studentScope);
+  if (scope === 'all') return null;
+  const tenantClassIds = new Set(filterByMadrasah(classes || [], req).map((c: any) => String(c?.id || '')).filter(Boolean));
+  if (scope === 'custom') {
+    return new Set(normalizeVisibleClassIds(teacher.visibleClassIds).filter((id) => tenantClassIds.has(id)));
+  }
+  // 'taught' (also the legacy / unknown-value default).
+  const ids = new Set<string>();
+  const homeroom = String(teacher.homeroom_class_id || '').trim();
+  if (homeroom) ids.add(homeroom);
+  for (const s of filterByMadrasah(schedules || [], req)) {
+    if (String(s?.teacherId || '') === String(teacher.id || '')) {
+      const cid = String(s?.classId || s?.class_id || '').trim();
+      if (cid) ids.add(cid);
+    }
+  }
+  for (const s of filterByMadrasah(subjects || [], req)) {
+    if (String(s?.teacherId || '') === String(teacher.id || '')) {
+      const cid = String(s?.classId || s?.class_id || '').trim();
+      if (cid) ids.add(cid);
+      if (Array.isArray(s?.classIds)) for (const c of s.classIds) { const v = String(c || '').trim(); if (v) ids.add(v); }
+    }
+  }
+  return new Set([...ids].filter((id) => tenantClassIds.has(id)));
+}
+function teacherVisibleStudentIds(req: any): Set<string> | null {
+  const visible = teacherVisibleClassIds(req);
+  if (visible === null) return null;
+  if (visible.size === 0) return new Set<string>();
+  return new Set(filterByMadrasah(students || [], req)
+    .filter((s: any) => visible.has(String(s?.classId || s?.class_id || '')))
+    .map((s: any) => String(s?.id || '')).filter(Boolean));
+}
+
 function teacherAllowedSubjectsForRequest(req: any): any[] {
   if (!isTeacherRequest(req)) return filterByMadrasah(subjects || [], req);
   const teacher = teacherRecordForRequest(req);
@@ -6762,7 +6816,7 @@ app.get("/api/all-data", requireAuth, (req, res) => {
 
   filteredLessonPlans = filterLessonPlansForRequest(req);
 
-  const sortedStudents = [...filteredStudents].sort((a: any, b: any) => {
+  let sortedStudents = [...filteredStudents].sort((a: any, b: any) => {
     const nameA = String(a.name || '').trim().toLowerCase();
     const nameB = String(b.name || '').trim().toLowerCase();
     if (nameA !== nameB) {
@@ -6785,6 +6839,21 @@ app.get("/api/all-data", requireAuth, (req, res) => {
     filteredLearningProgress = filteredLearningProgress.filter((progress: any) =>
       allowedLearningMaterialIds.has(String(progress.materialId || ''))
     );
+    // TEACHER_STUDENT_SCOPE_V1: students, attendance, grades and learning
+    // progress are limited to the teacher's visible classes (same rule as
+    // GET /api/students). Grades/attendance keep a row when its class is
+    // visible OR its student is visible, so rows without a class field are
+    // not silently dropped when they belong to a visible student.
+    const visibleClasses = teacherVisibleClassIds(req);
+    if (visibleClasses !== null) {
+      const inVisibleClass = (c: any) => visibleClasses.has(String(c || ''));
+      filteredStudents = filteredStudents.filter((st: any) => inVisibleClass(st.classId || st.class_id));
+      sortedStudents = sortedStudents.filter((st: any) => inVisibleClass(st.classId || st.class_id));
+      const visibleStudentIds = new Set(filteredStudents.map((st: any) => String(st.id || '')).filter(Boolean));
+      filteredAttendance = filteredAttendance.filter((item: any) => inVisibleClass(item.classId || item.class_id) || visibleStudentIds.has(String(item.studentId || item.student_id || '')));
+      filteredGrades = filteredGrades.filter((item: any) => inVisibleClass(item.classId || item.class_id) || visibleStudentIds.has(String(item.studentId || item.student_id || '')));
+      filteredLearningProgress = filteredLearningProgress.filter((item: any) => visibleStudentIds.has(String(item.studentId || item.student_id || '')));
+    }
   }
 
   // Students only receive the minimum data required by their own UI.
@@ -10680,7 +10749,7 @@ app.get("/api/teachers", requireAuth, requireRole(['teacher', 'guru', 'admin', '
 });
 
 app.post("/api/teachers", requireAuth, requireRole(['admin', 'bos', 'superadmin']), async (req, res) => {
-  let { nip, name, username, password, mapel, homeroom_class_id, photo, phone, no_hp, email, address, alamat, gender, jenis_kelamin, nuptk, bio, photoHistory } = req.body;
+  let { nip, name, username, password, mapel, homeroom_class_id, photo, phone, no_hp, email, address, alamat, gender, jenis_kelamin, nuptk, bio, photoHistory, studentScope, visibleClassIds } = req.body;
   if (photo && photo.startsWith("data:image/")) { photo = await saveBase64ToFirestore(photo); }
   if (!nip || !name || !username) {
     return res.status(400).json({ success: false, message: "NIP, Nama, dan Username wajib diisi." });
@@ -10690,6 +10759,8 @@ app.post("/api/teachers", requireAuth, requireRole(['admin', 'bos', 'superadmin'
   const rawPassword = requestedPassword || generateTemporaryStudentPassword();
   const hashed = hashPassword(rawPassword);
 
+  const newTeacherScope = normalizeTeacherStudentScope(studentScope);
+  const newTeacherVisibleClassIds = newTeacherScope === 'custom' ? normalizeVisibleClassIds(visibleClassIds) : [];
   const newTeacher = tagNewRecord({
     id: newId,
     nip,
@@ -10700,6 +10771,8 @@ app.post("/api/teachers", requireAuth, requireRole(['admin', 'bos', 'superadmin'
     role: "teacher",
     cbtTokenBalance: 0,
     homeroom_class_id: homeroom_class_id || "",
+    studentScope: newTeacherScope,
+    visibleClassIds: newTeacherVisibleClassIds,
     photo: photo || "",
     phone: phone || no_hp || "",
     no_hp: no_hp || phone || "",
@@ -10747,6 +10820,10 @@ app.put("/api/teachers/:id", requireAuth, requireRole(['teacher', 'guru', 'admin
     updatedPassword = hashPassword(req.body.password);
   }
 
+  // TEACHER_STUDENT_SCOPE_V1: scope fields are admin-only; a teacher updating
+  // their own profile cannot change them (same rule as mapel / homeroom_class_id).
+  const nextTeacherScope = isTeacherSelfUpdate ? normalizeTeacherStudentScope(t.studentScope) : (req.body.studentScope !== undefined ? normalizeTeacherStudentScope(req.body.studentScope) : normalizeTeacherStudentScope(t.studentScope));
+  const nextTeacherVisibleClassIds = isTeacherSelfUpdate ? normalizeVisibleClassIds(t.visibleClassIds) : (nextTeacherScope === 'custom' ? normalizeVisibleClassIds(req.body.visibleClassIds !== undefined ? req.body.visibleClassIds : t.visibleClassIds) : []);
   teachers[idx] = {
     ...t,
     nip: req.body.nip ?? t.nip,
@@ -10755,6 +10832,8 @@ app.put("/api/teachers/:id", requireAuth, requireRole(['teacher', 'guru', 'admin
     password: updatedPassword,
     mapel: isTeacherSelfUpdate ? t.mapel : (Array.isArray(req.body.mapel) ? req.body.mapel : (req.body.mapel !== undefined ? [req.body.mapel] : t.mapel)),
     homeroom_class_id: isTeacherSelfUpdate ? t.homeroom_class_id : (req.body.homeroom_class_id ?? t.homeroom_class_id),
+    studentScope: nextTeacherScope,
+    visibleClassIds: nextTeacherVisibleClassIds,
     phone: req.body.phone ?? req.body.no_hp ?? t.phone ?? t.no_hp ?? "",
     no_hp: req.body.no_hp ?? req.body.phone ?? t.no_hp ?? t.phone ?? "",
     email: req.body.email ?? t.email ?? "",
@@ -10892,7 +10971,10 @@ app.delete("/api/teachers/:id", requireAuth, requireRole(['admin', 'bos', 'super
 // 4. Students API
 app.get("/api/students", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), (req, res) => { res.setHeader("Cache-Control", "no-cache");
   const filtered = filterByMadrasah(students, req);
-  const sortedStudents = [...filtered].sort((a: any, b: any) => {
+  // TEACHER_STUDENT_SCOPE_V1: teachers only receive students in their visible classes.
+  const teacherClasses = teacherVisibleClassIds(req);
+  const scopedStudents = teacherClasses === null ? filtered : filtered.filter((s: any) => teacherClasses.has(String(s?.classId || s?.class_id || "")));
+  const sortedStudents = [...scopedStudents].sort((a: any, b: any) => {
     const nameA = String(a.name || '').trim().toLowerCase();
     const nameB = String(b.name || '').trim().toLowerCase();
     if (nameA !== nameB) {
@@ -12038,6 +12120,14 @@ app.get("/api/attendance", requireAuth, async (req: any, res) => {
     );
     const classId = selfStudent?.classId || selfStudent?.class_id || authUser?.classId || '';
     list = list.filter((item: any) => String(item.classId || '') === String(classId));
+  }
+  else if (role === 'teacher' || role === 'guru') {
+    // TEACHER_STUDENT_SCOPE_V1: same visible-class rule as /api/students.
+    const visibleClasses = teacherVisibleClassIds(req);
+    if (visibleClasses !== null) {
+      const visibleStudentIds = teacherVisibleStudentIds(req) || new Set<string>();
+      list = list.filter((item: any) => visibleClasses.has(String(item.classId || item.class_id || '')) || visibleStudentIds.has(String(item.studentId || item.student_id || '')));
+    }
   }
   res.json({ success: true, attendance: list });
 });
@@ -17318,6 +17408,13 @@ app.get("/api/grades", requireAuth, (req: any, res) => {
   let list = filterByMadrasah(grades, req);
   if (['student', 'siswa', 'class_leader', 'ketua_kelas'].includes(role)) {
     list = list.filter((item: any) => String(item.studentId || item.student_id || '') === String(authUser.id));
+  } else if (role === 'teacher' || role === 'guru') {
+    // TEACHER_STUDENT_SCOPE_V1: same visible-class rule as /api/students.
+    const visibleClasses = teacherVisibleClassIds(req);
+    if (visibleClasses !== null) {
+      const visibleStudentIds = teacherVisibleStudentIds(req) || new Set<string>();
+      list = list.filter((item: any) => visibleClasses.has(String(item.classId || item.class_id || '')) || visibleStudentIds.has(String(item.studentId || item.student_id || '')));
+    }
   }
   res.json({ success: true, grades: list });
 });

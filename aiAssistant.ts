@@ -118,7 +118,13 @@ function makeTeacherTools(teacherId: string, teacher: any): ToolDef[] {
   const g: any = globalThis as any;
   const homeroomId = String(teacher?.homeroom_class_id || "");
   const mySubject = String(teacher?.mapel || teacher?.subject || "");
-  // Kelas yang diampu: wali kelas + kelas pada mapel yang diajar (mapping subjects.teacherId bila ada)
+  // TEACHER_STUDENT_SCOPE_V1: same per-teacher scope rule as the server
+  // (teacherVisibleClassIds in server.ts). 'taught' (default/legacy) = wali
+  // kelas + kelas pada jadwal/mapel yang diajar (mapping subjects.teacherId
+  // bila ada); 'all' = semua kelas; 'custom' = visibleClassIds pilihan admin.
+  // null = unlimited. The assistant store may not carry schedules, so taught
+  // here uses homeroom + subjects.teacherId as before; the server endpoints
+  // remain the enforcement boundary and also include schedules.
   const taughtClassIds = new Set<string>();
   if (homeroomId) taughtClassIds.add(String(homeroomId));
   for (const s of (g.__assistantStore?.subjects || [])) {
@@ -127,10 +133,22 @@ function makeTeacherTools(teacherId: string, teacher: any): ToolDef[] {
       if (Array.isArray(s?.classIds)) s.classIds.forEach((c: any) => taughtClassIds.add(String(c)));
     }
   }
+  const tenantClassIds = new Set<string>((g.__assistantStore?.classes || []).map((c: any) => String(c?.id || "")).filter(Boolean));
+  const intersectTenant = (ids: Set<string>) => tenantClassIds.size === 0
+    ? new Set<string>(ids)
+    : new Set<string>([...ids].filter((id) => tenantClassIds.has(id)));
+  const scope = String(teacher?.studentScope || "taught").trim().toLowerCase();
+  const visibleClassIds: Set<string> | null = scope === "all"
+    ? null
+    : scope === "custom"
+      ? intersectTenant(new Set<string>((Array.isArray(teacher?.visibleClassIds) ? teacher.visibleClassIds : []).map((c: any) => String(c || "").trim()).filter(Boolean)))
+      : intersectTenant(taughtClassIds);
 
-  const myStudents = () => scopedAll(g.__assistantStore?.students, null).filter((s: any) =>
-    taughtClassIds.has(String(s.classId || s.kelas || ""))
-  );
+  const myStudents = () => {
+    const all = scopedAll(g.__assistantStore?.students, null);
+    if (visibleClassIds === null) return all;
+    return all.filter((s: any) => visibleClassIds.has(String(s.classId || s.kelas || "")));
+  };
   const myExams = () => scopedAll(g.__assistantStore?.exams, null).filter((e: any) =>
     String(e?.teacherId || e?.createdBy || "") === String(teacherId) ||
     (mySubject && [e.subject, e.subjectName].some((v: any) => String(v || "").toLowerCase() === mySubject.toLowerCase()))
@@ -139,10 +157,12 @@ function makeTeacherTools(teacherId: string, teacher: any): ToolDef[] {
   return [
     {
       name: "get_my_overview",
-      description: "Ringkasan data SAYA sebagai guru: kelas yang diampu (wali kelas & mapel), jumlah siswa di kelas tersebut, mata pelajaran, ujian yang saya buat.",
+      description: "Ringkasan data SAYA sebagai guru: kelas yang bisa saya lihat (kelas ampuan / pilihan admin), jumlah siswa di kelas tersebut, mata pelajaran, ujian yang saya buat.",
       parameters: { type: "object", properties: {} },
       exec: () => {
-        const classes = scopedAll(g.__assistantStore?.classes, null).filter((c: any) => taughtClassIds.has(String(c.id)));
+        const classes = visibleClassIds === null
+          ? scopedAll(g.__assistantStore?.classes, null)
+          : scopedAll(g.__assistantStore?.classes, null).filter((c: any) => visibleClassIds.has(String(c.id)));
         const students = myStudents();
         return {
           namaGuru: teacher?.name || "",
@@ -156,7 +176,7 @@ function makeTeacherTools(teacherId: string, teacher: any): ToolDef[] {
     },
     {
       name: "search_my_students",
-      description: "Cari siswa DI KELAS YANG SAYA AMPU saja berdasarkan nama/NIS. Maks 15 hasil. Tidak bisa mencari siswa di luar kelas ampuan.",
+      description: "Cari siswa DI KELAS YANG BISA SAYA LIHAT saja berdasarkan nama/NIS. Maks 15 hasil. Tidak bisa mencari siswa di luar kelas yang bisa dilihat (kelas ampuan / pilihan admin).",
       parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
       exec: (args: any) => {
         const q = String(args.query || "").toLowerCase();
