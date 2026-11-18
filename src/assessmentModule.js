@@ -9,6 +9,54 @@ function assessmentEscapeHtml(value) {
     }[ch]));
 }
 
+// Baris tabel dari converter ("• sel1 | sel2") ditampilkan kembali sebagai
+// tabel HTML; baris pertama dianggap baris judul. Tanpa baris tabel, tampil
+// persis seperti sebelumnya (teks biasa) — soal lain tidak berubah.
+// esc: escaper modul pemanggil (default assessmentEscapeHtml).
+function assessmentRenderQuestionText(text, esc) {
+    const escFn = esc || assessmentEscapeHtml;
+    const raw = String(text || '');
+    const lines = raw.split('\n');
+    const isRow = (line) => {
+        const t = line.trim();
+        return t.startsWith('• ') && t.indexOf(' | ') !== -1;
+    };
+    let hasTable = false;
+    for (let i = 0; i + 1 < lines.length; i++) {
+        if (isRow(lines[i]) && isRow(lines[i + 1])) { hasTable = true; break; }
+    }
+    if (!hasTable) return escFn(raw);
+    const out = [];
+    let i = 0;
+    while (i < lines.length) {
+        if (isRow(lines[i])) {
+            const rows = [];
+            while (i < lines.length && isRow(lines[i])) {
+                rows.push(lines[i].trim().slice(2).split(' | ').map(c => c.trim()));
+                i++;
+            }
+            if (rows.length >= 2) {
+                let table = '<table style="border-collapse:collapse;margin:8px 0;width:100%;font-size:0.9em">';
+                rows.forEach((cells, r) => {
+                    table += '<tr>';
+                    cells.forEach(cell => {
+                        if (r === 0) table += '<th style="border:1px solid #94a3b8;padding:6px 8px;background:#f1f5f9;text-align:left;font-weight:700">' + escFn(cell) + '</th>';
+                        else table += '<td style="border:1px solid #cbd5e1;padding:6px 8px;text-align:left;vertical-align:top">' + escFn(cell) + '</td>';
+                    });
+                    table += '</tr>';
+                });
+                out.push(table + '</table>');
+            } else {
+                out.push(escFn(rows[0].join(' | ')));
+            }
+        } else {
+            out.push(lines[i].trim() ? escFn(lines[i]) : '');
+            i++;
+        }
+    }
+    return out.join('<br>');
+}
+
 // LOGIN_RATE_RESET_UI_V1: admin reset rate limit login dari halaman jadwal ujian
 // RESET_DIALOG_V2: dialog in-page (tanpa confirm/prompt/alert native agar tidak ada domain "says")
 function assessmentShowInlineDialog({ title, message, inputLabel = null, okText = 'OK', cancelText = 'Batal', danger = false, onOk }) {
@@ -3745,7 +3793,7 @@ window.openStudentExamReviewModal = async function(examId) {
                         ${statusBadge}
                     </div>
                     
-                    <div class="text-xs font-bold text-slate-800 leading-relaxed">${assessmentEscapeHtml(q.question || q.text || '')}</div>
+                    <div class="text-xs font-bold text-slate-800 leading-relaxed">${assessmentRenderQuestionText(q.question || q.text || '')}</div>
                     
                     ${imgHtml}
                     ${optionsHtml}
@@ -5513,7 +5561,7 @@ function renderActiveExamScreen() {
 
             <!-- Question Box -->
             <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border space-y-6">
-                <p class="font-semibold text-slate-800 text-base leading-relaxed select-none">${assessmentEscapeHtml(q.question)}</p>
+                <div class="font-semibold text-slate-800 text-base leading-relaxed select-none">${assessmentRenderQuestionText(q.question)}</div>
                 ${((q.imageUrl || q.image) && (!q.question || !q.question.includes(q.imageUrl || q.image))) ? `<div class="my-3 flex justify-center"><img src="${assessmentSafeImageSrc(q.imageUrl || q.image)}" class="max-h-64 rounded-2xl border border-slate-200 object-contain shadow-sm" alt="Gambar Soal"/></div>` : ''}
                 <div class="space-y-3">
                     ${(q.type === 'esay' || q.type === 'essay') ? `
@@ -8266,7 +8314,7 @@ async function openPreviewJawabanEvaluasi(studentId) {
                 }).join('')}</div>`;
             }
 
-            return `<div class="bg-white border border-slate-200 rounded-3xl p-5"><div class="flex items-center justify-between gap-2"><span class="text-[10px] font-black px-2.5 py-1 bg-slate-800 text-white rounded-xl">Soal ${idx + 1}</span><span class="text-[10px] font-bold ${statusClass} border px-2.5 py-1 rounded-xl">${statusLabel}</span></div><div class="mt-3 text-xs font-bold text-slate-800 leading-relaxed whitespace-pre-wrap">${evaluasiEscapeHtml(q.question || '')}</div>${responseHtml}</div>`;
+            return `<div class="bg-white border border-slate-200 rounded-3xl p-5"><div class="flex items-center justify-between gap-2"><span class="text-[10px] font-black px-2.5 py-1 bg-slate-800 text-white rounded-xl">Soal ${idx + 1}</span><span class="text-[10px] font-bold ${statusClass} border px-2.5 py-1 rounded-xl">${statusLabel}</span></div><div class="mt-3 text-xs font-bold text-slate-800 leading-relaxed">${assessmentRenderQuestionText(q.question || '', evaluasiEscapeHtml)}</div>${responseHtml}</div>`;
         }).join('') : `<div class="p-8 text-center text-slate-400 text-xs">Paket review siswa belum tersedia.</div>`;
 
         const modal = document.getElementById('modal-container');
@@ -8628,7 +8676,7 @@ async function openKoreksiModal(studentId) {
                                             <span>PERTANYAAN ${idx + 1}</span>
                                             <span class="px-2 py-0.5 bg-slate-100 rounded text-[9px] font-bold uppercase tracking-wide text-slate-600">${isEssay ? 'Esai' : 'Pilihan Ganda'}</span>
                                         </div>
-                                        <p class="font-bold text-slate-800 text-xs leading-relaxed">${evaluasiEscapeHtml(q.question || '')}</p>
+                                        <div class="font-bold text-slate-800 text-xs leading-relaxed">${assessmentRenderQuestionText(q.question || '', evaluasiEscapeHtml)}</div>
                                         ${qBody}
                                     </div>`;
                             }).join('')}
@@ -9403,7 +9451,7 @@ function generateReportHTML() {
                             <p style="font-weight: bold; font-size: 13px; color: #1f2937; margin: 0;">Soal No. ${qIdx + 1} (${isEssay ? 'Esay' : 'Pilihan Ganda'})</p>
                             ${statusBadge}
                         </div>
-                        <p style="font-size: 13px; line-height: 1.625; color: #374151; margin: 0;">${assessmentEscapeHtml(q.question || '')}</p>
+                        <div style="font-size: 13px; line-height: 1.625; color: #374151; margin: 0;">${assessmentRenderQuestionText(q.question || '')}</div>
                         ${q.imageUrl || q.image ? '<img src="' + assessmentEscapeAttr(String(q.imageUrl || q.image)) + '" style="max-width: 60%; border: 1px solid #e5e7eb; border-radius: 8px; margin-top: 8px;" />' : ''}
                         ${optionsHtml}
                         ${studentAnswerBlock}
