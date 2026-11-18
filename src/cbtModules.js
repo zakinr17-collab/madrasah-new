@@ -394,6 +394,7 @@ function renderQuestionBankModule(container) {
                                     return `
                                         <div class="p-2.5 rounded-xl border ${isMatch ? 'bg-emerald-50 border-emerald-300 font-bold text-emerald-800' : 'bg-slate-50 border-slate-100 text-slate-700'}">
                                             <span class="font-bold mr-1">${letter}.</span> ${qbEscapeHtml(opt)}
+                                            ${((q.optionImages || [])[oIdx]) ? `<img src="${qbSafeImageSrc((q.optionImages || [])[oIdx])}" class="block mt-1.5 max-h-32 rounded-xl border object-contain" alt="Gambar Opsi ${letter}"/>` : ''}
                                         </div>
                                     `;
                                 }).join('')}
@@ -769,6 +770,7 @@ function executeNonAIGenerator(e, code) {
             type: item.type || 'mc',
             question: item.question,
             options: item.options || [],
+            optionImages: item.optionImages || [],
             answer: item.answer || '',
             explanation: item.explanation || ''
         });
@@ -865,6 +867,7 @@ async function executeAIGenerator(e, code) {
                 type: item.type || 'mc',
                 question: item.question,
                 options: item.options || (optionCount === 5 ? ['A', 'B', 'C', 'D', 'E'] : ['A', 'B', 'C', 'D']),
+                optionImages: item.optionImages || [],
                 answer: item.answer || item.options?.[0] || 'A',
                 explanation: item.explanation || ''
             });
@@ -1011,20 +1014,22 @@ function openPreviewQuestionBankModal(code) {
                                                     ${(() => {
                                                         let optsList = [];
                                                         if (Array.isArray(q.options)) {
-                                                            optsList = q.options;
+                                                            optsList = q.options.map((opt, i) => ({ text: opt, letter: String.fromCharCode(65 + i) }));
                                                         } else if (q.options && typeof q.options === 'object') {
                                                             ['A', 'B', 'C', 'D', 'E'].forEach(letter => {
                                                                 if (q.options[letter] !== undefined && q.options[letter] !== null && q.options[letter] !== '') {
-                                                                    optsList.push(q.options[letter]);
+                                                                    optsList.push({ text: q.options[letter], letter });
                                                                 }
                                                             });
                                                         }
-                                                        return optsList.map((opt, oIdx) => {
-                                                            const charLabel = String.fromCharCode(65 + oIdx);
+                                                        return optsList.map((item) => {
+                                                            const charLabel = item.letter;
+                                                            const opt = item.text;
+                                                            const oImg = (q.optionImages || [])[charLabel.charCodeAt(0) - 65] || '';
                                                             return `
                                                                 <div class="flex items-start space-x-2">
                                                                     <span class="font-bold min-w-[20px] text-slate-900">${charLabel}.</span>
-                                                                    <div class="flex-1 leading-relaxed">${qbEscapeHtml(opt)}</div>
+                                                                    <div class="flex-1 leading-relaxed">${qbEscapeHtml(opt)}${oImg ? `<img src="${qbSafeImageSrc(oImg)}" class="block mt-1 max-h-40 rounded-lg border object-contain" alt="Gambar Opsi ${charLabel}"/>` : ''}</div>
                                                                 </div>
                                                             `;
                                                         }).join('');
@@ -2884,26 +2889,21 @@ function openAddSingleQuestionModal(code) {
                     <div id="single-q-options-container" class="space-y-2">
                         <label class="block text-xs font-bold text-slate-700 uppercase">Opsi Jawaban & Kunci</label>
                         <div class="grid grid-cols-1 gap-2">
-                            <div class="flex items-center space-x-2">
-                                <span class="w-6 font-bold text-xs text-slate-600">A.</span>
-                                <input type="text" id="opt-A" class="flex-1 p-2 bg-slate-50 border rounded-xl text-xs" placeholder="Pilihan A"/>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                                <span class="w-6 font-bold text-xs text-slate-600">B.</span>
-                                <input type="text" id="opt-B" class="flex-1 p-2 bg-slate-50 border rounded-xl text-xs" placeholder="Pilihan B"/>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                                <span class="w-6 font-bold text-xs text-slate-600">C.</span>
-                                <input type="text" id="opt-C" class="flex-1 p-2 bg-slate-50 border rounded-xl text-xs" placeholder="Pilihan C"/>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                                <span class="w-6 font-bold text-xs text-slate-600">D.</span>
-                                <input type="text" id="opt-D" class="flex-1 p-2 bg-slate-50 border rounded-xl text-xs" placeholder="Pilihan D"/>
-                            </div>
-                            <div class="flex items-center space-x-2">
-                                <span class="w-6 font-bold text-xs text-slate-600">E.</span>
-                                <input type="text" id="opt-E" class="flex-1 p-2 bg-slate-50 border rounded-xl text-xs" placeholder="Pilihan E"/>
-                            </div>
+                            ${['A', 'B', 'C', 'D', 'E'].map(l => `
+                            <div class="flex items-start space-x-2">
+                                <span class="w-6 font-bold text-xs text-slate-600 pt-2">${l}.</span>
+                                <div class="flex-1 space-y-1">
+                                    <input type="text" id="opt-${l}" class="w-full p-2 bg-slate-50 border rounded-xl text-xs" placeholder="Pilihan ${l} (kosongkan bila opsinya gambar)"/>
+                                    <div class="flex items-center space-x-2">
+                                        <label class="inline-flex items-center space-x-1 px-2 py-1 bg-slate-50 border rounded-lg text-[10px] font-semibold text-slate-500 cursor-pointer hover:bg-slate-100">
+                                            <i class="fa-solid fa-image text-blue-500"></i><span>Gambar opsi ${l}</span>
+                                            <input type="file" id="opt-${l}-img-file" accept="image/*" onchange="handleSingleQOptionImageUpload(event, '${l}')" class="hidden"/>
+                                        </label>
+                                        <input type="hidden" id="opt-${l}-img-base64" value=""/>
+                                        <img id="opt-${l}-img-preview" class="hidden max-h-10 rounded-lg border object-contain" alt=""/>
+                                    </div>
+                                </div>
+                            </div>`).join('')}
                         </div>
                     </div>
 
@@ -2960,6 +2960,22 @@ function handleSingleQImageUpload(e) {
     reader.readAsDataURL(file);
 }
 
+function handleSingleQOptionImageUpload(e, letter) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+        const hidden = document.getElementById('opt-' + letter + '-img-base64');
+        const preview = document.getElementById('opt-' + letter + '-img-preview');
+        if (hidden) hidden.value = evt.target.result;
+        if (preview) {
+            preview.src = evt.target.result;
+            preview.classList.remove('hidden');
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
 function openEditSingleQuestionModal(qId) {
     const q = (appState.questionBank || []).find(item => String(item.id) === String(qId));
     if (!q) return;
@@ -3001,6 +3017,19 @@ function openEditSingleQuestionModal(qId) {
             if (optE) optE.value = q.options[4] || '';
         }
 
+        // Gambar per opsi (bila ada) — isi field tersembunyi + pratinjau.
+        ['A', 'B', 'C', 'D', 'E'].forEach((l, i) => {
+            const imgVal = (q.optionImages || [])[i] || '';
+            if (!imgVal) return;
+            const hidden = document.getElementById('opt-' + l + '-img-base64');
+            const preview = document.getElementById('opt-' + l + '-img-preview');
+            if (hidden) hidden.value = imgVal;
+            if (preview) {
+                preview.src = imgVal;
+                preview.classList.remove('hidden');
+            }
+        });
+
         if (ansEl) ansEl.value = q.answer || '';
         if (expEl) expEl.value = q.explanation || '';
 
@@ -3027,11 +3056,21 @@ function saveSingleQuestion(e, code, editQId = null) {
     const optC = document.getElementById('opt-C').value.trim();
     const optD = document.getElementById('opt-D').value.trim();
     const optE = document.getElementById('opt-E').value.trim();
+    const optImgs = ['A', 'B', 'C', 'D', 'E'].map(l => (document.getElementById('opt-' + l + '-img-base64')?.value || '').trim());
 
     let options = [];
+    let optionImages = [];
     if (type === 'mc') {
-        options = [optA, optB, optC, optD, optE].filter(o => o !== '');
-        if (options.length === 0) options = ['A', 'B', 'C', 'D', 'E'];
+        // Opsi teks dan gambar disaring BERPASANGAN supaya gambar tidak
+        // bergeser ke huruf lain; opsi tanpa teks tapi bergambar diberi
+        // label "Gambar X" supaya kunci jawaban tetap jalan.
+        const pairs = [optA, optB, optC, optD, optE].map((o, i) => ({
+            text: o || (optImgs[i] ? 'Gambar ' + 'ABCDE'[i] : ''),
+            img: optImgs[i] || ''
+        })).filter(p => p.text !== '' || p.img !== '');
+        options = pairs.map(p => p.text);
+        optionImages = pairs.map(p => p.img);
+        if (options.length === 0) { options = ['A', 'B', 'C', 'D', 'E']; optionImages = ['', '', '', '', '']; }
     }
 
     let answerKey = (document.getElementById('single-q-answer')?.value || '').trim();
@@ -3057,6 +3096,7 @@ function saveSingleQuestion(e, code, editQId = null) {
                 question: questionText,
                 imageUrl: finalImage,
                 options,
+                optionImages,
                 answer: answerKey,
                 explanation
             };
@@ -3073,6 +3113,7 @@ function saveSingleQuestion(e, code, editQId = null) {
             question: questionText,
             imageUrl: finalImage,
             options,
+            optionImages,
             answer: answerKey,
             explanation
         });
@@ -3676,29 +3717,29 @@ function runQuestionConversion(activeCode = '') {
                         </tr>
                         <tr class="bg-white border-b border-slate-300">
                             <td class="p-2 border-r border-slate-300 font-bold text-center align-top bg-slate-50 text-slate-700">${q.num}.</td>
-                            <td class="p-2 font-semibold text-slate-900 leading-relaxed">${renderCbtTableCell(q.questionText)}</td>
+                            <td class="p-2 font-semibold text-slate-900 leading-relaxed">${renderCbtTableCell(q.questionText)}${q.imageUrl ? `<img src="${qbSafeImageSrc(q.imageUrl)}" class="block mt-1 max-h-40 rounded-lg border object-contain" alt="Gambar Soal"/>` : ''}</td>
                         </tr>
                         ${(String(q.ts || '').toUpperCase().includes('ESY')) ? '' : `
                         <tr class="bg-white border-b border-slate-200">
                             <td class="p-2 border-r border-slate-300 font-bold text-center bg-slate-50 text-slate-700">A</td>
-                            <td class="p-2 text-slate-800">${renderCbtTableCell(q.options.A || '')}</td>
+                            <td class="p-2 text-slate-800">${renderCbtTableCell(q.options.A || '')}${(q.optionImages || [])[0] ? `<img src="${qbSafeImageSrc((q.optionImages || [])[0])}" class="block mt-1 max-h-40 rounded-lg border object-contain" alt="Gambar Opsi A"/>` : ''}</td>
                         </tr>
                         <tr class="bg-white border-b border-slate-200">
                             <td class="p-2 border-r border-slate-300 font-bold text-center bg-slate-50 text-slate-700">B</td>
-                            <td class="p-2 text-slate-800">${renderCbtTableCell(q.options.B || '')}</td>
+                            <td class="p-2 text-slate-800">${renderCbtTableCell(q.options.B || '')}${(q.optionImages || [])[1] ? `<img src="${qbSafeImageSrc((q.optionImages || [])[1])}" class="block mt-1 max-h-40 rounded-lg border object-contain" alt="Gambar Opsi B"/>` : ''}</td>
                         </tr>
                         <tr class="bg-white border-b border-slate-200">
                             <td class="p-2 border-r border-slate-300 font-bold text-center bg-slate-50 text-slate-700">C</td>
-                            <td class="p-2 text-slate-800">${renderCbtTableCell(q.options.C || '')}</td>
+                            <td class="p-2 text-slate-800">${renderCbtTableCell(q.options.C || '')}${(q.optionImages || [])[2] ? `<img src="${qbSafeImageSrc((q.optionImages || [])[2])}" class="block mt-1 max-h-40 rounded-lg border object-contain" alt="Gambar Opsi C"/>` : ''}</td>
                         </tr>
                         <tr class="bg-white border-b ${optionCount >= 5 ? 'border-slate-200' : 'border-slate-300'}">
                             <td class="p-2 border-r border-slate-300 font-bold text-center bg-slate-50 text-slate-700">D</td>
-                            <td class="p-2 text-slate-800">${renderCbtTableCell(q.options.D || '')}</td>
+                            <td class="p-2 text-slate-800">${renderCbtTableCell(q.options.D || '')}${(q.optionImages || [])[3] ? `<img src="${qbSafeImageSrc((q.optionImages || [])[3])}" class="block mt-1 max-h-40 rounded-lg border object-contain" alt="Gambar Opsi D"/>` : ''}</td>
                         </tr>`}
                         ${optionCount >= 5 && !String(q.ts || '').toUpperCase().includes('ESY') ? `
                         <tr class="bg-white border-b border-slate-300">
                             <td class="p-2 border-r border-slate-300 font-bold text-center bg-slate-50 text-slate-700">E</td>
-                            <td class="p-2 text-slate-800">${renderCbtTableCell(q.options.E || '')}</td>
+                            <td class="p-2 text-slate-800">${renderCbtTableCell(q.options.E || '')}${(q.optionImages || [])[4] ? `<img src="${qbSafeImageSrc((q.optionImages || [])[4])}" class="block mt-1 max-h-40 rounded-lg border object-contain" alt="Gambar Opsi E"/>` : ''}</td>
                         </tr>
                         ` : ''}
                     </tbody>
@@ -3891,6 +3932,7 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
         let currentKey = null;
         let currentNum = 1;
         let currentImageData = null;
+        let currentOptionImages = {};
 
         function pushQuestion() {
             if (!currentQuestion || !currentQuestion.text.trim()) return;
@@ -3910,6 +3952,14 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
             let optC = currentOptions['C'] || '';
             let optD = currentOptions['D'] || '';
             let optE = currentOptions['E'] || '';
+
+            // Opsi yang isinya hanya gambar diberi label teks ("Gambar A")
+            // supaya kunci jawaban (teks opsi) dan penilaian tetap jalan.
+            if (!optA.trim() && currentOptionImages['A']) optA = 'Gambar A';
+            if (!optB.trim() && currentOptionImages['B']) optB = 'Gambar B';
+            if (!optC.trim() && currentOptionImages['C']) optC = 'Gambar C';
+            if (!optD.trim() && currentOptionImages['D']) optD = 'Gambar D';
+            if (!optE.trim() && currentOptionImages['E']) optE = 'Gambar E';
 
             if (autoMath) {
                 // Konversi per baris supaya rumus tidak "menyeberang" baris
@@ -3939,7 +3989,8 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
                 abs: '',
                 imageUrl: (imageOptions && !isEssayInline && (defaultTS === 'PG' || defaultTS === 'PGX')) ? '' : (currentImageData || ''),
                 questionText: qText,
-                options: isEssayInline ? { A: '', B: '', C: '', D: '', E: '' } : opts
+                options: isEssayInline ? { A: '', B: '', C: '', D: '', E: '' } : opts,
+                optionImages: isEssayInline ? [] : ['A', 'B', 'C', 'D', 'E'].map(l => currentOptionImages[l] || '')
             });
             defaultTSInline = null;
 
@@ -3948,6 +3999,7 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
             currentOptions = {};
             currentKey = null;
             currentImageData = null;
+            currentOptionImages = {};
         }
 
         let defaultTSInline = null;
@@ -3987,7 +4039,7 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
                 inPassage = true;
                 continue;
             }
-            if (inPassage && !qNumRegex.test(trimmed) && !optRegex.test(trimmed) && !keyRegex.test(trimmed) && !trimmed.startsWith('##IMG##')) {
+            if (inPassage && !qNumRegex.test(trimmed) && !optRegex.test(trimmed) && !keyRegex.test(trimmed) && !trimmed.startsWith('##IMG##') && !trimmed.startsWith('##OI##')) {
                 pendingPassage.push(trimmed);
                 continue;
             }
@@ -4004,6 +4056,13 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
             if (trimmed.startsWith('##IMG##')) {
                 if (inPassage) pendingImage = trimmed.slice(7).trim();
                 else currentImageData = trimmed.slice(7).trim();
+                continue;
+            }
+
+            // Gambar opsi ("##OI##A##<data>") dari assemble.
+            const oiMatch = trimmed.match(/^##OI##([A-E])##(.*)$/);
+            if (oiMatch) {
+                currentOptionImages[oiMatch[1]] = oiMatch[2].trim();
                 continue;
             }
 
@@ -4525,6 +4584,13 @@ async function executeImportConvertedToBank(e) {
             answerVal = q.options[kjLetter];
         }
 
+        const optImgs = [];
+        if (q.optionImages) {
+            ['A', 'B', 'C', 'D', 'E'].forEach((l, i) => {
+                if (i < opts.length) optImgs.push(q.optionImages[i] || '');
+            });
+        }
+
         const newQObj = {
             id: 'Q_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).substr(2, 4),
             code: targetCode,
@@ -4534,6 +4600,7 @@ async function executeImportConvertedToBank(e) {
             question: q.questionText || '',
             imageUrl: q.imageUrl || '',
             options: isEssay ? [] : opts,
+            optionImages: isEssay ? [] : optImgs,
             answer: answerVal,
             explanation: ''
         };
@@ -4959,12 +5026,6 @@ async function extractDocxTextWithMath(file) {
         };
         // gambar di dalam paragraf (soal bergambar)
         const blipEls = Array.from(pEl.getElementsByTagName('a:blip') || []);
-        for (const blip of blipEls) {
-            const rid = blip.getAttribute('r:embed') || blip.getAttribute('r:link');
-            if (!rid) continue;
-            const dataUrl = await loadMediaDataUrl(rid);
-            if (dataUrl) lines.push('##IMG##' + dataUrl);
-        }
         walk(pEl);
         text = text.replace(/\s+/g, ' ').trim();
         if (!text && !blipEls.length) return;
@@ -4974,13 +5035,25 @@ async function extractDocxTextWithMath(file) {
         // malah dirakit jadi opsi (soal jadi kosong).
         const typedQ = text.match(/^(\d{1,3})[\.\)]\s+(.*)$/);
         const typedO = !typedQ && text.match(/^[\(\[]?([A-Ea-e])[\.\)\]]\s+(.*)$/);
+        const isOptPara = fmt === 'lowerLetter' || fmt === 'upperLetter' || typedO;
         if (fmt === 'decimal' || typedQ) {
             const body = typedQ ? typedQ[2] : text;
             if (body) lines.push('##Q## ' + body);
-        } else if (fmt === 'lowerLetter' || fmt === 'upperLetter' || typedO) {
+        } else if (isOptPara) {
             const body = typedO ? typedO[2] : text;
-            if (body) lines.push('##O## ' + body);
+            // Opsi yang isinya hanya gambar tetap butuh baris ##O## (kosong)
+            // supaya gambar setelahnya bisa dipetakan ke huruf opsi ini.
+            lines.push('##O## ' + body);
         } else if (text) lines.push(text);
+        // Gambar dipancarkan SETELAH baris soalnya/opsi-nya, supaya gambar
+        // opsi gambar menempel ke opsi yang baru saja dibaca, bukan ke
+        // batang soal.
+        for (const blip of blipEls) {
+            const rid = blip.getAttribute('r:embed') || blip.getAttribute('r:link');
+            if (!rid) continue;
+            const dataUrl = await loadMediaDataUrl(rid);
+            if (dataUrl) lines.push('##IMG##' + dataUrl);
+        }
     };
     // Isi tabel BUKAN soal/opsi baru: baris tabel dipertahankan sebagai
     // isi soal ("• sel1 | sel2") supaya "1. Pneumonia" di dalam tabel
@@ -5035,9 +5108,12 @@ function assembleQuestionTextFromDocxLines(raw) {
     // (bank soal menampilkan tiap soal sendiri-sendiri).
     let groupCount = 0;
     let groupImgs = [];
-    const newBlock = () => ({ qtext: [], opts: [], optsAfter: [], imgs: pendingImgs.splice(0), plains: [], key: '', fromQ: false });
+    // Gambar yang mengikuti huruf opsi ("a." lalu gambar) adalah gambar
+    // opsi itu, bukan gambar batang soal.
+    let pendingOptImg = null;
+    const newBlock = () => ({ qtext: [], opts: [], optsAfter: [], imgs: pendingImgs.splice(0), optImgs: {}, plains: [], key: '', fromQ: false });
     const flush = () => {
-        if (cur && (cur.qtext.length || cur.opts.length || cur.imgs.length || cur.plains.length)) {
+        if (cur && (cur.qtext.length || cur.opts.length || cur.imgs.length || cur.plains.length || Object.keys(cur.optImgs || {}).length)) {
             if (!cur.qtext.length && !cur.opts.length && !cur.plains.length && cur.imgs.length) {
                 pendingImgs.push(...cur.imgs);
             } else {
@@ -5076,11 +5152,18 @@ function assembleQuestionTextFromDocxLines(raw) {
             groupCount = pointerRange(t);
             pendingPassage = [];
             groupImgs = [];
+            pendingOptImg = null;
             inPassage = true;
             continue;
         }
         if (t.startsWith('##IMG##')) {
             if (inPassage) { groupImgs.push(t.slice(7).trim()); continue; }
+            if (pendingOptImg) {
+                if (!cur) cur = newBlock();
+                cur.optImgs[pendingOptImg] = t.slice(7).trim();
+                pendingOptImg = null;
+                continue;
+            }
             if (!cur) cur = newBlock();
             cur.imgs.push(t.slice(7).trim());
             continue;
@@ -5088,6 +5171,7 @@ function assembleQuestionTextFromDocxLines(raw) {
         // Baris tabel: tetap jadi isi soal, bukan soal/opsi baru.
         if (t.startsWith('##T##')) {
             if (inPassage) { pendingPassage.push(t.slice(5).trim()); continue; }
+            pendingOptImg = null;
             if (!cur) cur = newBlock();
             cur.qtext.push(t.slice(5).trim());
             continue;
@@ -5122,11 +5206,24 @@ function assembleQuestionTextFromDocxLines(raw) {
                 }
                 inPassage = false;
             }
-            if (cur.dividerSeen) cur.optsAfter.push(t.slice(5).trim()); else cur.opts.push(t.slice(5).trim());
+            const optBody = t.slice(5).trim();
+            if (cur.dividerSeen) {
+                cur.optsAfter.push(optBody);
+                pendingOptImg = null;
+            } else {
+                cur.opts.push(optBody);
+                // Opsi tanpa teks: gambar yang mengikutinya adalah gambar opsi ini.
+                pendingOptImg = optBody ? null : letters[cur.opts.length - 1];
+            }
             continue;
         }
         // Baris polos di tengah bacaan kelompok soal berikutnya.
         if (inPassage) { pendingPassage.push(t); continue; }
+        // Huruf opsi sendirian ("a.") — gambar yang mengikutinya adalah
+        // gambar opsi itu; baris polos lain membatalkan penantian itu.
+        const bareOpt = t.match(/^[\(\[]?([A-Ea-e])[\.\)]?$/);
+        if (bareOpt) pendingOptImg = bareOpt[1].toUpperCase();
+        else pendingOptImg = null;
         if (!cur) cur = newBlock();
         // plain line continuation di tengah opsi = pembatas data-list vs opsi
         if (!cur.dividerSeen && cur.opts.length && isContinuation(t)) {
@@ -5167,7 +5264,7 @@ function assembleQuestionTextFromDocxLines(raw) {
         // Blok yang tidak diawali nomor soal dan tanpa gambar (mis.
         // kop/judul yang tersisa) dibuang — jangan sampai menghabiskan
         // satu nomor soal atau jadi soal hantu.
-        if (!b.fromQ && !b.imgs.length) return;
+        if (!b.fromQ && !b.imgs.length && !Object.keys(b.optImgs || {}).length) return;
         let qText = b.qtext.join('\n');
         let opts = b.opts.slice();
         const plains = b.plains.slice();
@@ -5192,6 +5289,7 @@ function assembleQuestionTextFromDocxLines(raw) {
         const num = ++qNum;
         out.push(num + '. ' + qText);
         opts.slice(0, 5).forEach((o, i2) => out.push(letters[i2] + '. ' + o));
+        Object.keys(b.optImgs || {}).sort().forEach(l => out.push('##OI##' + l + '##' + b.optImgs[l]));
         b.imgs.forEach(img => out.push('##IMG##' + img));
         const k = b.key || keyList[num];
         if (k) out.push('Kunci: ' + k);
@@ -5707,6 +5805,7 @@ function handleQuestionImportFile(e, code) {
                         question: qText,
                         imageUrl: imgUrl,
                         options: isEssay ? [] : (options.length > 0 ? options : ['A', 'B', 'C', 'D', 'E']),
+                        optionImages: [],
                         answer: answerKey || (isEssay ? 'Jawaban' : (options[0] || 'A')),
                         explanation: expVal
                     });
@@ -5956,6 +6055,7 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
                     question: qText,
                     imageUrl: imgUrl || '',
                     options: isEssay ? [] : (options.length > 0 ? options : ['A', 'B', 'C', 'D', 'E']),
+                    optionImages: [],
                     answer: answerKey || (isEssay ? 'Jawaban' : (options[0] || 'A')),
                     explanation: exp || ''
                 });
@@ -6009,6 +6109,8 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
     let addedCount = 0;
     let currentQ = null;
     let currentOptions = [];
+    let currentOptionImages = [];
+    let lastOptionIdx = -1;
     let currentAnswer = '';
     let currentImg = '';
     let currentExp = '';
@@ -6021,18 +6123,21 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
         const ansLower = String(currentAnswer || '').toLowerCase();
         const isEssay = currentTS.includes('ESY') || currentTS.includes('ESSAY') || currentOptions.length === 0 || qTextLower.includes('esay') || qTextLower.includes('essay') || ansLower.includes('esay') || ansLower.includes('essay');
 
+        const finalQuestionText = autoFormatMathExpressions(currentQ.question.replace(/\s*\((essay|esay)\)/i, '').trim());
+        // Opsi yang isinya hanya gambar diberi label teks ("Gambar A")
+        // supaya kunci jawaban (teks opsi) dan penilaian tetap jalan.
+        const finalOptions = isEssay ? [] : (currentOptions.length > 0 ? currentOptions.map((opt, i) => autoFormatMathExpressions(opt) || (currentOptionImages[i] ? 'Gambar ' + 'ABCDE'[i] : '')) : ['A', 'B', 'C', 'D', 'E']);
+        const finalOptionImages = isEssay ? [] : currentOptions.map((_, i) => currentOptionImages[i] || '');
+        const finalExp = autoFormatMathExpressions(currentExp || '');
+
         let answerKey = String(currentAnswer || '').replace(/\s*\((essay|esay)\)/i, '').trim();
         if (!isEssay) {
             const keyUpper = String(answerKey || '').toUpperCase();
             if (['A', 'B', 'C', 'D', 'E'].includes(keyUpper)) {
                 const idx = keyUpper.charCodeAt(0) - 65;
-                if (currentOptions[idx]) answerKey = currentOptions[idx];
+                if (finalOptions[idx]) answerKey = finalOptions[idx];
             }
         }
-
-        const finalQuestionText = autoFormatMathExpressions(currentQ.question.replace(/\s*\((essay|esay)\)/i, '').trim());
-        const finalOptions = isEssay ? [] : (currentOptions.length > 0 ? currentOptions.map(opt => autoFormatMathExpressions(opt)) : ['A', 'B', 'C', 'D', 'E']);
-        const finalExp = autoFormatMathExpressions(currentExp || '');
 
         // Soal PG yang opsinya gambar (tanpa satu pun opsi teks) tidak
         // boleh menempelkan gambar opsi sebagai gambar batang soal.
@@ -6048,13 +6153,16 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
             question: finalQuestionText,
             imageUrl: finalImage,
             options: finalOptions,
+            optionImages: finalOptionImages,
             answer: autoFormatMathExpressions(answerKey || (isEssay ? 'Jawaban' : (finalOptions[0] || 'A'))),
             explanation: finalExp
         });
         addedCount++;
-        
+
         currentQ = null;
         currentOptions = [];
+        currentOptionImages = [];
+        lastOptionIdx = -1;
         currentAnswer = '';
         currentImg = '';
         currentExp = '';
@@ -6107,14 +6215,21 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
             const match = line.match(/^\[Gambar:\s*(.*?)\]/i);
             if (match && match[1]) {
                 if (inPassage) pendingImg = match[1].trim();
+                // Gambar yang mengikuti opsi tanpa teks adalah gambar opsi itu.
+                else if (lastOptionIdx >= 0 && !(currentOptions[lastOptionIdx] || '').trim()) {
+                    currentOptionImages[lastOptionIdx] = match[1].trim();
+                    lastOptionIdx = -1;
+                }
                 else currentImg = match[1].trim();
             }
         } else if (/^[A-Ea-e][\.\)]\s/.test(line) || (currentQ && /^[A-Ea-e]\s/.test(line))) {
             const optText = line.replace(/^[A-Ea-e][\.\)]?\s*/, '');
             currentOptions.push(optText);
+            lastOptionIdx = currentOptions.length - 1;
         } else if (currentQ && /^[A-Ea-e][\.\)]?$/.test(line)) {
             // Option letter on its own line, push an empty option to be filled by the next line
             currentOptions.push('');
+            lastOptionIdx = currentOptions.length - 1;
         } else if (/^(kunci\s*jawaban|kunci|jawaban|ans)[:\s]/i.test(line)) {
             currentAnswer = line.replace(/^(kunci\s*jawaban|kunci|jawaban|ans)[:\s]*/i, '').trim();
         } else if (/^(pembahasan|penjelasan|expl)[:\s]/i.test(line)) {
