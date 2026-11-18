@@ -3672,6 +3672,20 @@ function renderCbtTableCell(text) {
 
     const sourceText = qbDecodeLegacyEntities(text);
 
+    // Baris tabel ("• sel1 | sel2") tampil sebagai tabel HTML — aturan sama
+    // seperti qbRenderQuestionText: min. 2 baris berurutan. Bila ada tabel,
+    // tabel yang tampil (pratinjau LaTeX di dalam sel tidak ikut dirender).
+    const tableLines = sourceText.split('\n');
+    const isTableRow = (line) => {
+        const t = line.trim();
+        return t.startsWith('• ') && t.indexOf(' | ') !== -1;
+    };
+    for (let i = 0; i + 1 < tableLines.length; i++) {
+        if (isTableRow(tableLines[i]) && isTableRow(tableLines[i + 1])) {
+            return qbRenderQuestionText(sourceText);
+        }
+    }
+
     const escaped = sourceText
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
