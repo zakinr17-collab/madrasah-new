@@ -428,9 +428,15 @@ function prepareQuestionsForStudent(rawQuestions, ex) {
             }
             cloned.correctOptionText = correctText;
 
-            // Shuffle choices if shuffleOpt is enabled on exam
+            // Shuffle choices if shuffleOpt is enabled on exam —
+            // gambar opsi diacak dengan permutasi yang SAMA supaya tiap
+            // gambar tetap menempel ke huruf opsinya.
             if (shouldShuffleOpt) {
-                cloned.options = shuffleArray(cloned.options);
+                const perm = shuffleArray(cloned.options.map((_, i) => i));
+                cloned.options = perm.map(i => cloned.options[i]);
+                if (Array.isArray(cloned.optionImages) && cloned.optionImages.length) {
+                    cloned.optionImages = perm.map(i => cloned.optionImages[i] || '');
+                }
             }
         }
 
@@ -5514,8 +5520,8 @@ function renderActiveExamScreen() {
                         <textarea onchange="saveExamAnswer('${q.id}', this.value)" ${isExpiredFrozen ? 'disabled' : ''} rows="6" class="w-full p-4 border rounded-2xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition resize-none text-sm ${isExpiredFrozen ? 'opacity-70 cursor-not-allowed' : ''}" placeholder="Ketik jawaban esay Anda di sini...">${assessmentEscapeHtml(sess.answers[q.id] || '')}</textarea>
                     ` : (q.options || []).map((opt, oIdx) => `
                         <div onclick="selectExamOption(${oIdx})" class="flex items-center space-x-3 p-4 rounded-2xl border transition select-none ${isExpiredFrozen ? 'cursor-not-allowed opacity-75' : 'cursor-pointer'} ${sess.answers[q.id] === opt ? 'bg-emerald-50 border-emerald-500 font-bold text-emerald-900 shadow-sm' : 'bg-slate-50 hover:bg-slate-100'}">
-                            <span class="w-7 h-7 rounded-xl flex items-center justify-center text-xs font-bold ${sess.answers[q.id] === opt ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}">${String.fromCharCode(65 + oIdx)}</span>
-                            <span class="text-sm">${assessmentEscapeHtml(opt)}</span>
+                            <span class="w-7 h-7 shrink-0 rounded-xl flex items-center justify-center text-xs font-bold ${sess.answers[q.id] === opt ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}">${String.fromCharCode(65 + oIdx)}</span>
+                            <span class="text-sm flex-1">${assessmentEscapeHtml(opt)}${((q.optionImages || [])[oIdx]) ? `<img src="${assessmentSafeImageSrc((q.optionImages || [])[oIdx])}" class="block mt-2 max-h-40 rounded-xl border object-contain" alt="Gambar Opsi ${String.fromCharCode(65 + oIdx)}"/>` : ''}</span>
                         </div>
                     `).join('')}
                 </div>
@@ -8256,7 +8262,7 @@ async function openPreviewJawabanEvaluasi(studentId) {
                         : (state.selected
                             ? '<span class="text-[9px] uppercase text-rose-700 font-black">Dipilih</span>'
                             : (state.isKey ? '<span class="text-[9px] uppercase text-emerald-700 font-black">Kunci Jawaban</span>' : ''));
-                    return `<div class="p-3 rounded-2xl border flex items-center gap-3 text-xs ${cls}"><span class="w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${state.isKey ? 'bg-emerald-600 text-white' : (state.selected ? 'bg-rose-600 text-white' : 'bg-slate-200 text-slate-600')}">${state.letter}</span><span class="flex-1">${evaluasiEscapeHtml(opt)}</span>${badge}</div>`;
+                    return `<div class="p-3 rounded-2xl border flex items-center gap-3 text-xs ${cls}"><span class="w-7 h-7 rounded-xl flex items-center justify-center shrink-0 ${state.isKey ? 'bg-emerald-600 text-white' : (state.selected ? 'bg-rose-600 text-white' : 'bg-slate-200 text-slate-600')}">${state.letter}</span><span class="flex-1">${evaluasiEscapeHtml(opt)}${((q.optionImages || [])[oIdx]) ? `<img src="${assessmentSafeImageSrc((q.optionImages || [])[oIdx])}" class="block mt-2 max-h-40 rounded-xl border object-contain" alt="Gambar Opsi ${state.letter}"/>` : ''}</span>${badge}</div>`;
                 }).join('')}</div>`;
             }
 
@@ -8580,7 +8586,7 @@ async function openKoreksiModal(studentId) {
                                                 else if (state.isKey) bgClass = 'bg-emerald-50/70 border-emerald-200 text-emerald-800 font-semibold';
                                                 return `
                                                     <div class="p-2.5 rounded-xl border flex justify-between items-center gap-2 text-xs ${bgClass}">
-                                                        <span><b>${state.letter}.</b> ${evaluasiEscapeHtml(opt)}</span>
+                                                        <span class="flex-1"><b>${state.letter}.</b> ${evaluasiEscapeHtml(opt)}${((q.optionImages || [])[oIdx]) ? `<img src="${assessmentSafeImageSrc((q.optionImages || [])[oIdx])}" class="block mt-2 max-h-40 rounded-xl border object-contain" alt="Gambar Opsi ${state.letter}"/>` : ''}</span>
                                                         <span class="shrink-0">
                                                             ${state.selected ? `<span class="text-[9px] font-bold uppercase ${q.isCorrect ? 'text-emerald-700' : 'text-rose-700'}">${q.isCorrect ? 'Benar (✓)' : 'Salah (✗)'}</span>` : ''}
                                                             ${state.isKey ? '<span class="ml-2 text-[9px] text-emerald-700 font-black uppercase">Kunci Jawab</span>' : ''}
@@ -9346,9 +9352,10 @@ function generateReportHTML() {
                         if (selected && isKey) { bg = 'rgba(236,253,245,0.9)'; border = '#34d399'; color = '#065f46'; }
                         else if (selected) { bg = 'rgba(255,241,242,0.9)'; border = '#f87171'; color = '#991b1b'; }
                         else if (isKey) { bg = 'rgba(236,253,245,0.55)'; border = '#a7f3d0'; color = '#047857'; }
+                        const optImg = (q.optionImages || [])[oIdx] || '';
                         return '<div style="display: flex; align-items: center; gap: 10px; background-color: ' + bg + '; border: 1px solid ' + border + '; padding: 8px 12px; border-radius: 10px; font-size: 12px; color: ' + color + ';">' +
                             '<span style="width: 22px; height: 22px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; font-weight: bold; font-size: 11px; flex-shrink: 0; background-color: ' + (isKey ? '#059669' : (selected ? '#dc2626' : '#e5e7eb')) + '; color: ' + (isKey || selected ? '#fff' : '#4b5563') + ';">' + letter + '</span>' +
-                            '<span style="flex: 1;">' + assessmentEscapeHtml(String(opt)) + '</span>' +
+                            '<span style="flex: 1;">' + assessmentEscapeHtml(String(opt)) + (optImg ? '<img src="' + assessmentSafeImageSrc(optImg) + '" style="display: block; margin-top: 6px; max-height: 160px; border-radius: 8px; border: 1px solid #e5e7eb;" alt="Gambar Opsi ' + letter + '"/>' : '') + '</span>' +
                             (selected && isKey ? '<span style="font-size: 9px; font-weight: bold; color: #047857; text-transform: uppercase;">Dipilih &bull; Kunci</span>' :
                              (selected ? '<span style="font-size: 9px; font-weight: bold; color: #dc2626; text-transform: uppercase;">Dipilih</span>' :
                               (isKey ? '<span style="font-size: 9px; font-weight: bold; color: #047857; text-transform: uppercase;">Kunci</span>' : ''))) +
@@ -11062,9 +11069,10 @@ async function downloadStudentExamPDF(examId) {
         let blockHeight = (questionLines.length * 5) + (userAnsLines.length * 5) + (correctAnsLines.length * 5) + (explanationLines.length * 5) + (essayScoreLines.length * 5) + 14;
 
         if (q.options && Array.isArray(q.options) && q.options.length > 0) {
-            q.options.forEach(opt => {
+            q.options.forEach((opt, oIdx) => {
                 const optLines = doc.splitTextToSize(`  - ${opt}`, 170);
                 blockHeight += (optLines.length * 4.5);
+                if ((q.optionImages || [])[oIdx]) blockHeight += 42;
             });
         }
 
@@ -11100,6 +11108,20 @@ async function downloadStudentExamPDF(examId) {
                     doc.text(optLine, 18, y);
                     y += 4.5;
                 });
+                const optImg = (q.optionImages || [])[oIdx] || '';
+                if (optImg && typeof optImg === 'string' && optImg.startsWith('data:image/')) {
+                    try {
+                        const fmt = optImg.startsWith('data:image/png') ? 'PNG' : ((optImg.indexOf('data:image/jpeg') === 0 || optImg.indexOf('data:image/jpg') === 0) ? 'JPEG' : null);
+                        if (fmt) {
+                            const props = doc.getImageProperties(optImg);
+                            const ratio = Math.min(60 / props.width, 40 / props.height, 1);
+                            const w = props.width * ratio, h = props.height * ratio;
+                            if (y + h > pageHeight - 15) { doc.addPage(); y = 20; }
+                            doc.addImage(optImg, fmt, 18, y, w, h);
+                            y += h + 2;
+                        }
+                    } catch (e) { /* format gambar opsi tidak didukung di PDF, lewati */ }
+                }
             });
         }
 

@@ -6013,6 +6013,7 @@ function sanitizeQuestionForStudent(q: any) {
     type: q.type || (q.options ? "mc" : "essay"),
     question: q.question,
     options: Array.isArray(q.options) ? q.options : [],
+    optionImages: Array.isArray(q.optionImages) ? q.optionImages : [],
     imageUrl: q.imageUrl || q.image || ""
   };
 }
@@ -13318,11 +13319,18 @@ app.post("/api/questions", requireAuth, requireRole(['teacher', 'guru', 'admin',
     return res.status(403).json({ success: false, message: "Akses ditolak: Hanya guru dan admin yang dapat membuat soal." });
   }
 
-  let { question, options, optionA, optionB, optionC, optionD, optionE, answer, subjectId, classId, code, type, explanation, imageUrl } = req.body;
+  let { question, options, optionA, optionB, optionC, optionD, optionE, answer, subjectId, classId, code, type, explanation, imageUrl, optionImages } = req.body;
   if (isTeacherRequest(req) && !questionPayloadAllowedForTeacher(req, { subjectId, code })) {
     return res.status(403).json({ success: false, message: "Guru hanya dapat membuat soal untuk mata pelajaran yang diampu." });
   }
   if (imageUrl && imageUrl.startsWith("data:image/")) { imageUrl = await saveBase64ToFirestore(imageUrl); }
+  if (Array.isArray(optionImages)) {
+    for (let i = 0; i < optionImages.length; i++) {
+      if (typeof optionImages[i] === 'string' && optionImages[i].startsWith('data:image/')) {
+        optionImages[i] = await saveBase64ToFirestore(optionImages[i]);
+      }
+    }
+  }
   const newQ = tagNewRecord({
     id: "Q_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
     code: code || req.body.category || "",
@@ -13331,6 +13339,7 @@ app.post("/api/questions", requireAuth, requireRole(['teacher', 'guru', 'admin',
     type: type || (options ? "mc" : (optionA ? "mc" : "essay")),
     question,
     options: options || [optionA, optionB, optionC, optionD, optionE].filter(Boolean),
+    optionImages: Array.isArray(optionImages) ? optionImages : [],
     answer,
     explanation: explanation || "",
     imageUrl: imageUrl || ""
@@ -15393,16 +15402,21 @@ app.post("/api/exam/attempt/start-questions", cbtAsyncEndpoint(async (req, res) 
       }
     }
 
-    // Shuffle options if allowed
+    // Shuffle options if allowed — gambar opsi diacak dengan permutasi
+    // yang SAMA supaya tiap gambar tetap menempel ke huruf opsinya.
     let shuffledOptions = options;
+    let shuffledOptionImages: any[] = Array.isArray(q.optionImages) ? [...q.optionImages] : [];
     if (shouldShuffleOpt && options.length > 0 && q.type !== 'esay' && q.type !== 'essay') {
-      shuffledOptions = shuffleArray(options);
+      const perm = shuffleArray(options.map((_: any, i: number) => i));
+      shuffledOptions = perm.map((i: number) => options[i]);
+      shuffledOptionImages = perm.map((i: number) => shuffledOptionImages[i] || '');
     }
 
     const masterItem = {
       ...q,
       id: qId,
       options: shuffledOptions,
+      optionImages: shuffledOptionImages,
       originalOptions: options,
       correctOptionText: correctText,
       answer: q.answer || correctText
@@ -15415,6 +15429,7 @@ app.post("/api/exam/attempt/start-questions", cbtAsyncEndpoint(async (req, res) 
       number: idx + 1,
       question: q.question,
       options: shuffledOptions,
+      optionImages: shuffledOptionImages,
       type: q.type || 'mc',
       imageUrl: q.imageUrl || q.image || null,
       image: q.image || q.imageUrl || null
