@@ -1439,6 +1439,27 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                 <div class="space-y-3.5">
                                     <div>
                                         <div class="flex justify-between text-[11px] font-bold uppercase text-slate-500 mb-1">
+                                            <div>
+                                        <label class="block text-[11px] font-bold uppercase text-slate-500 mb-1">Layout Cetak PDF (Kolom &times; Baris)</label>
+                                        <div class="flex items-center gap-2">
+                                            <input type="number" id="cfg-printCols" min="1" max="10" value="${window.kartuPesertaConfig.printCols ?? 2}" onchange="updateKartuConfig('printCols', Math.max(1, Math.min(10, parseInt(this.value)||2)))" class="w-16 px-2 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-center focus:ring-2 focus:ring-emerald-500" title="Jumlah kolom"/>
+                                            <span class="text-slate-400 font-bold">&times;</span>
+                                            <input type="number" id="cfg-printRows" min="1" max="20" value="${window.kartuPesertaConfig.printRows ?? 5}" onchange="updateKartuConfig('printRows', Math.max(1, Math.min(20, parseInt(this.value)||5)))" class="w-16 px-2 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-center focus:ring-2 focus:ring-emerald-500" title="Jumlah baris"/>
+                                            <span class="text-[10px] text-slate-400 leading-tight">kolom &times; baris<br>per halaman A4</span>
+                                        </div>
+                                        <label class="flex items-center gap-2 mt-2 text-[11px] font-bold text-slate-600 cursor-pointer">
+                                            <input type="checkbox" id="cfg-printAuto" ${window.kartuPesertaConfig.printAuto !== false ? 'checked' : ''} onchange="updateKartuConfig('printAuto', this.checked)" class="accent-emerald-600"/>
+                                            Auto (2 &times; 5, ukuran kartu dibiarkan apa adanya)
+                                        </label>
+                                        <p class="text-[10px] text-slate-400 mt-1">Bila Auto dimatikan, kartu otomatis diskalakan mengisi penuh halaman A4 sesuai kolom &times; baris di atas — tidak ada sisa kertas terbuang.</p>
+                                    </div>
+                                        <p class="text-[10px] text-slate-400 mt-1">Kartu otomatis diskalakan mengisi penuh halaman A4 sesuai pilihan — tidak ada sisa kertas terbuang.</p>
+                                    </div>
+
+                                    <hr class="border-slate-100">
+
+                                    <div>
+                                        <div class="flex justify-between text-[11px] font-bold uppercase text-slate-500 mb-1">
                                             <span>Lebar Kartu (Seret Pinggir / Geser)</span>
                                             <span id="cfg-cardWidth-val" class="text-emerald-600 font-bold">${window.kartuPesertaConfig.cardWidth}px</span>
                                         </div>
@@ -1614,7 +1635,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                 <i class="fa-solid fa-circle-info text-base text-amber-600 mt-0.5 shrink-0"></i>
                                 <div>
                                     <p class="font-bold">Pratinjau Hasil Cetak</p>
-                                    <p class="mt-0.5 opacity-90 leading-relaxed">Berikut adalah contoh tampilan langsung kartu peserta ujian. Ketika Anda menekan tombol <b>Cetak Semua</b>, sistem akan mengunduh atau mencetak seluruh <b>${filtered.length} siswa</b> yang cocok dengan filter di atas dengan ukuran standar kartu ujian Indonesia (2 kolom x 5 baris per halaman A4).</p>
+                                    <p class="mt-0.5 opacity-90 leading-relaxed">Berikut adalah contoh tampilan langsung kartu peserta ujian. Ketika Anda menekan <b>Download PDF</b>, sistem mencetak seluruh <b>${filtered.length} siswa</b> yang cocok dengan filter di atas. Jumlah kartu per halaman A4 <b>dapat diatur bebas</b> di tab <b>Atur Ukuran</b> &rarr; <b>Layout Cetak PDF (Kolom &times; Baris)</b> — saat ini <b>${window.kartuPesertaConfig.printAuto !== false ? 'Auto (2 &times; 5, ukuran kartu asli)' : (window.kartuPesertaConfig.printCols||2) + ' &times; ' + (window.kartuPesertaConfig.printRows||5) + ' (kartu diskalakan mengisi halaman)'}</b>.</p>
                                 </div>
                             </div>
                             
@@ -6981,12 +7002,27 @@ function initKartuPesertaConfigIfNeeded() {
             signatureGroupOffsetLeft: 0,
             signatureGroupOffsetTop: 0,
             cardWidth: 380,
-            cardHeight: 260
+            cardHeight: 260,
+            printCols: 2,
+            printRows: 5,
+            printAuto: true
         };
     } else {
         if (!window.kartuPesertaConfig.selectedClassIds) window.kartuPesertaConfig.selectedClassIds = [];
         if (window.kartuPesertaConfig.cardWidth === undefined) window.kartuPesertaConfig.cardWidth = 380;
         if (window.kartuPesertaConfig.cardHeight === undefined) window.kartuPesertaConfig.cardHeight = 260;
+        if (window.kartuPesertaConfig.printCols === undefined) window.kartuPesertaConfig.printCols = 2;
+        if (window.kartuPesertaConfig.printRows === undefined) window.kartuPesertaConfig.printRows = 5;
+        if (window.kartuPesertaConfig.printAuto === undefined) window.kartuPesertaConfig.printAuto = true;
+        // PRINT_LAYOUT_PERSIST_V1: layout cetak disimpan terpisah agar bertahan setelah reload.
+        try {
+            const savedLayout = JSON.parse(localStorage.getItem('madrasah_kartu_print_layout') || 'null');
+            if (savedLayout && typeof savedLayout === 'object') {
+                if (Number.isFinite(savedLayout.cols)) window.kartuPesertaConfig.printCols = savedLayout.cols;
+                if (Number.isFinite(savedLayout.rows)) window.kartuPesertaConfig.printRows = savedLayout.rows;
+                if (typeof savedLayout.auto === 'boolean') window.kartuPesertaConfig.printAuto = savedLayout.auto;
+            }
+        } catch (e) {}
         if (window.kartuPesertaConfig.logoSize === undefined) window.kartuPesertaConfig.logoSize = 44;
         if (window.kartuPesertaConfig.stempelSize === undefined) window.kartuPesertaConfig.stempelSize = 85;
         if (window.kartuPesertaConfig.stempelOffsetLeft === undefined) window.kartuPesertaConfig.stempelOffsetLeft = -32;
@@ -7381,6 +7417,15 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
 function updateKartuConfig(key, val) {
     initKartuPesertaConfigIfNeeded();
     window.kartuPesertaConfig[key] = val;
+    if (key === 'printCols' || key === 'printRows' || key === 'printAuto') {
+        try {
+            localStorage.setItem('madrasah_kartu_print_layout', JSON.stringify({
+                cols: parseInt(window.kartuPesertaConfig.printCols, 10) || 2,
+                rows: parseInt(window.kartuPesertaConfig.printRows, 10) || 5,
+                auto: window.kartuPesertaConfig.printAuto !== false
+            }));
+        } catch (e) {}
+    }
     
     const viewContainer = document.getElementById('view-container');
     const scrollTop = viewContainer ? viewContainer.scrollTop : 0;
@@ -7786,31 +7831,51 @@ function cetakKartuUjian() {
     const logoKananSrc = getLogoKanan();
     const stampSvg = getStempelSvg(window.kartuPesertaConfig.kop3);
     const ttdHtml = getTtdHtml();
-    let cardsHtml = '';
-    filtered.forEach((st, idx) => {
-        const cls = classes.find(c => String(c.id) === String(st.classId || st.class_id));
-        const className = cls ? cls.name : '-';
-        
-        const room = (rooms || []).find(r => (r.members || []).some(mId => String(mId) === String(st.id)));
-        const roomName = room ? room.name : '-';
-        
-        cardsHtml += getKartuPesertaHtml(st, className, roomName, true);
-        
-        // Add clearing div every 2 cards
-        if ((idx + 1) % 2 === 0) {
-            cardsHtml += '<div style="clear: both;"></div>';
-        }
-        
-        // Page break every 10 cards
-        if ((idx + 1) % 10 === 0 && idx < filtered.length - 1) {
-            cardsHtml += '<div style="page-break-after: always; clear: both; height: 1px;"></div>';
-        }
-    });
     
-    // Add missing clear float if final index is odd
-    if (filtered.length % 2 !== 0) {
-        cardsHtml += '<div style="clear: both;"></div>';
+    // PRINT_GRID_V1: layout cetak custom (kolom x baris). Auto = 2x5, ukuran kartu apa adanya.
+    let cols = Math.max(1, Math.min(10, parseInt(window.kartuPesertaConfig.printCols, 10) || 2));
+    let rows = Math.max(1, Math.min(20, parseInt(window.kartuPesertaConfig.printRows, 10) || 5));
+    const autoMode = window.kartuPesertaConfig.printAuto !== false;
+    if (autoMode) { cols = 2; rows = 5; }
+    
+    // PRINT_GRID_V1: setiap halaman dihitung sendiri. Bila kartu di halaman terakhir
+    // lebih sedikit, baris yang dipakai lebih sedikit sehingga kartu membesar dan
+    // kertas terpakai penuh (tidak ada sisa terbuang).
+    const cardW = window.kartuPesertaConfig.cardWidth || 380;
+    const cardH = window.kartuPesertaConfig.cardHeight || 260;
+    const cardBoxW = cardW + 10; // termasuk margin 5px kiri/kanan
+    const cardBoxH = cardH + 10;
+    const gap = 6;
+    const pageWpx = Math.round(194 / 25.4 * 96);
+    const pageHpx = Math.round(273 / 25.4 * 96);
+    const perPage = cols * rows;
+    const autoMode2 = window.kartuPesertaConfig.printAuto !== false;
+    const baseScale = autoMode2 ? 1 : 1.6;
+    const pages = [];
+    for (let p0 = 0; p0 < filtered.length; p0 += perPage) {
+        const chunk = filtered.slice(p0, p0 + perPage);
+        const rowsUsed = Math.max(1, Math.min(rows, Math.ceil(chunk.length / cols)));
+        const cellW = (pageWpx - (cols - 1) * gap) / cols;
+        const cellH = (pageHpx - (rowsUsed - 1) * gap) / rowsUsed;
+        const scale = autoMode2 ? 1 : Math.min(cellW / cardBoxW, cellH / cardBoxH, baseScale);
+        let cells = '';
+        chunk.forEach((st) => {
+            const cls = classes.find(c => String(c.id) === String(st.classId || st.class_id));
+            const className = cls ? cls.name : '-';
+            const room = (rooms || []).find(r => (r.members || []).some(mId => String(mId) === String(st.id)));
+            const roomName = room ? room.name : '-';
+            cells += `<div style="width: ${Math.floor(cardBoxW * scale)}px; height: ${Math.floor(cardBoxH * scale)}px; position: relative; overflow: hidden;">`
+                   + `<div style="transform: scale(${scale}); transform-origin: top left; width: ${cardBoxW}px; height: ${cardBoxH}px;">`
+                   + getKartuPesertaHtml(st, className, roomName, true)
+                   + `</div></div>`;
+        });
+        pages.push(
+            `<div class="print-page" style="width: ${pageWpx}px; height: ${pageHpx}px; overflow: hidden;">`
+          + `<div style="display: grid; grid-template-columns: repeat(${cols}, ${Math.floor(cardBoxW * scale)}px); gap: ${gap}px; justify-content: center; align-content: start;">${cells}</div>`
+          + `</div>`
+        );
     }
+    const pagesHtml = pages.join('\n');
     
     printWin.document.write(`
     <html>
@@ -7819,7 +7884,7 @@ function cetakKartuUjian() {
         <style>
             @page {
                 size: A4;
-                margin: 15mm 10mm 15mm 10mm;
+                margin: 8mm 8mm 8mm 8mm;
             }
             body {
                 margin: 0;
@@ -7829,9 +7894,15 @@ function cetakKartuUjian() {
             }
             .print-container {
                 width: 100%;
-                max-width: 210mm;
+                max-width: 194mm;
                 margin: 0 auto;
                 box-sizing: border-box;
+            }
+            /* PRINT_SCALE_V1: kartu diskalakan per halaman agar mengisi penuh A4 */
+            .print-page { page-break-after: always; break-after: page; }
+            .print-page:last-child { page-break-after: auto; break-after: auto; }
+            @media print {
+                .print-page { overflow: hidden; }
             }
             @media print {
                 body {
@@ -7845,7 +7916,7 @@ function cetakKartuUjian() {
     </head>
     <body>
         <div class="print-container">
-            ${cardsHtml}
+            ${pagesHtml}
         </div>
         <script>
             window.onload = function() {
@@ -7854,7 +7925,7 @@ function cetakKartuUjian() {
                     window.onafterprint = function() {
                         window.close();
                     };
-                }, 500);
+                }, 600);
             };
         </script>
     </body>
