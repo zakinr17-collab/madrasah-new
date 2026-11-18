@@ -290,6 +290,9 @@ function renderQuestionBankModule(container) {
 
     const activeCode = appState.activeBankGroupCode || '';
 
+    // Soal yatim: kodenya tidak cocok dengan bank soal mana pun yang tampil.
+    const orphanCount = (questionBank || []).filter(q => !(questionBankGroups || []).some(bg => String(bg.code || '').trim().toLowerCase() === String(q.code || '').trim().toLowerCase())).length;
+
     if (!activeCode) {
         container.innerHTML = `
             <div class="space-y-6 pb-8">
@@ -310,6 +313,10 @@ function renderQuestionBankModule(container) {
                         <button type="button" onclick="openQuestionBankGroupModal()" class="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-2xl text-xs shadow flex items-center space-x-2 transition cursor-pointer">
                             <i class="fa-solid fa-plus"></i><span>Tambah Soal</span>
                         </button>
+                        ${orphanCount > 0 ? `
+                        <button type="button" onclick="cleanupOrphanQuestions()" class="px-4 py-3 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-2xl text-xs shadow flex items-center space-x-2 transition cursor-pointer" title="Hapus soal yang bank soalnya sudah tidak ada">
+                            <i class="fa-solid fa-broom"></i><span>Bersihkan Soal Yatim (${orphanCount})</span>
+                        </button>` : ''}
                     </div>
                 </div>
 
@@ -558,23 +565,59 @@ async function saveQuestionBankGroup(e) {
 }
 
 async function deleteQuestionBankGroup(id) {
-    showConfirmModal('Apakah Anda yakin ingin menghapus bank soal ini? Semua soal di dalamnya akan terpengaruh.', async () => {
+    showConfirmModal('Apakah Anda yakin ingin menghapus bank soal ini? Semua soal di dalamnya akan ikut terhapus.', async () => {
         const groupToDelete = appState.questionBankGroups.find(bg => String(bg.id) === String(id));
         appState.questionBankGroups = appState.questionBankGroups.filter(bg => String(bg.id) !== String(id));
         saveState('questionBankGroups');
 
         if (groupToDelete) {
-            appState.questionBank = (appState.questionBank || []).filter(q => String(q.code) !== String(groupToDelete.code));
+            // Samakan dengan hitungan kartu bank: kode dicocokkan tanpa spasi & huruf besar-kecil
+            const deletedCode = String(groupToDelete.code || '').trim().toLowerCase();
+            appState.questionBank = (appState.questionBank || []).filter(q => String(q.code || '').trim().toLowerCase() !== deletedCode);
             saveState('questionBank');
         }
 
         try {
-            await fetch(`/api/question-bank-groups/${id}`, {
+            const res = await fetch(`/api/question-bank-groups/${id}`, {
                 method: 'DELETE'
             });
-        } catch (err) {}
+            const payload = await res.json().catch(() => null);
+            if (!res.ok) {
+                throw new Error((payload && payload.message) || 'Gagal menghapus bank soal di server.');
+            }
+            const n = payload && typeof payload.deletedQuestions === 'number' ? payload.deletedQuestions : null;
+            showToast(n === null ? 'Bank soal berhasil dihapus!' : `Bank soal berhasil dihapus! ${n} soal di dalamnya ikut terhapus.`, 'success');
+        } catch (err) {
+            showToast((err && err.message) || 'Gagal menghapus bank soal di server.', 'error');
+            // Hapus lokal tadi hanya optimistis — pulihkan tampilan dari server
+            if (typeof syncKeyFromServer === 'function') {
+                await syncKeyFromServer('questionBankGroups');
+                await syncKeyFromServer('questionBank');
+            }
+        }
 
-        showToast('Bank soal berhasil dihapus!', 'success');
+        renderQuestionBankModule(document.getElementById('view-container'));
+    });
+}
+
+// Hapus soal yatim: soal yang kodenya tidak cocok dengan bank soal mana pun
+// (sisa hapusan bank sebelum server ikut menghapus soalnya).
+async function cleanupOrphanQuestions() {
+    showConfirmModal('Hapus semua soal yang bank soalnya sudah tidak ada? Soal yang masih punya bank tidak ikut terhapus.', async () => {
+        try {
+            const res = await fetch('/api/questions/cleanup-orphans', { method: 'POST' });
+            const payload = await res.json().catch(() => null);
+            if (!res.ok) {
+                throw new Error((payload && payload.message) || 'Gagal membersihkan soal yatim.');
+            }
+            const n = payload && typeof payload.deletedCount === 'number' ? payload.deletedCount : 0;
+            showToast(n > 0 ? `${n} soal yatim berhasil dihapus.` : 'Tidak ada soal yatim.', 'success');
+            if (typeof syncKeyFromServer === 'function') {
+                await syncKeyFromServer('questionBank');
+            }
+        } catch (err) {
+            showToast((err && err.message) || 'Gagal membersihkan soal yatim.', 'error');
+        }
         renderQuestionBankModule(document.getElementById('view-container'));
     });
 }
@@ -6355,6 +6398,7 @@ window.openQuestionBankGroupModal = openQuestionBankGroupModal;
 window.saveQuestionBankGroup = saveQuestionBankGroup;
 window.deleteQuestionBankGroup = deleteQuestionBankGroup;
 window.deleteIndividualQuestion = deleteIndividualQuestion;
+window.cleanupOrphanQuestions = cleanupOrphanQuestions;
 window.openAIGeneratorModal = openAIGeneratorModal;
 window.executeNonAIGenerator = executeNonAIGenerator;
 window.executeAIGenerator = executeAIGenerator;
@@ -6451,6 +6495,7 @@ Object.assign(window, {
   saveQuestionBankGroup,
   deleteQuestionBankGroup,
   deleteIndividualQuestion,
+  cleanupOrphanQuestions,
   openAIGeneratorModal,
   executeAIGenerator,
   downloadWordTemplate,
