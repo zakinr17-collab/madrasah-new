@@ -3301,6 +3301,8 @@ function autoConvertMathToLatex(str) {
         // Kode pasangan "1-a" bukan pengurangan, dan kata berimbuhan
         // "paru-paru" bukan rumus — biarkan apa adanya.
         if (/^\d+\s*-\s*[a-zA-Z]$/.test(trimmed)) return match;
+        // Rentang nomor "18-20" bukan pengurangan — biarkan apa adanya.
+        if (/^\d+\s*-\s*\d+$/.test(trimmed)) return match;
         if (/^[a-zA-Z]{2,}-[a-zA-Z]+$/.test(trimmed) || /^[a-zA-Z]+-[a-zA-Z]{2,}$/.test(trimmed)) return match;
         return wrapAndProtect(trimmed);
     });
@@ -3924,13 +3926,18 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
             if (optionCount >= 5) opts.E = optE;
 
             const isEssayInline = defaultTSInline === 'ESY';
+            // Soal PG tanpa satu pun opsi teks (mis. opsinya gambar) tidak
+            // boleh menempelkan gambar opsi sebagai gambar batang soal.
+            const hasTextOptions = ['A', 'B', 'C', 'D', 'E'].some(l => (currentOptions[l] || '').trim());
+            const hasOptionSlots = Object.keys(currentOptions).length > 0;
+            const imageOptions = /opsi berupa gambar/i.test(qText) || (hasOptionSlots && !hasTextOptions);
             parsedQuestions.push({
                 num: currentNum,
                 ts: isEssayInline ? 'ESY' : defaultTS,
                 kd: defaultKD,
                 kj: isEssayInline ? String(currentKey || '') : (/^[A-E]+$/i.test(String(currentKey || '')) ? String(currentKey).toUpperCase().trim() : String(currentKey || '').trim() || String(defaultKJ || '').trim()),
                 abs: '',
-                imageUrl: currentImageData || '',
+                imageUrl: (imageOptions && !isEssayInline && (defaultTS === 'PG' || defaultTS === 'PGX')) ? '' : (currentImageData || ''),
                 questionText: qText,
                 options: isEssayInline ? { A: '', B: '', C: '', D: '', E: '' } : opts
             });
@@ -3953,10 +3960,37 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
         let firstQuestionSeen = false;
         const headerSkip = /mata pelajaran|kelas\s*:|waktu\s*:|hari\s*:|tanggal\s*:|yayasan|madrasah|sekolah|evaluasi belajar|ujian|semester|tahun pelajaran|berilah tanda|petunjuk|kode pos|dilibas|alphabet/i;
 
+        // Baris penunjuk ("Teks berikut untuk soal nomor 4–7.") membuka
+        // kelompok soal berikut: bacaan setelahnya milik soal berikut.
+        const pointerRegex = /^((teks|bacaan) berikut|gambar|perhatikan gambar berikut) untuk soal nomor/i;
+        const pointerRange = (t) => {
+            const m = t.match(/soal nomor\s*(\d+)\s*[–—-]\s*(\d+)/i);
+            return m ? Math.max(1, Number(m[2]) - Number(m[1]) + 1) : 1;
+        };
+        let inPassage = false;
+        let pendingPassage = [];
+        let pendingImage = '';
+        // Bacaan/gambar satu kelompok menempel ke SEMUA soal kelompok itu.
+        let groupCount = 0;
+
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             const trimmed = line.trim();
             if (!trimmed) continue;
+            // Baris penunjuk: tutup soal yang sedang berjalan, barisnya
+            // dibuang, bacaan setelahnya dititipkan ke soal berikut.
+            if (pointerRegex.test(trimmed)) {
+                pushQuestion();
+                groupCount = pointerRange(trimmed);
+                pendingPassage = [];
+                pendingImage = '';
+                inPassage = true;
+                continue;
+            }
+            if (inPassage && !qNumRegex.test(trimmed) && !optRegex.test(trimmed) && !keyRegex.test(trimmed) && !trimmed.startsWith('##IMG##')) {
+                pendingPassage.push(trimmed);
+                continue;
+            }
             if (!firstQuestionSeen) {
                 if (qNumRegex.test(trimmed) && !headerSkip.test(trimmed)) {
                     firstQuestionSeen = true;
@@ -3968,7 +4002,8 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
             }
 
             if (trimmed.startsWith('##IMG##')) {
-                currentImageData = trimmed.slice(7).trim();
+                if (inPassage) pendingImage = trimmed.slice(7).trim();
+                else currentImageData = trimmed.slice(7).trim();
                 continue;
             }
 
@@ -3991,10 +4026,18 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
             const qMatch = trimmed.match(qNumRegex);
             if (qMatch) {
                 pushQuestion();
+                let stemPrefix = '';
+                if (groupCount > 0) {
+                    if (pendingPassage.length) stemPrefix = pendingPassage.join('\n') + '\n';
+                    if (pendingImage) currentImageData = pendingImage;
+                    groupCount--;
+                    if (groupCount === 0) { pendingPassage = []; pendingImage = ''; }
+                }
                 currentQuestion = {
                     num: parseInt(qMatch[1], 10) || currentNum,
-                    text: qMatch[2] || ''
+                    text: stemPrefix + (qMatch[2] || '')
                 };
+                inPassage = false;
                 continue;
             }
 
@@ -4978,6 +5021,20 @@ function assembleQuestionTextFromDocxLines(raw) {
     // di antara judul dan soal) dititipkan ke soal berikutnya, supaya
     // gambar tidak hilang atau menempel ke soal yang salah.
     let pendingImgs = [];
+    // Baris penunjuk ("Teks berikut untuk soal nomor 4–7.") membuka
+    // kelompok soal berikut: bacaan setelahnya milik soal berikut,
+    // bukan soal yang sedang berjalan.
+    const pointerRegex = /^((teks|bacaan) berikut|gambar|perhatikan gambar berikut) untuk soal nomor/i;
+    const pointerRange = (t) => {
+        const m = t.match(/soal nomor\s*(\d+)\s*[–—-]\s*(\d+)/i);
+        return m ? Math.max(1, Number(m[2]) - Number(m[1]) + 1) : 1;
+    };
+    let inPassage = false;
+    let pendingPassage = [];
+    // Bacaan/gambar satu kelompok menempel ke SEMUA soal kelompok itu
+    // (bank soal menampilkan tiap soal sendiri-sendiri).
+    let groupCount = 0;
+    let groupImgs = [];
     const newBlock = () => ({ qtext: [], opts: [], optsAfter: [], imgs: pendingImgs.splice(0), plains: [], key: '', fromQ: false });
     const flush = () => {
         if (cur && (cur.qtext.length || cur.opts.length || cur.imgs.length || cur.plains.length)) {
@@ -5012,13 +5069,25 @@ function assembleQuestionTextFromDocxLines(raw) {
             if (/^\d{1,3}$/.test(bare)) continue;
             keyMode = false;
         }
+        // Baris penunjuk: tutup soal yang sedang berjalan, barisnya
+        // dibuang, lalu bacaan/gambar setelahnya dititipkan ke soal berikut.
+        if (pointerRegex.test(t)) {
+            flush();
+            groupCount = pointerRange(t);
+            pendingPassage = [];
+            groupImgs = [];
+            inPassage = true;
+            continue;
+        }
         if (t.startsWith('##IMG##')) {
+            if (inPassage) { groupImgs.push(t.slice(7).trim()); continue; }
             if (!cur) cur = newBlock();
             cur.imgs.push(t.slice(7).trim());
             continue;
         }
         // Baris tabel: tetap jadi isi soal, bukan soal/opsi baru.
         if (t.startsWith('##T##')) {
+            if (inPassage) { pendingPassage.push(t.slice(5).trim()); continue; }
             if (!cur) cur = newBlock();
             cur.qtext.push(t.slice(5).trim());
             continue;
@@ -5030,15 +5099,34 @@ function assembleQuestionTextFromDocxLines(raw) {
             }
             flush();
             cur = newBlock();
-            cur.qtext = [body];
+            if (groupCount > 0) {
+                cur.qtext = [...pendingPassage, body];
+                cur.imgs.push(...groupImgs);
+                groupCount--;
+                if (groupCount === 0) { pendingPassage = []; groupImgs = []; }
+            } else {
+                cur.qtext = [body];
+            }
+            inPassage = false;
             cur.fromQ = true;
             continue;
         }
         if (t.startsWith('##O##')) {
-            if (!cur) cur = newBlock();
+            if (!cur) {
+                cur = newBlock();
+                if (groupCount > 0) {
+                    cur.qtext = pendingPassage;
+                    cur.imgs.push(...groupImgs);
+                    groupCount--;
+                    if (groupCount === 0) { pendingPassage = []; groupImgs = []; }
+                }
+                inPassage = false;
+            }
             if (cur.dividerSeen) cur.optsAfter.push(t.slice(5).trim()); else cur.opts.push(t.slice(5).trim());
             continue;
         }
+        // Baris polos di tengah bacaan kelompok soal berikutnya.
+        if (inPassage) { pendingPassage.push(t); continue; }
         if (!cur) cur = newBlock();
         // plain line continuation di tengah opsi = pembatas data-list vs opsi
         if (!cur.dividerSeen && cur.opts.length && isContinuation(t)) {
@@ -5946,6 +6034,11 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
         const finalOptions = isEssay ? [] : (currentOptions.length > 0 ? currentOptions.map(opt => autoFormatMathExpressions(opt)) : ['A', 'B', 'C', 'D', 'E']);
         const finalExp = autoFormatMathExpressions(currentExp || '');
 
+        // Soal PG yang opsinya gambar (tanpa satu pun opsi teks) tidak
+        // boleh menempelkan gambar opsi sebagai gambar batang soal.
+        const imageOptions = /opsi berupa gambar/i.test(currentQ.question) || (currentOptions.length > 0 && !currentOptions.some(o => (o || '').trim()));
+        const finalImage = (imageOptions && (currentTS === 'PG' || currentTS === 'PGX')) ? '' : (currentImg || '');
+
         appState.questionBank.push({
             id: 'Q_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
             code: code,
@@ -5953,7 +6046,7 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
             classId: group ? group.classId : (appState.classes[0]?.id || ''),
             type: isEssay ? 'essay' : 'mc',
             question: finalQuestionText,
-            imageUrl: currentImg || '',
+            imageUrl: finalImage,
             options: finalOptions,
             answer: autoFormatMathExpressions(answerKey || (isEssay ? 'Jawaban' : (finalOptions[0] || 'A'))),
             explanation: finalExp
@@ -5968,6 +6061,19 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
         currentTS = 'PG';
     };
 
+    // Baris penunjuk ("Teks berikut untuk soal nomor 4–7.") membuka
+    // kelompok soal berikut: bacaan setelahnya milik soal berikut.
+    const pointerRegex = /^((teks|bacaan) berikut|gambar|perhatikan gambar berikut) untuk soal nomor/i;
+    const pointerRange = (t) => {
+        const m = t.match(/soal nomor\s*(\d+)\s*[–—-]\s*(\d+)/i);
+        return m ? Math.max(1, Number(m[2]) - Number(m[1]) + 1) : 1;
+    };
+    let inPassage = false;
+    let pendingPassage = '';
+    let pendingImg = '';
+    // Bacaan/gambar satu kelompok menempel ke SEMUA soal kelompok itu.
+    let groupCount = 0;
+
     lines.forEach(line => {
         const uLine = line.toUpperCase();
         if (uLine.startsWith('TS')) {
@@ -5979,23 +6085,43 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
             currentAnswer = line.replace(/^KJ[:\s]*/i, '').trim();
         } else if (uLine.startsWith('ABS')) {
             // ABS line, skip
+        } else if (pointerRegex.test(line)) {
+            saveCurrent();
+            groupCount = pointerRange(line);
+            inPassage = true;
+            pendingPassage = '';
+            pendingImg = '';
         } else if (/^\d+[\.\)]\s?/.test(line)) {
             saveCurrent();
             const qText = line.replace(/^\d+[\.\)]\s*/, '');
-            currentQ = { question: qText };
+            let prefix = '';
+            if (groupCount > 0) {
+                if (pendingPassage) prefix = pendingPassage + '\n';
+                if (pendingImg) currentImg = pendingImg;
+                groupCount--;
+                if (groupCount === 0) { pendingPassage = ''; pendingImg = ''; }
+            }
+            currentQ = { question: prefix + qText };
+            inPassage = false;
         } else if (/^\[Gambar:\s*(.*?)\]/i.test(line)) {
             const match = line.match(/^\[Gambar:\s*(.*?)\]/i);
-            if (match && match[1]) currentImg = match[1].trim();
+            if (match && match[1]) {
+                if (inPassage) pendingImg = match[1].trim();
+                else currentImg = match[1].trim();
+            }
         } else if (/^[A-Ea-e][\.\)]\s/.test(line) || (currentQ && /^[A-Ea-e]\s/.test(line))) {
             const optText = line.replace(/^[A-Ea-e][\.\)]?\s*/, '');
             currentOptions.push(optText);
-        } else if (currentQ && /^[A-Ea-e]$/.test(line)) {
+        } else if (currentQ && /^[A-Ea-e][\.\)]?$/.test(line)) {
             // Option letter on its own line, push an empty option to be filled by the next line
             currentOptions.push('');
         } else if (/^(kunci\s*jawaban|kunci|jawaban|ans)[:\s]/i.test(line)) {
             currentAnswer = line.replace(/^(kunci\s*jawaban|kunci|jawaban|ans)[:\s]*/i, '').trim();
         } else if (/^(pembahasan|penjelasan|expl)[:\s]/i.test(line)) {
             currentExp = line.replace(/^(pembahasan|penjelasan|expl)[:\s]*/i, '').trim();
+        } else if (inPassage) {
+            // Baris bacaan kelompok soal berikut, dititipkan ke soal berikut.
+            pendingPassage += (pendingPassage ? '\n' : '') + line;
         } else if (line.startsWith('• ')) {
             // Baris tabel: isi soal yang sedang berjalan, bukan opsi.
             if (currentQ) currentQ.question += (currentQ.question ? '\n' : '') + line;
