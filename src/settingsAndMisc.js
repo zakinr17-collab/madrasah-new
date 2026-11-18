@@ -4197,11 +4197,22 @@ async function loadDataFromServer() {
         }
         const queryString = queryParams.toString();
         const url = '/api/all-data' + (queryString ? `?${queryString}` : '');
-        const response = await fetch(url, {
-            headers: {
-                'x-user-role': appState.role || ''
-            }
-        });
+        // Batas waktu muat sesi: tanpa ini request yang macet membuat tombol login
+        // berputar selamanya tanpa pernah gagal/coba ulang. Abort melempar ke catch
+        // di bawah sehingga jalur fallback (17 request paralel) ikut jalan.
+        const loadController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const loadTimer = loadController ? setTimeout(() => loadController.abort(), 60000) : null;
+        let response;
+        try {
+            response = await fetch(url, {
+                headers: {
+                    'x-user-role': appState.role || ''
+                },
+                signal: loadController ? loadController.signal : undefined
+            });
+        } finally {
+            if (loadTimer) clearTimeout(loadTimer);
+        }
         if (!response.ok) throw new Error('Bulk API response failed');
         const res = await response.json();
 

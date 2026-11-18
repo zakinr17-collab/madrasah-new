@@ -6196,13 +6196,21 @@ function isTeacherRequest(req: any): boolean {
   return role === 'teacher' || role === 'guru';
 }
 
+// PERF_LOGIN_GURU: turunan akses guru dihitung SEKALI per request dan disimpan
+// di objek req. Sebelumnya daftar mapel dibangun ulang untuk tiap soal/bank/ujian
+// (diukur: 8.160x rebuild, ~3 detik, untuk 2.000 soal) sehingga login guru lambat
+// dan biayanya naik kuadrat seiring data bertambah. Data tidak berubah di tengah
+// satu request, jadi cache per-request aman.
 function teacherRecordForRequest(req: any): any | null {
   if (!isTeacherRequest(req)) return null;
+  if (req && typeof req === 'object' && (req as any).__teacherRecordLoaded) return (req as any).__teacherRecord || null;
   const authUser = (req as any).user || getAuthUser(req);
   const owned = filterByMadrasah(teachers || [], req).filter((teacher: any) =>
     String(teacher?.id || '') === String(authUser?.id || '')
   );
-  return owned.length === 1 ? owned[0] : null;
+  const found = owned.length === 1 ? owned[0] : null;
+  if (req && typeof req === 'object') { (req as any).__teacherRecord = found; (req as any).__teacherRecordLoaded = true; }
+  return found;
 }
 
 // TEACHER_STUDENT_SCOPE_V1: per-teacher visibility of students.
@@ -6222,6 +6230,13 @@ function normalizeVisibleClassIds(value: any): string[] {
   return Array.from(new Set(value.map((v: any) => String(v || '').trim()).filter(Boolean)));
 }
 function teacherVisibleClassIds(req: any): Set<string> | null {
+  if (!isTeacherRequest(req)) return null;
+  if (req && typeof req === 'object' && (req as any).__teacherVisibleClassIdsLoaded) return (req as any).__teacherVisibleClassIds;
+  const result = computeTeacherVisibleClassIds(req);
+  if (req && typeof req === 'object') { (req as any).__teacherVisibleClassIds = result; (req as any).__teacherVisibleClassIdsLoaded = true; }
+  return result;
+}
+function computeTeacherVisibleClassIds(req: any): Set<string> | null {
   if (!isTeacherRequest(req)) return null;
   const teacher = teacherRecordForRequest(req);
   if (!teacher) return new Set<string>();
@@ -6260,6 +6275,12 @@ function teacherVisibleStudentIds(req: any): Set<string> | null {
 }
 
 function teacherAllowedSubjectsForRequest(req: any): any[] {
+  if (req && typeof req === 'object' && (req as any).__teacherAllowedSubjects) return (req as any).__teacherAllowedSubjects;
+  const result = computeTeacherAllowedSubjectsForRequest(req);
+  if (req && typeof req === 'object') (req as any).__teacherAllowedSubjects = result;
+  return result;
+}
+function computeTeacherAllowedSubjectsForRequest(req: any): any[] {
   if (!isTeacherRequest(req)) return filterByMadrasah(subjects || [], req);
   const teacher = teacherRecordForRequest(req);
   if (!teacher) return [];
@@ -6278,18 +6299,61 @@ function teacherAllowedSubjectsForRequest(req: any): any[] {
   });
 }
 
+// Set acuan mapel yang diampu: id/nama/kode dalam bentuk asli, lowercase, dan
+// ternormalisasi. Isinya sama persis dengan perbandingan di teacherCanAccessSubjectRef
+// lama (raw === ref, lowercase, dan normalized), hanya dibangun sekali per request.
+function teacherAllowedSubjectRefs(req: any): Set<string> {
+  if (req && typeof req === 'object' && (req as any).__teacherAllowedSubjectRefs) return (req as any).__teacherAllowedSubjectRefs;
+  const refs = new Set<string>();
+  for (const subject of teacherAllowedSubjectsForRequest(req)) {
+    for (const value of [subject?.id, subject?.name, subject?.code]) {
+      const ref = String(value || '').trim();
+      if (!ref) continue;
+      refs.add(ref);
+      refs.add(ref.toLowerCase());
+      const normalized = normalizeAcademicRef(ref);
+      if (normalized) refs.add(normalized);
+    }
+  }
+  if (req && typeof req === 'object') (req as any).__teacherAllowedSubjectRefs = refs;
+  return refs;
+}
+
 function teacherCanAccessSubjectRef(req: any, subjectRef: any): boolean {
   if (!isTeacherRequest(req)) return true;
   const raw = String(subjectRef || '').trim();
   if (!raw) return false;
+  const refs = teacherAllowedSubjectRefs(req);
+  if (refs.has(raw) || refs.has(raw.toLowerCase())) return true;
   const normalized = normalizeAcademicRef(raw);
-  return teacherAllowedSubjectsForRequest(req).some((subject: any) => {
-    const refs = [subject?.id, subject?.name, subject?.code].map((value: any) => String(value || '').trim());
-    return refs.some((ref: string) =>
-      raw === ref || raw.toLowerCase() === ref.toLowerCase() ||
-      (normalized && normalized === normalizeAcademicRef(ref))
-    );
-  });
+  return Boolean(normalized) && refs.has(normalized);
+}
+
+// Kode bank soal yang lolos saringan guru, sekali per request (dipakai tiap soal
+// dan tiap ujian; sebelumnya daftar bank dibangun ulang untuk tiap ujian).
+function teacherAllowedGroupCodes(req: any): Set<string> {
+  if (req && typeof req === 'object' && (req as any).__teacherAllowedGroupCodes) return (req as any).__teacherAllowedGroupCodes;
+  const codes = new Set<string>();
+  for (const group of questionBankGroupsForRequest(req)) {
+    const code = String(group?.code || '').trim().toLowerCase();
+    if (code) codes.add(code);
+  }
+  if (req && typeof req === 'object') (req as any).__teacherAllowedGroupCodes = codes;
+  return codes;
+}
+
+// Kode soal yang mapelnya diampu guru, sekali per request (pengganti scan semua
+// soal di dalam questionBankGroupAllowedForTeacher yang dulu jalan per bank).
+function teacherQuestionCodesWithAllowedSubject(req: any): Set<string> {
+  if (req && typeof req === 'object' && (req as any).__teacherQuestionCodesWithAllowedSubject) return (req as any).__teacherQuestionCodesWithAllowedSubject;
+  const codes = new Set<string>();
+  for (const question of filterByMadrasah(questions || [], req)) {
+    if (!teacherCanAccessSubjectRef(req, question?.subjectId || question?.subject)) continue;
+    const code = String(question?.code || '').trim().toLowerCase();
+    if (code) codes.add(code);
+  }
+  if (req && typeof req === 'object') (req as any).__teacherQuestionCodesWithAllowedSubject = codes;
+  return codes;
 }
 
 function questionBankGroupAllowedForTeacher(req: any, group: any): boolean {
@@ -6302,10 +6366,7 @@ function questionBankGroupAllowedForTeacher(req: any, group: any): boolean {
 
   const groupCode = String(group.code || '').trim().toLowerCase();
   if (!groupCode) return false;
-  return filterByMadrasah(questions || [], req).some((question: any) =>
-    String(question?.code || '').trim().toLowerCase() === groupCode &&
-    teacherCanAccessSubjectRef(req, question?.subjectId || question?.subject)
-  );
+  return teacherQuestionCodesWithAllowedSubject(req).has(groupCode);
 }
 
 function questionAllowedForTeacher(req: any, question: any): boolean {
@@ -6315,10 +6376,7 @@ function questionAllowedForTeacher(req: any, question: any): boolean {
 
   const questionCode = String(question.code || question.bankCode || question.groupCode || '').trim().toLowerCase();
   if (!questionCode) return false;
-  return filterByMadrasah(questionBankGroups || [], req).some((group: any) =>
-    String(group?.code || '').trim().toLowerCase() === questionCode &&
-    questionBankGroupAllowedForTeacher(req, group)
-  );
+  return teacherAllowedGroupCodes(req).has(questionCode);
 }
 
 function questionPayloadAllowedForTeacher(req: any, payload: any): boolean {
@@ -6336,10 +6394,13 @@ function questionPayloadAllowedForTeacher(req: any, payload: any): boolean {
 }
 
 function questionBankGroupsForRequest(req: any): any[] {
+  if (req && typeof req === 'object' && (req as any).__questionBankGroupsForRequest) return (req as any).__questionBankGroupsForRequest;
   const tenantGroups = filterByMadrasah(questionBankGroups || [], req);
-  return isTeacherRequest(req)
+  const result = isTeacherRequest(req)
     ? tenantGroups.filter((group: any) => questionBankGroupAllowedForTeacher(req, group))
     : tenantGroups;
+  if (req && typeof req === 'object') (req as any).__questionBankGroupsForRequest = result;
+  return result;
 }
 
 function questionsForRequest(req: any): any[] {
@@ -6356,12 +6417,7 @@ function teacherCanUseExamPayload(req: any, examPayload: any): boolean {
   if (teacherHasActiveProctorAssignment(req, examPayload)) return true;
 
   const bankCode = String(examPayload.bankCode || '').trim().toLowerCase();
-  if (bankCode) {
-    const allowedBank = questionBankGroupsForRequest(req).some((group: any) =>
-      String(group?.code || '').trim().toLowerCase() === bankCode
-    );
-    if (!allowedBank) return false;
-  }
+  if (bankCode && !teacherAllowedGroupCodes(req).has(bankCode)) return false;
 
   const subjectRef = examPayload.subjectId || examPayload.subject;
   if (subjectRef && !teacherCanAccessSubjectRef(req, subjectRef)) return false;
@@ -6377,9 +6433,7 @@ function teacherCanMutateExamPayload(req: any, examPayload: any): boolean {
   if (teacherHasActiveProctorAssignment(req, examPayload)) {
     const bankCode = String(examPayload.bankCode || '').trim().toLowerCase();
     const subjectRef = examPayload.subjectId || examPayload.subject;
-    const bankOwned = !bankCode || questionBankGroupsForRequest(req).some((group: any) =>
-      String(group?.code || '').trim().toLowerCase() === bankCode
-    );
+    const bankOwned = !bankCode || teacherAllowedGroupCodes(req).has(bankCode);
     const subjectOwned = !subjectRef || teacherCanAccessSubjectRef(req, subjectRef);
     if (!(bankOwned && subjectOwned && Boolean(bankCode || subjectRef))) return false;
   }
