@@ -1938,54 +1938,191 @@ async function initAppSession() {
 }
 setTimeout(initAppSession, 0);
 
+// ---- Pencarian global: semua data + menu, tanpa key & tanpa server ----
+// Indeks dibangun dari appState (data yang memang sudah dimuat di browser)
+// dan dari tombol sidebar yang sedang tampil (otomatis ikut peran).
+// appState.students untuk guru SUDAH difilter server ke kelas ampuannya,
+// jadi hasil Murid otomatis menghormati studentScope tanpa logika tambahan.
+// Searchbar ini disembunyikan untuk murid (lihat pengatur header), jadi
+// tidak ada hasil untuk peran murid. Nilai tidak diindeks: isinya data
+// per-murid dan tidak ada deep-link per nilainya.
+let __globalSearchIndex = null;
+let __globalSearchFp = '';
+let __globalSearchTimer = null;
+let __globalSearchEntries = [];
+const GLOBAL_SEARCH_PER_GROUP = 5;
+
+function __globalSearchStrip(text) {
+    return String(text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function __globalSearchFingerprint() {
+    const a = appState || {};
+    const counts = ['students', 'teachers', 'classes', 'subjects', 'exams', 'questionBank', 'questionBankGroups', 'journals', 'schedules', 'calendarEvents', 'madrasahs'].map(k => (a[k] || []).length).join(',');
+    const menuCount = document.querySelectorAll('#sidebar-menu button[onclick*="navigateTo"]').length;
+    return String(a.role || '') + '|' + counts + '|' + menuCount;
+}
+
+function __globalSearchClassName(id) {
+    const c = (appState.classes || []).find(x => String(x.id) === String(id));
+    return c ? c.name : '';
+}
+
+function __globalSearchSubjectName(id) {
+    const s = (appState.subjects || []).find(x => String(x.id) === String(id) || String(x.name) === String(id));
+    return s ? s.name : String(id || '');
+}
+
+function __globalSearchBuildIndex() {
+    const a = appState || {};
+    const role = String(a.role || '').toLowerCase();
+    const entries = [];
+    const push = (group, title, sub, hay, go) => {
+        const t = __globalSearchStrip(title);
+        if (!t) return;
+        entries.push({ group, title: t.length > 90 ? t.slice(0, 90) + '…' : t, sub: __globalSearchStrip(sub), hay: (t + ' ' + __globalSearchStrip(hay)).toLowerCase(), go });
+    };
+
+    // 1. Menu — dari sidebar yang sedang tampil (ikut peran) + sub-fitur.
+    const seenMenu = new Set();
+    document.querySelectorAll('#sidebar-menu button[onclick*="navigateTo"]').forEach(btn => {
+        const m = (btn.getAttribute('onclick') || '').match(/navigateTo\('([^']+)'\)/);
+        const label = __globalSearchStrip(btn.textContent);
+        if (!m || !label) return;
+        const key = m[1] + '|' + label;
+        if (seenMenu.has(key)) return;
+        seenMenu.add(key);
+        push('Menu', label, 'Menu', label + ' ' + m[1], { route: m[1] });
+    });
+    const subMenus = [
+        { label: 'Convert Soal', sub: 'Bank Soal', route: 'bank_soal', keys: 'convert soal ubah teks cbt', roles: ['admin', 'teacher', 'guru'] },
+        { label: 'Import Soal', sub: 'Bank Soal', route: 'bank_soal', keys: 'import soal masukkan', roles: ['admin', 'teacher', 'guru'] },
+        { label: 'Evaluasi Ujian', sub: 'Asesmen & CBT', route: 'evaluasi', keys: 'evaluasi ujian hasil koreksi nilai', roles: ['admin', 'teacher', 'guru'] },
+        { label: 'Monitoring Ujian', sub: 'Asesmen & CBT', route: 'monitoring', keys: 'monitoring ujian pantau peserta live', roles: ['admin', 'teacher', 'guru'] },
+        { label: 'Jadwal Asesmen', sub: 'Asesmen & CBT', route: 'asesmen', keys: 'jadwal asesmen ujian', roles: ['admin', 'teacher', 'guru'] },
+    ];
+    subMenus.forEach(sm => {
+        if (sm.roles && !sm.roles.includes(role)) return;
+        const key = sm.route + '|' + sm.label;
+        if (seenMenu.has(key)) return;
+        seenMenu.add(key);
+        push('Menu', sm.label, sm.sub, sm.label + ' ' + sm.sub + ' ' + sm.keys, { route: sm.route });
+    });
+
+    // 2. Murid — appState.students sudah difilter server (scope guru).
+    (a.students || []).forEach(s => {
+        const cls = __globalSearchClassName(s.classId || s.class_id);
+        push('Murid', s.name, 'Murid' + (s.nis ? ' • NIS ' + s.nis : '') + (cls ? ' • ' + cls : ''), (s.name || '') + ' ' + (s.nis || '') + ' ' + cls, { route: 'siswa' });
+    });
+    // 3. Guru
+    (a.teachers || []).forEach(t => {
+        push('Guru', t.name, 'Guru' + (t.nip ? ' • NIP ' + t.nip : ''), (t.name || '') + ' ' + (t.nip || ''), { route: 'guru' });
+    });
+    // 4. Kelas
+    (a.classes || []).forEach(c => {
+        push('Kelas', c.name, 'Kelas' + (c.grade ? ' • Tingkat ' + c.grade : ''), (c.name || '') + ' ' + (c.grade || ''), { route: 'kelas' });
+    });
+    // 5. Mapel
+    (a.subjects || []).forEach(s => {
+        push('Mapel', s.name, 'Mata Pelajaran', s.name || '', { route: 'jadwal' });
+    });
+    // 6. Ujian
+    (a.exams || []).forEach(ex => {
+        push('Ujian', ex.title, [ex.subject, ex.date, ex.questionCount ? ex.questionCount + ' soal' : ''].filter(Boolean).join(' • '), (ex.title || '') + ' ' + (ex.subject || '') + ' ' + (ex.bankCode || ''), { route: 'monitoring', examId: ex.id });
+    });
+    // 7. Soal
+    (a.questionBank || []).forEach(q => {
+        const opts = Array.isArray(q.options) ? q.options.join(' ') : '';
+        push('Soal', q.question, 'Soal' + (q.code ? ' • ' + q.code : ''), (q.question || '') + ' ' + opts + ' ' + (q.code || ''), { route: 'bank_soal', bankCode: q.code });
+    });
+    // 8. Jurnal
+    (a.journals || []).forEach(j => {
+        push('Jurnal', j.material, ['Jurnal', __globalSearchSubjectName(j.subjectId), __globalSearchClassName(j.classId), j.date].filter(Boolean).join(' • '), (j.material || '') + ' ' + (j.notes || '') + ' ' + (j.achievement || '') + ' ' + __globalSearchSubjectName(j.subjectId) + ' ' + __globalSearchClassName(j.classId), { route: 'jurnal' });
+    });
+    // 9. Jadwal
+    (a.schedules || []).forEach(s => {
+        const subj = __globalSearchSubjectName(s.subjectId);
+        const cls = __globalSearchClassName(s.classId);
+        const tch = (a.teachers || []).find(t => String(t.id) === String(s.teacherId));
+        push('Jadwal', subj + (cls ? ' • ' + cls : ''), 'Jadwal' + (s.day ? ' • ' + s.day : '') + (s.time ? ' • ' + s.time : ''), subj + ' ' + cls + ' ' + (s.day || '') + ' ' + (tch ? tch.name : ''), { route: 'jadwal' });
+    });
+    // 10. Kalender
+    (a.calendarEvents || []).forEach(ev => {
+        push('Kalender', ev.title, [ev.category, ev.startDate].filter(Boolean).join(' • '), (ev.title || '') + ' ' + (ev.category || '') + ' ' + (ev.description || ''), { route: 'kalender' });
+    });
+    // 11. Madrasah (bos saja)
+    if (['bos', 'boss', 'superadmin'].includes(role)) {
+        (a.madrasahs || []).forEach(m => {
+            push('Madrasah', m.name, 'Madrasah', m.name || '', { route: 'boss_madrasahs' });
+        });
+    }
+    return entries;
+}
+
+function __globalSearchGo(i) {
+    const entry = __globalSearchEntries[i];
+    const box = document.getElementById('global-search-results');
+    if (box) box.classList.add('hidden');
+    const input = document.getElementById('global-search-input');
+    if (input) input.value = '';
+    if (!entry || !entry.go) return;
+    if (entry.go.bankCode) appState.activeBankGroupCode = entry.go.bankCode;
+    if (entry.go.examId) appState.activeMonitoringExamId = entry.go.examId;
+    if (typeof navigateTo === 'function') navigateTo(entry.go.route);
+}
+
 function handleGlobalSearch(query) {
     const resultsContainer = document.getElementById('global-search-results');
-    if (!query || query.trim().length < 1) {
-        resultsContainer.classList.add('hidden');
+    if (__globalSearchTimer) clearTimeout(__globalSearchTimer);
+    if (!query || !query.trim()) {
+        if (resultsContainer) resultsContainer.classList.add('hidden');
         return;
     }
-
-    const q = query.toLowerCase();
-    let resultsHtml = '';
-    let count = 0;
-
-    (appState.students || []).forEach(s => {
-        if ((s.name && s.name.toLowerCase().includes(q)) || (s.nis && s.nis.includes(q))) {
-            resultsHtml += `<div class="px-3 py-2 hover:bg-slate-100 cursor-pointer rounded-xl flex justify-between items-center" onclick="navigateTo('siswa'); document.getElementById('global-search-results').classList.add('hidden');">
-                <div><span class="font-bold text-slate-800">${escapeHtml(s.name)}</span><p class="text-[10px] text-slate-400">Murid - NIS: ${escapeHtml(s.nis)}</p></div>
-                <i class="fa-solid fa-arrow-right text-slate-400 text-[10px]"></i>
-            </div>`;
-            count++;
+    __globalSearchTimer = setTimeout(() => {
+        const q = query.trim().toLowerCase();
+        if (q.length < 2) {
+            resultsContainer.classList.add('hidden');
+            return;
         }
-    });
-
-    (appState.teachers || []).forEach(t => {
-        if ((t.name && t.name.toLowerCase().includes(q)) || (t.nip && t.nip.includes(q))) {
-            resultsHtml += `<div class="px-3 py-2 hover:bg-slate-100 cursor-pointer rounded-xl flex justify-between items-center" onclick="navigateTo('guru'); document.getElementById('global-search-results').classList.add('hidden');">
-                <div><span class="font-bold text-slate-800">${escapeHtml(t.name)}</span><p class="text-[10px] text-slate-400">Guru - NIP: ${escapeHtml(t.nip)}</p></div>
-                <i class="fa-solid fa-arrow-right text-slate-400 text-[10px]"></i>
-            </div>`;
-            count++;
+        const words = q.split(/\s+/).filter(Boolean);
+        const fp = __globalSearchFingerprint();
+        if (!__globalSearchIndex || fp !== __globalSearchFp) {
+            __globalSearchIndex = __globalSearchBuildIndex();
+            __globalSearchFp = fp;
         }
-    });
-
-    (appState.classes || []).forEach(c => {
-        if (c.name && c.name.toLowerCase().includes(q)) {
-            resultsHtml += `<div class="px-3 py-2 hover:bg-slate-100 cursor-pointer rounded-xl flex justify-between items-center" onclick="navigateTo('kelas'); document.getElementById('global-search-results').classList.add('hidden');">
-                <div><span class="font-bold text-slate-800">${escapeHtml(c.name)}</span><p class="text-[10px] text-slate-400">Kelas - Tingkat: ${escapeHtml(c.grade)}</p></div>
-                <i class="fa-solid fa-arrow-right text-slate-400 text-[10px]"></i>
-            </div>`;
-            count++;
+        const groups = ['Menu', 'Murid', 'Guru', 'Kelas', 'Mapel', 'Ujian', 'Soal', 'Jurnal', 'Jadwal', 'Kalender', 'Madrasah'];
+        const matched = {};
+        __globalSearchIndex.forEach((entry, idx) => {
+            if (!words.every(w => entry.hay.includes(w))) return;
+            if ((matched[entry.group] || []).length >= GLOBAL_SEARCH_PER_GROUP) return;
+            (matched[entry.group] = matched[entry.group] || []).push(idx);
+        });
+        __globalSearchEntries = [];
+        let html = '';
+        let count = 0;
+        groups.forEach(g => {
+            const list = matched[g];
+            if (!list || !list.length) return;
+            html += `<div class="px-3 pt-2 pb-1 text-[10px] font-extrabold uppercase tracking-wider text-slate-400">${escapeHtml(g)}</div>`;
+            list.forEach(idx => {
+                const entry = __globalSearchIndex[idx];
+                const goIdx = __globalSearchEntries.length;
+                __globalSearchEntries.push(entry);
+                html += `<div class="px-3 py-2 hover:bg-slate-100 cursor-pointer rounded-xl flex justify-between items-center" onclick="window.__globalSearchGo(${goIdx})">
+                    <div class="min-w-0"><span class="font-bold text-slate-800 block truncate">${escapeHtml(entry.title)}</span><p class="text-[10px] text-slate-400 truncate">${escapeHtml(entry.sub)}</p></div>
+                    <i class="fa-solid fa-arrow-right text-slate-400 text-[10px] shrink-0 ml-2"></i>
+                </div>`;
+                count++;
+            });
+        });
+        if (count === 0) {
+            html = `<div class="px-3 py-2 text-slate-500 text-center text-xs">Pencarian tidak ditemukan</div>`;
         }
-    });
-
-    if (count === 0) {
-        resultsHtml = `<div class="px-3 py-2 text-slate-500 text-center text-xs">Pencarian tidak ditemukan</div>`;
-    }
-
-    resultsContainer.innerHTML = resultsHtml;
-    resultsContainer.classList.remove('hidden');
+        resultsContainer.innerHTML = html;
+        resultsContainer.classList.remove('hidden');
+    }, 120);
 }
+window.__globalSearchGo = __globalSearchGo;
 
 function fillDemo(user, pass) {
     if (user && pass) {
