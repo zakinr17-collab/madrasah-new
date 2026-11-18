@@ -561,6 +561,9 @@ function openTeacherModal(id = null) {
 
     const modal = document.getElementById('modal-container');
     const teacherMapels = Array.isArray(item.mapel) ? item.mapel : (item.mapel ? [item.mapel] : []);
+    // TEACHER_STUDENT_SCOPE_V1: legacy teachers have no scope field -> 'taught'.
+    const teacherScope = ['taught', 'all', 'custom'].includes(String(item.studentScope || '').trim().toLowerCase()) ? String(item.studentScope).trim().toLowerCase() : 'taught';
+    const teacherVisibleClassIds = Array.isArray(item.visibleClassIds) ? item.visibleClassIds.map(c => String(c)) : [];
     const phoneVal = item.phone || item.no_hp || '';
     const genderVal = item.gender || item.jenis_kelamin || 'L';
     const addressVal = item.address || item.alamat || '';
@@ -654,6 +657,22 @@ function openTeacherModal(id = null) {
                         </div>
                     </div>
 
+                    <div>
+                        <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Kelas yang Bisa Dilihat</label>
+                        <div class="space-y-1.5 p-2.5 bg-slate-50 border border-slate-200 rounded-2xl">
+                            <label class="flex items-center space-x-2 text-xs cursor-pointer"><input type="radio" name="tch-scope" value="taught" ${teacherScope === 'taught' ? 'checked' : ''} onchange="toggleTeacherScopeClasses()" class="rounded text-emerald-600"><span>Otomatis — Kelas Ampuan (wali kelas + jadwal mengajar)</span></label>
+                            <label class="flex items-center space-x-2 text-xs cursor-pointer"><input type="radio" name="tch-scope" value="all" ${teacherScope === 'all' ? 'checked' : ''} onchange="toggleTeacherScopeClasses()" class="rounded text-emerald-600"><span>Semua Kelas</span></label>
+                            <label class="flex items-center space-x-2 text-xs cursor-pointer"><input type="radio" name="tch-scope" value="custom" ${teacherScope === 'custom' ? 'checked' : ''} onchange="toggleTeacherScopeClasses()" class="rounded text-emerald-600"><span>Pilih Kelas Tertentu</span></label>
+                        </div>
+                        <div id="tch-scope-classes" class="space-y-1.5 max-h-32 overflow-y-auto p-2.5 bg-slate-50 border border-slate-200 rounded-2xl mt-2" style="${teacherScope === 'custom' ? '' : 'display:none'}">
+                            ${(appState.classes || []).map(c => {
+                                const isChecked = teacherVisibleClassIds.includes(String(c.id));
+                                return `<label class="flex items-center space-x-2 text-xs cursor-pointer"><input type="checkbox" name="tch-visible-classes" value="${c.id}" ${isChecked ? 'checked' : ''} class="rounded text-emerald-600"><span>${c.name}</span></label>`;
+                            }).join('')}
+                        </div>
+                        <p class="text-[10px] text-slate-400 mt-1">Guru hanya menerima data siswa dari kelas-kelas ini. Bila "Pilih Kelas Tertentu" dicentang tanpa kelas apa pun, guru tidak melihat siswa sama sekali.</p>
+                    </div>
+
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-slate-100">
                         <div>
                             <label class="block text-xs font-semibold uppercase text-slate-500 mb-1">Username Login</label>
@@ -674,6 +693,13 @@ function openTeacherModal(id = null) {
             </div>
         </div>
     `;
+}
+
+// TEACHER_STUDENT_SCOPE_V1: show the class checkbox list only for "custom" scope.
+function toggleTeacherScopeClasses() {
+    const sel = document.querySelector('input[name="tch-scope"]:checked');
+    const box = document.getElementById('tch-scope-classes');
+    if (box) box.style.display = (sel && sel.value === 'custom') ? '' : 'none';
 }
 
 function previewAdminTeacherPhoto(event) {
@@ -769,6 +795,11 @@ async function saveTeacher(e, id) {
     const password = document.getElementById('tch-pass').value;
     const photo = document.getElementById('tch-photo-base64')?.value || '';
     const mapel = Array.from(document.querySelectorAll('input[name="tch-mapels"]:checked')).map(cb => cb.value);
+    // TEACHER_STUDENT_SCOPE_V1: only the checked classes are sent when 'custom'.
+    const studentScope = (document.querySelector('input[name="tch-scope"]:checked') || {}).value || 'taught';
+    const visibleClassIds = studentScope === 'custom'
+        ? Array.from(document.querySelectorAll('input[name="tch-visible-classes"]:checked')).map(cb => cb.value)
+        : [];
 
     if (!nip || !name || !username) { showToast('NIP, Nama, Username wajib diisi.', 'error'); return; }
 
@@ -793,7 +824,9 @@ async function saveTeacher(e, id) {
                 username, 
                 password, 
                 photo, 
-                mapel 
+                mapel,
+                studentScope,
+                visibleClassIds
             })
         });
         const data = await response.json();
@@ -1316,6 +1349,7 @@ async function saveTeacherProfileSelf(e, teacherId) {
 // Window globals
 window.renderTeacherModule = renderTeacherModule;
 window.openTeacherModal = openTeacherModal;
+window.toggleTeacherScopeClasses = toggleTeacherScopeClasses;
 window.previewAdminTeacherPhoto = previewAdminTeacherPhoto;
 window.removeAdminTeacherPhoto = removeAdminTeacherPhoto;
 window.saveTeacher = saveTeacher;
@@ -1383,7 +1417,19 @@ function renderStudentModule(container) {
         .catch(() => {});
 
     const isTeacher = ['teacher', 'guru'].includes(String(appState.role || '').toLowerCase());
-    const classFilter = window.studentClassFilter || '';
+    let classFilter = window.studentClassFilter || '';
+    // TEACHER_STUDENT_SCOPE_V1: the server already filtered appState.students
+    // to the teacher's visible classes, so derive the visible class ids from
+    // the students actually returned — it cannot lie about what the server sent.
+    const visibleClassIds = isTeacher
+        ? [...new Set((appState.students || []).map(s => String(s.classId || s.class_id || '')).filter(Boolean))]
+        : null;
+    const visibleClasses = isTeacher
+        ? (appState.classes || []).filter(c => visibleClassIds.includes(String(c.id)))
+        : (appState.classes || []);
+    const teacherHasNoVisibleClasses = isTeacher && visibleClassIds.length === 0;
+    // A stale filter pointing at a class the teacher cannot see resets to "all visible".
+    if (isTeacher && classFilter && classFilter !== 'all' && !visibleClassIds.includes(String(classFilter))) classFilter = 'all';
     let filteredStudents = Array.isArray(appState.students) ? [...appState.students] : [];
 
     if (classFilter && classFilter !== 'all') {
@@ -1416,18 +1462,24 @@ function renderStudentModule(container) {
                     <button type="button" onclick="window.openBulkResetPasswordModal()" class="px-3.5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl text-xs font-semibold shadow transition"><i class="fa-solid fa-key mr-1"></i>Reset Password</button>
                     <button type="button" onclick="deleteSelectedStudentsPage()" class="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-semibold shadow transition"><i class="fa-solid fa-trash mr-1"></i>Hapus Terpilih</button>
                     ` : ''}
-                    <button type="button" onclick="openExportStudentModal()" class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-semibold shadow transition"><i class="fa-solid fa-file-export mr-1.5"></i>Ekspor</button>
+                    ${teacherHasNoVisibleClasses ? '' : `<button type="button" onclick="openExportStudentModal()" class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-semibold shadow transition"><i class="fa-solid fa-file-export mr-1.5"></i>Ekspor</button>`}
                 </div>
             </div>
 
             <div class="bg-white p-4 rounded-3xl shadow-sm border border-slate-100 flex flex-wrap items-center gap-3">
                 <label class="text-xs font-semibold uppercase text-slate-500">Filter Kelas:</label>
                 <select id="filter-class-student" onchange="window.studentClassFilter=this.value; renderStudentModule(document.getElementById('view-container'));" class="w-64 px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm">
+                    ${isTeacher ? `
+                    <option value="all" ${classFilter === 'all' || classFilter === '' ? 'selected' : ''}>Tampilkan Semua (Kelas yang Bisa Dilihat)</option>
+                    ${visibleClasses.map(c => `<option value="${c.id}" ${String(classFilter) === String(c.id) ? 'selected' : ''}>${c.name}</option>`).join('')}
+                    ` : `
                     <option value="">Semua Kelas</option>
                     <option value="all" ${classFilter === 'all' ? 'selected' : ''}>Tampilkan Semua</option>
                     ${(appState.classes || []).map(c => `<option value="${c.id}" ${String(classFilter) === String(c.id) ? 'selected' : ''}>${c.name}</option>`).join('')}
+                    `}
                 </select>
             </div>
+            ${teacherHasNoVisibleClasses ? `<div class="bg-amber-50 border border-amber-200 rounded-3xl p-5 text-sm text-amber-800 font-semibold">Belum ada kelas yang bisa dilihat — hubungi admin.</div>` : ''}
 
             <div class="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
                 <div class="overflow-x-auto">
