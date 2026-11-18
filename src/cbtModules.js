@@ -3222,12 +3222,17 @@ function autoConvertMathToLatex(str) {
     });
 
     // Step 3: Factorials & Factorial Arithmetic (e.g. 4!+5!-3!, 5! / (5-2)!, n!/(k!(n-k)!), 4! + 5! - 3!)
-    const factorialExprRegex = /((?:(?:\d+|\([^\)]+\)|[a-zA-Z]+)\!+)(?:\s*[\+\-\*\:\/x×÷\=]\s*(?:\d+|\([^\)]+\)|[a-zA-Z]+)\!*)+)/g;
-    text = text.replace(factorialExprRegex, (match) => {
-        return wrapAndProtect(match);
+    // Basis faktorial harus diawali batas kata (bukan ekor kata biasa:
+    // "berikut!" bukan faktorial, begitu juga "beriku(t!)").
+    const factorialExprRegex = /(^|[^a-zA-Z0-9])((?:(?:\d+|\([^\)]+\)|[a-zA-Z]+)\!+)(?:\s*[\+\-\*\:\/x×÷\=]\s*(?:\d+|\([^\)]+\)|[a-zA-Z]+)\!*)+)/g;
+    text = text.replace(factorialExprRegex, (m, pre, expr) => {
+        return pre + wrapAndProtect(expr);
     });
-    text = text.replace(/((?:\d+|\([^\)]+\)|[a-zA-Z]+)\!+)/g, (match) => {
-        return wrapAndProtect(match);
+    // Hanya satu huruf/angka/ekspresi dalam kurung yang boleh jadi basis
+    // faktorial ("n!", "5!", "(x+1)!") — kata biasa diikuti "!"
+    // ("Perhatikan gambar berikut!") BUKAN faktorial.
+    text = text.replace(/(^|[^a-zA-Z0-9])((?:\d+|\([^\)]+\)|[a-zA-Z])\!+)/g, (m, pre, expr) => {
+        return pre + wrapAndProtect(expr);
     });
 
     // Step 4: Logarithms (e.g. ^2log 16, ^5log 25, ^3log(27), log_2(16))
@@ -3293,6 +3298,10 @@ function autoConvertMathToLatex(str) {
         // Ignore Indonesian common word combinations
         if (/^(i|ii|iii|iv|v|vi|a|b|c|d|e|dan|atau|maka|jika|pada|adalah|ke|di|yang|dengan|untuk|nilai|dari|hasil|banyak|titik|persamaan|fungsi|diketahui|tentukan|suku|jumlah)$/i.test(trimmed)) return match;
         if (!/[\d\^\!\_a-zA-Z\=\+\-\*\:\/×÷≤≥≠±]/.test(trimmed)) return match;
+        // Kode pasangan "1-a" bukan pengurangan, dan kata berimbuhan
+        // "paru-paru" bukan rumus — biarkan apa adanya.
+        if (/^\d+\s*-\s*[a-zA-Z]$/.test(trimmed)) return match;
+        if (/^[a-zA-Z]{2,}-[a-zA-Z]+$/.test(trimmed) || /^[a-zA-Z]+-[a-zA-Z]{2,}$/.test(trimmed)) return match;
         return wrapAndProtect(trimmed);
     });
 
@@ -3901,7 +3910,9 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
             let optE = currentOptions['E'] || '';
 
             if (autoMath) {
-                qText = autoConvertMathToLatex(qText);
+                // Konversi per baris supaya rumus tidak "menyeberang" baris
+                // ("berikut!\nMurid" ikut terbungkus LaTeX).
+                qText = qText.split('\n').map((l) => autoConvertMathToLatex(l)).join('\n');
                 optA = autoConvertMathToLatex(optA);
                 optB = autoConvertMathToLatex(optB);
                 optC = autoConvertMathToLatex(optC);
@@ -3999,6 +4010,12 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
             }
 
             if (currentQuestion) {
+                // Baris tabel ("• ...") adalah isi soal yang sedang
+                // berjalan, bukan soal baru — tempel ke batang soal.
+                if (trimmed.startsWith('• ')) {
+                    currentQuestion.text += (currentQuestion.text ? '\n' : '') + trimmed;
+                    continue;
+                }
                 const numOptions = Object.keys(currentOptions).length;
                 if ((numOptions >= optionCount || currentKey) && !trimmed.match(optRegex) && !trimmed.match(keyRegex)) {
                     pushQuestion();
@@ -4600,9 +4617,11 @@ function parseWordHtmlToText(html) {
                 if (kj) block += `\nKunci: ${kj}`;
                 textParts.push(block);
             } else {
+                // Baris tabel biasa diawali '• ' supaya tidak dikira
+                // nomor soal baru ("1. Pneumonia") oleh parser teks.
                 rows.forEach(r => {
                     const cellTexts = Array.from(r.querySelectorAll('td, th')).map(c => extractTextAndImagesFromNode(c).trim()).join(' | ');
-                    if (cellTexts) textParts.push(cellTexts);
+                    if (cellTexts) textParts.push('• ' + cellTexts);
                 });
             }
         });
@@ -4864,9 +4883,10 @@ async function extractDocxTextWithMath(file) {
 
     const parser = new DOMParser();
     const doc = parser.parseFromString(docXml, 'application/xml');
-    const paras = Array.from(doc.getElementsByTagName('w:p'));
     const lines = [];
-    for (const pEl of paras) {
+    // Paragraf diproses dalam urutan dokumen (bukan semua w:p sekaligus)
+    // supaya tabel tetap pada posisinya dan tidak tercampur dengan soal.
+    const processPara = async (pEl) => {
         // nomor daftar (decimal=soal, lowerLetter=pilihan)
         let fmt = null;
         try {
@@ -4904,11 +4924,42 @@ async function extractDocxTextWithMath(file) {
         }
         walk(pEl);
         text = text.replace(/\s+/g, ' ').trim();
-        if (!text && !blipEls.length) continue;
-        if (fmt === 'decimal') lines.push(text ? '##Q## ' + text : '');
-        else if (fmt === 'lowerLetter' || fmt === 'upperLetter') lines.push(text ? '##O## ' + text : '');
-        else if (text) lines.push(text);
-    }
+        if (!text && !blipEls.length) return;
+        // Nomor/opsi yang DIKETIK manual ("1. ...", "a. ...", "(a) ...") —
+        // tanpa penomoran otomatis Word — dikenali dari teksnya sendiri.
+        // Tanpa ini, seluruh dokumen dianggap satu blok dan batang soal
+        // malah dirakit jadi opsi (soal jadi kosong).
+        const typedQ = text.match(/^(\d{1,3})[\.\)]\s+(.*)$/);
+        const typedO = !typedQ && text.match(/^[\(\[]?([A-Ea-e])[\.\)\]]\s+(.*)$/);
+        if (fmt === 'decimal' || typedQ) {
+            const body = typedQ ? typedQ[2] : text;
+            if (body) lines.push('##Q## ' + body);
+        } else if (fmt === 'lowerLetter' || fmt === 'upperLetter' || typedO) {
+            const body = typedO ? typedO[2] : text;
+            if (body) lines.push('##O## ' + body);
+        } else if (text) lines.push(text);
+    };
+    // Isi tabel BUKAN soal/opsi baru: baris tabel dipertahankan sebagai
+    // isi soal ("• sel1 | sel2") supaya "1. Pneumonia" di dalam tabel
+    // tidak dikira nomor soal baru.
+    const processTable = (tblEl) => {
+        const rows = Array.from(tblEl.getElementsByTagName('w:tr'));
+        for (const tr of rows) {
+            const cells = Array.from(tr.childNodes || []).filter(c => (c.nodeName || '').toLowerCase() === 'w:tc');
+            const texts = cells.map(tc => Array.from(tc.getElementsByTagName('w:t')).map(t => t.textContent || '').join('').replace(/\s+/g, ' ').trim()).filter(Boolean);
+            if (texts.length) lines.push('##T## • ' + texts.join(' | '));
+        }
+    };
+    const bodyEl = doc.getElementsByTagName('w:body')[0] || doc.documentElement;
+    const walkBody = async (node) => {
+        for (const ch of Array.from(node.childNodes || [])) {
+            const nm = (ch.nodeName || '').toLowerCase();
+            if (nm === 'w:p') await processPara(ch);
+            else if (nm === 'w:tbl') processTable(ch);
+            else if (ch.childNodes && ch.childNodes.length) await walkBody(ch);
+        }
+    };
+    await walkBody(bodyEl);
     return lines.join('\n');
 }
 
@@ -4923,8 +4974,19 @@ function assembleQuestionTextFromDocxLines(raw) {
     let keyMode = false;
     const keyList = [];
     let bareKeyCount = 0;
+    // Gambar yang muncul SEBELUM nomor soalnya (mis. paragraf gambar
+    // di antara judul dan soal) dititipkan ke soal berikutnya, supaya
+    // gambar tidak hilang atau menempel ke soal yang salah.
+    let pendingImgs = [];
+    const newBlock = () => ({ qtext: [], opts: [], optsAfter: [], imgs: pendingImgs.splice(0), plains: [], key: '', fromQ: false });
     const flush = () => {
-        if (cur && (cur.qtext.length || cur.opts.length || cur.imgs.length || cur.plains.length)) blocks.push(cur);
+        if (cur && (cur.qtext.length || cur.opts.length || cur.imgs.length || cur.plains.length)) {
+            if (!cur.qtext.length && !cur.opts.length && !cur.plains.length && cur.imgs.length) {
+                pendingImgs.push(...cur.imgs);
+            } else {
+                blocks.push(cur);
+            }
+        }
         cur = null;
     };
     void 0;
@@ -4951,8 +5013,14 @@ function assembleQuestionTextFromDocxLines(raw) {
             keyMode = false;
         }
         if (t.startsWith('##IMG##')) {
-            if (!cur) cur = { qtext: [], opts: [], imgs: [], plains: [] };
+            if (!cur) cur = newBlock();
             cur.imgs.push(t.slice(7).trim());
+            continue;
+        }
+        // Baris tabel: tetap jadi isi soal, bukan soal/opsi baru.
+        if (t.startsWith('##T##')) {
+            if (!cur) cur = newBlock();
+            cur.qtext.push(t.slice(5).trim());
             continue;
         }
         if (t.startsWith('##Q##')) {
@@ -4961,30 +5029,57 @@ function assembleQuestionTextFromDocxLines(raw) {
                 cur.opts.push(body); continue; // quirk Word: opsi dirender desimal
             }
             flush();
-            cur = { qtext: [body], opts: [], optsAfter: [], imgs: [], plains: [] };
+            cur = newBlock();
+            cur.qtext = [body];
+            cur.fromQ = true;
             continue;
         }
         if (t.startsWith('##O##')) {
-            if (!cur) cur = { qtext: [], opts: [], optsAfter: [], imgs: [], plains: [] };
+            if (!cur) cur = newBlock();
             if (cur.dividerSeen) cur.optsAfter.push(t.slice(5).trim()); else cur.opts.push(t.slice(5).trim());
             continue;
         }
-        if (!cur) cur = { qtext: [], opts: [], optsAfter: [], imgs: [], plains: [] };
+        if (!cur) cur = newBlock();
         // plain line continuation di tengah opsi = pembatas data-list vs opsi
         if (!cur.dividerSeen && cur.opts.length && isContinuation(t)) {
             cur.dividerSeen = true;
             cur.qtext.push(t);
             continue;
         }
+        // "Kunci: c" yang tertulis langsung di bawah opsi adalah kunci
+        // soal ini — jangan sampai dirakit jadi opsi E.
+        const keyValMatch = t.match(/^kunci(?:\s+jawaban)?\s*[:=]\s*(.+)$/i);
+        if (keyValMatch) {
+            const kv = keyValMatch[1].trim();
+            const multi = kv.match(/^[A-Ea-e](?:\s*[,;\/]\s*[A-Ea-e])+\s*$/);
+            cur.key = multi
+                ? kv.toUpperCase().split(/[;,\/]/).map(s2 => s2.trim()).join(',')
+                : (/^[A-Ea-e]$/.test(kv) ? kv.toUpperCase() : kv);
+            continue;
+        }
+        // Baris polos SEBELUM opsi pertama adalah lanjutan batang soal
+        // (mis. kalimat setelah "Perhatikan gambar berikut!"), bukan opsi.
+        if (!cur.opts.length && !cur.optsAfter.length) {
+            cur.qtext.push(t);
+            continue;
+        }
         cur.plains.push(t);
     }
     flush();
+    // Gambar yang tersisa (muncul setelah soal terakhir) menempel ke
+    // soal terakhir, bukan hilang.
+    if (pendingImgs.length && blocks.length) blocks[blocks.length - 1].imgs.push(...pendingImgs);
 
     // baris polos = lanjutan soal (berakhiran …./adalah/yaitu dsb.) atau opsi polos
     const out = [];
+    let qNum = 0;
     const isJunkHeader = (b) => !b.qtext.length && !b.opts.length && !b.imgs.length && b.plains.length <= 3 && b.plains.every(p2 => !/…/.test(p2));
     const cleanBlocks = blocks.filter(b => !isJunkHeader(b));
-    cleanBlocks.forEach((b, bi) => {
+    cleanBlocks.forEach((b) => {
+        // Blok yang tidak diawali nomor soal dan tanpa gambar (mis.
+        // kop/judul yang tersisa) dibuang — jangan sampai menghabiskan
+        // satu nomor soal atau jadi soal hantu.
+        if (!b.fromQ && !b.imgs.length) return;
         let qText = b.qtext.join('\n');
         let opts = b.opts.slice();
         const plains = b.plains.slice();
@@ -5006,11 +5101,12 @@ function assembleQuestionTextFromDocxLines(raw) {
         } else {
             for (const o of plainsRest) { if (opts.length < 5) opts.push(o); else qText += '\n' + o; }
         }
-        const num = bi + 1;
+        const num = ++qNum;
         out.push(num + '. ' + qText);
         opts.slice(0, 5).forEach((o, i2) => out.push(letters[i2] + '. ' + o));
         b.imgs.forEach(img => out.push('##IMG##' + img));
-        if (keyList[num]) out.push('Kunci: ' + keyList[num]);
+        const k = b.key || keyList[num];
+        if (k) out.push('Kunci: ' + k);
     });
     return out.join('\n');
 }
@@ -5710,6 +5806,9 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
             let imgUrl = '';
             let options = [];
             let exp = '';
+            // Tabel data biasa (mis. "Gangguan | Penyebab") BUKAN tabel
+            // soal CBT — jangan sampai barisnya jadi soal hantu.
+            let isCbtTable = false;
 
             trs.forEach(tr => {
                 const cells = Array.from(tr.querySelectorAll('td, th')).map(c => {
@@ -5727,25 +5826,32 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
                 const c0Upper = c0.toUpperCase();
 
                 if (c0Upper === 'TS') {
+                    isCbtTable = true;
                     ts = c1.toUpperCase() || 'PG';
                 } else if (c0Upper === 'KD') {
+                    isCbtTable = true;
                     kd = c1;
                 } else if (c0Upper === 'KJ') {
+                    isCbtTable = true;
                     kj = c1;
                 } else if (c0Upper === 'ABS') {
+                    isCbtTable = true;
                     // ABS cell, skip
-                } else if (/^\d+[\.\)]?$/.test(c0) || (/^\d+[\.\)]\s/.test(c0) && !qText)) {
-                    qText = c1 || c0.replace(/^\d+[\.\)]\s*/, '');
+                } else if (/^\d{1,3}[\.\)]?$/.test(c0)) {
+                    // Hanya nomor saja ("1."), bukan "1. Pneumonia".
+                    isCbtTable = true;
+                    qText = c1 || c0.replace(/^\d+[\.\)]?\s*/, '');
                 } else if (/^[A-E][\.\)]?$/i.test(c0)) {
+                    isCbtTable = true;
                     if (c1) options.push(c1);
                 } else if (c0Upper.startsWith('PEMBAHASAN') || c0Upper.startsWith('EXPLANATION')) {
                     exp = c1 || c0.replace(/^(PEMBAHASAN|EXPLANATION)[:\s]*/i, '');
-                } else if (!qText && c0 && !['TS','KD','KJ','ABS'].includes(c0Upper)) {
+                } else if (!qText && isCbtTable && c0 && !['TS','KD','KJ','ABS'].includes(c0Upper)) {
                     qText = c0;
                 }
             });
 
-            if (qText) {
+            if (qText && isCbtTable) {
                 const isEssay = ts.includes('ESY') || ts.includes('ESSAY') || options.length === 0;
                 let answerKey = kj;
                 if (!isEssay && ['A', 'B', 'C', 'D', 'E'].includes(kj.toUpperCase())) {
@@ -5779,6 +5885,23 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
     }
 
     // 2. Line-by-Line Fallback Parser (for plain text, Extraordinary CBT text lines, or non-table imports)
+    // Tabel biasa yang tersisa (bukan template CBT — kalau CBT, sudah
+    // kembali di atas) diubah jadi baris "• sel1 | sel2" supaya barisnya
+    // tidak dikira nomor soal baru oleh parser baris.
+    {
+        const tableDiv = document.createElement('div');
+        tableDiv.innerHTML = rawContent;
+        tableDiv.querySelectorAll('table').forEach((table) => {
+            const rows = Array.from(table.querySelectorAll('tr')).map(tr =>
+                '• ' + Array.from(tr.querySelectorAll('td, th')).map(c => (c.textContent || '').trim()).filter(Boolean).join(' | ')
+            ).filter(r => r !== '• ');
+            if (!rows.length) { table.remove(); return; }
+            const p = document.createElement('p');
+            p.textContent = rows.join('\n');
+            table.replaceWith(p);
+        });
+        rawContent = tableDiv.innerHTML;
+    }
     let processed = rawContent.replace(/<img\s+[^>]*src=["']([^"']+)["'][^>]*>/gi, '\n[Gambar: $1]\n')
                                .replace(/<br\s*[\/]?>/gi, '\n')
                                .replace(/<\/p>/gi, '\n')
@@ -5873,6 +5996,9 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
             currentAnswer = line.replace(/^(kunci\s*jawaban|kunci|jawaban|ans)[:\s]*/i, '').trim();
         } else if (/^(pembahasan|penjelasan|expl)[:\s]/i.test(line)) {
             currentExp = line.replace(/^(pembahasan|penjelasan|expl)[:\s]*/i, '').trim();
+        } else if (line.startsWith('• ')) {
+            // Baris tabel: isi soal yang sedang berjalan, bukan opsi.
+            if (currentQ) currentQ.question += (currentQ.question ? '\n' : '') + line;
         } else if (currentQ) {
             if (currentExp) {
                 currentExp += ' ' + line;
