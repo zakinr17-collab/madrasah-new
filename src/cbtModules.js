@@ -4039,7 +4039,7 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
                 inPassage = true;
                 continue;
             }
-            if (inPassage && !qNumRegex.test(trimmed) && !optRegex.test(trimmed) && !keyRegex.test(trimmed) && !trimmed.startsWith('##IMG##') && !trimmed.startsWith('##OI##')) {
+            if (inPassage && !qNumRegex.test(trimmed) && !optRegex.test(trimmed) && !keyRegex.test(trimmed) && !trimmed.startsWith('##IMG##') && !trimmed.startsWith('##OI##') && !/^\[Gambar/i.test(trimmed)) {
                 pendingPassage.push(trimmed);
                 continue;
             }
@@ -4063,6 +4063,21 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
             const oiMatch = trimmed.match(/^##OI##([A-E])##(.*)$/);
             if (oiMatch) {
                 currentOptionImages[oiMatch[1]] = oiMatch[2].trim();
+                continue;
+            }
+
+            // Penanda gambar dari "Muat dari bank" (round-trip):
+            // "[Gambar: <data>]" = gambar batang soal,
+            // "[Gambar Opsi A: <data>]" = gambar opsi A.
+            const oiTextMatch = trimmed.match(/^\[Gambar Opsi ([A-E]):\s*(.*?)\]\s*$/i);
+            if (oiTextMatch) {
+                currentOptionImages[oiTextMatch[1].toUpperCase()] = oiTextMatch[2].trim();
+                continue;
+            }
+            const imgTextMatch = trimmed.match(/^\[Gambar:\s*(.*?)\]\s*$/i);
+            if (imgTextMatch) {
+                if (inPassage) pendingImage = imgTextMatch[1].trim();
+                else currentImageData = imgTextMatch[1].trim();
                 continue;
             }
 
@@ -6211,6 +6226,13 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
             }
             currentQ = { question: prefix + qText };
             inPassage = false;
+        } else if (/^\[Gambar Opsi ([A-E]):\s*(.*?)\]/i.test(line)) {
+            // Penanda eksplisit dari "Muat dari bank" (round-trip): gambar
+            // menempel ke huruf itu apa pun isi teks opsinya.
+            const match = line.match(/^\[Gambar Opsi ([A-E]):\s*(.*?)\]/i);
+            if (match && match[2]) {
+                currentOptionImages['ABCDE'.indexOf(match[1].toUpperCase())] = match[2].trim();
+            }
         } else if (/^\[Gambar:\s*(.*?)\]/i.test(line)) {
             const match = line.match(/^\[Gambar:\s*(.*?)\]/i);
             if (match && match[1]) {
