@@ -13167,9 +13167,23 @@ app.delete("/api/question-bank-groups/:id", requireAuth, requireRole(['teacher',
   if (isTeacherRequest(req) && !questionBankGroupAllowedForTeacher(req, resolved.item)) {
     return res.status(403).json({ success: false, message: "Guru hanya dapat menghapus bank soal mata pelajaran yang diampu." });
   }
+  const deletedCode = String(resolved.item?.code || '').trim().toLowerCase();
   questionBankGroups.splice(resolved.index, 1);
   await saveData('questionBankGroups', questionBankGroups);
-  res.json({ success: true, message: "Bank soal berhasil dihapus!" });
+  // CASCADE: soal di dalam bank ikut terhapus - tanpa ini soal yatim kembali
+  // lewat sync-state (merge tidak pernah menghapus item yang hilang dari list).
+  let deletedQuestions = 0;
+  if (deletedCode) {
+    for (let i = questions.length - 1; i >= 0; i--) {
+      const q = questions[i];
+      if (isItemForCurrentMadrasah(q, req) && String(q?.code || '').trim().toLowerCase() === deletedCode) {
+        questions.splice(i, 1);
+        deletedQuestions++;
+      }
+    }
+    if (deletedQuestions > 0) await saveData('questions', questions);
+  }
+  res.json({ success: true, message: "Bank soal berhasil dihapus!", deletedQuestions });
 });
 
 // 9. Questions API
@@ -13414,6 +13428,28 @@ app.delete("/api/questions/:id", requireAuth, requireRole(['teacher', 'guru', 'a
   await saveData('questions', questions);
   res.json({ success: true, message: "Soal berhasil dihapus!" });
 });
+// Bersihkan soal yatim: soal yang kodenya tidak cocok dengan bank soal mana pun
+// di madrasah ini (sisa hapusan bank sebelum cascade hapus-bank).
+app.post("/api/questions/cleanup-orphans", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
+  const groupCodes = new Set(
+    filterByMadrasah(questionBankGroups || [], req)
+      .map((g: any) => String(g?.code || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+  let deletedCount = 0;
+  for (let i = questions.length - 1; i >= 0; i--) {
+    const q = questions[i];
+    if (!isItemForCurrentMadrasah(q, req)) continue;
+    if (isTeacherRequest(req) && !questionAllowedForTeacher(req, q)) continue;
+    if (!groupCodes.has(String(q?.code || '').trim().toLowerCase())) {
+      questions.splice(i, 1);
+      deletedCount++;
+    }
+  }
+  if (deletedCount > 0) await saveData('questions', questions);
+  res.json({ success: true, deletedCount });
+});
+
 
 function encodeExamStatePart(value: any): string {
   return Buffer.from(String(value ?? ''), 'utf8').toString('base64url');
