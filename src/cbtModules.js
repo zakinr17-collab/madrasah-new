@@ -15,6 +15,52 @@ function qbInlineArg(value) {
     return qbEscapeAttr(JSON.stringify(String(value ?? '')));
 }
 
+// Baris tabel dari converter ("• sel1 | sel2") ditampilkan kembali sebagai
+// tabel HTML; baris pertama dianggap baris judul. Tanpa baris tabel, tampil
+// persis seperti sebelumnya (teks biasa) — soal lain tidak berubah.
+function qbRenderQuestionText(text) {
+    const raw = String(text || '');
+    const lines = raw.split('\n');
+    const isRow = (line) => {
+        const t = line.trim();
+        return t.startsWith('• ') && t.indexOf(' | ') !== -1;
+    };
+    let hasTable = false;
+    for (let i = 0; i + 1 < lines.length; i++) {
+        if (isRow(lines[i]) && isRow(lines[i + 1])) { hasTable = true; break; }
+    }
+    if (!hasTable) return qbEscapeHtml(raw);
+    const out = [];
+    let i = 0;
+    while (i < lines.length) {
+        if (isRow(lines[i])) {
+            const rows = [];
+            while (i < lines.length && isRow(lines[i])) {
+                rows.push(lines[i].trim().slice(2).split(' | ').map(c => c.trim()));
+                i++;
+            }
+            if (rows.length >= 2) {
+                let table = '<table style="border-collapse:collapse;margin:8px 0;width:100%;font-size:0.9em">';
+                rows.forEach((cells, r) => {
+                    table += '<tr>';
+                    cells.forEach(cell => {
+                        if (r === 0) table += '<th style="border:1px solid #94a3b8;padding:6px 8px;background:#f1f5f9;text-align:left;font-weight:700">' + qbEscapeHtml(cell) + '</th>';
+                        else table += '<td style="border:1px solid #cbd5e1;padding:6px 8px;text-align:left;vertical-align:top">' + qbEscapeHtml(cell) + '</td>';
+                    });
+                    table += '</tr>';
+                });
+                out.push(table + '</table>');
+            } else {
+                out.push(qbEscapeHtml(rows[0].join(' | ')));
+            }
+        } else {
+            out.push(lines[i].trim() ? qbEscapeHtml(lines[i]) : '');
+            i++;
+        }
+    }
+    return out.join('<br>');
+}
+
 function qbDecodeLegacyEntities(value) {
     let text = String(value ?? '');
     if (!text || !/&(?:amp|lt|gt|quot|apos|#0*39|#x0*27);/i.test(text)) return text;
@@ -374,7 +420,7 @@ function renderQuestionBankModule(container) {
                                 </button>
                             </div>
                         </div>
-                        <p class="font-semibold text-slate-800 text-sm sm:text-base leading-relaxed">${qbEscapeHtml(q.question || '')}</p>
+                        <div class="font-semibold text-slate-800 text-sm sm:text-base leading-relaxed">${qbRenderQuestionText(q.question)}</div>
                         ${((q.imageUrl || q.image) && (!q.question || !q.question.includes(q.imageUrl || q.image))) ? `
                             <div class="my-2">
                                 <img src="${qbSafeImageSrc(q.imageUrl || q.image)}" class="max-h-56 rounded-2xl border border-slate-200 object-contain shadow-sm" alt="Gambar Soal"/>
@@ -995,7 +1041,7 @@ function openPreviewQuestionBankModal(code) {
                                     <div class="flex items-start space-x-2">
                                         <span class="font-bold min-w-[24px] text-slate-900">${idx + 1}.</span>
                                         <div class="flex-1 space-y-2">
-                                            <p class="font-medium text-slate-900 leading-relaxed">${qbEscapeHtml(q.question || '')}</p>
+                                            <div class="font-medium text-slate-900 leading-relaxed">${qbRenderQuestionText(q.question)}</div>
                                             
                                             ${(q.imageUrl || q.image) ? `
                                                 <div class="my-2">
@@ -1433,7 +1479,7 @@ function executeExportCbtTableWord(e, code) {
                     </tr>
                     <tr style="background-color: #ffffff; border-bottom: 1pt solid #cbd5e1;">
                         <td style="width: 60pt; padding: 4pt 6pt; border-right: 1pt solid #cbd5e1; font-weight: bold; text-align: center; vertical-align: top; background-color: #f8fafc; color: #334155; mso-para-margin: 0cm;">${qNum}.</td>
-                        <td style="padding: 4pt 6pt; font-weight: 600; color: #0f172a; line-height: 1.4; mso-para-margin: 0cm;">${qbEscapeHtml(q.question || '')}</td>
+                        <td style="padding: 4pt 6pt; font-weight: 600; color: #0f172a; line-height: 1.4; mso-para-margin: 0cm;">${qbRenderQuestionText(q.question)}</td>
                     </tr>
                     ${!isEssay ? `
                     <tr style="background-color: #ffffff; border-bottom: 1pt solid #e2e8f0;">
@@ -4276,7 +4322,7 @@ function downloadConvertedWordDoc() {
                 </tr>
                 <tr style="background-color: #ffffff; border-bottom: 1pt solid #cbd5e1;">
                     <td style="width: 60pt; padding: 4pt 6pt; border-right: 1pt solid #cbd5e1; font-weight: bold; text-align: center; vertical-align: top; background-color: #f8fafc; color: #334155; mso-para-margin: 0cm;">${q.num}.</td>
-                    <td style="padding: 4pt 6pt; font-weight: 600; color: #0f172a; line-height: 1.4; mso-para-margin: 0cm;">${qbEscapeHtml(q.questionText)}</td>
+                    <td style="padding: 4pt 6pt; font-weight: 600; color: #0f172a; line-height: 1.4; mso-para-margin: 0cm;">${qbRenderQuestionText(q.questionText)}</td>
                 </tr>
                 ${String(q.ts || '').toUpperCase().includes('ESY') ? '' : `
                 <tr style="background-color: #ffffff; border-bottom: 1pt solid #e2e8f0;">
