@@ -6,7 +6,7 @@
 
 $env:BASE_URL = "https://madrasahku.ai.studio"
 $env:TENANT = "default"
-$env:EXAM_ID = "GANTI_DENGAN_EXAM_ID_FRESH"
+$env:EXAM_ID = "EX1795051119625"
 $env:ACCOUNTS_FILE = "./accounts.loadtest.local.json"
 
 $env:VUS = "800"
