@@ -1,0 +1,32 @@
+# ============================================================
+# SOAK BLOK 500x30 - pola yang sudah LULUS SEMPURNA (loss=0)
+# Sebelum run: buat ujian load test FRESH (belum completed), lalu
+# ganti EXAM_ID di bawah dengan ID ujian baru tersebut.
+# ============================================================
+
+$env:BASE_URL = "https://madrasahku.ai.studio"
+$env:TENANT = "default"
+$env:EXAM_ID = "GANTI_DENGAN_EXAM_ID_FRESH"
+$env:ACCOUNTS_FILE = "./accounts.loadtest.local.json"
+
+$env:VUS = "500"
+$env:ACCOUNT_OFFSET = "0"
+
+$env:SOAK_MINUTES = "30"
+
+# Ramp 240s = login tersebar ~125/menit (terbukti bersih; JANGAN dipersingkat)
+$env:RAMP_SECONDS = "240"
+
+$env:HEARTBEAT_SECONDS = "15"
+$env:ANSWER_SECONDS = "30"
+$env:SUMMARY_SECONDS = "60"
+
+$env:RECOVERY_RATE = "0.10"
+$env:VIOLATION_RATE = "0"
+
+$env:ANSWER_RETRIES = "3"
+$env:ANSWER_RETRY_BASE_SECONDS = "0.5"
+$env:VERIFY_RETRIES = "3"
+$env:VERIFY_RETRY_BASE_SECONDS = "0.5"
+
+k6 run .\tests\k6-cbt-soak.js 2>&1 | Tee-Object -FilePath .\soak-result-500.txt
