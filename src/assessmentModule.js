@@ -5100,6 +5100,18 @@ async function startStudentExam(examId) {
 
     if (!window._cbtVisibilityListenerAdded) {
         window._cbtVisibilityListenerAdded = true;
+
+        // CBT_KEYBOARD_GUARD_V1: remember recent typing focus for the guard above.
+        document.addEventListener('focusin', (e) => {
+            if (e.target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable)) {
+                window._cbtLastInputFocusAt = Date.now();
+            }
+        });
+        document.addEventListener('focusout', (e) => {
+            if (e.target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName) || e.target.isContentEditable)) {
+                window._cbtLastInputBlurAt = Date.now();
+            }
+        });
         
         document.addEventListener('visibilitychange', () => {
             if (!activeExamSession) return;
@@ -5123,17 +5135,16 @@ async function startStudentExam(examId) {
             if (!activeExamSession) return;
             if (document.hidden) return; // Handled by visibilitychange
 
-            const isInputActive = document.activeElement && 
-                (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName) || document.activeElement.isContentEditable);
             const trustedReference = typeof window.isTrustedLearningReferenceFocus === 'function' &&
                 window.isTrustedLearningReferenceFocus(String(activeExamSession.exam.id));
             if (trustedReference) return; // Focus inside explicitly authorized learning PDF/video only.
 
-            if (!isInputActive) {
+            // CBT_KEYBOARD_GUARD_V1: IME/keyboard window blur is not a violation.
+            if (!cbtKeyboardLikely()) {
                 window.triggerExamViolation('Keluar Fokus / Aplikasi Melayang (Pop-up/Floating)');
             } else {
                 setTimeout(() => {
-                    if (!document.hasFocus() && !document.hidden) {
+                    if (!document.hasFocus() && !document.hidden && !cbtKeyboardLikely()) {
                         window.triggerExamViolation('Keluar Fokus / Aplikasi Melayang (Pop-up/Floating)');
                     }
                 }, 800);
@@ -5146,12 +5157,24 @@ async function startStudentExam(examId) {
         });
     }
 
+    // CBT_KEYBOARD_GUARD_V1: the virtual keyboard must never look like a
+    // split-screen / focus-loss violation. Typing focus, the keyboard
+    // open/close animation, IME window blur, and a shrunk visualViewport all
+    // count as "keyboard likely".
+    function cbtKeyboardLikely() {
+        const el = document.activeElement;
+        if (el && (['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName) || el.isContentEditable)) return true;
+        const now = Date.now();
+        if (window._cbtLastInputFocusAt && (now - window._cbtLastInputFocusAt) < 2000) return true;
+        if (window._cbtLastInputBlurAt && (now - window._cbtLastInputBlurAt) < 2000) return true;
+        const vv = window.visualViewport;
+        if (vv && vv.height < window.innerHeight - 100) return true;
+        return false;
+    }
+
     // Helper function to detect Multi-Window, Split-Screen, Floating Pop-up Apps, and Picture-in-Picture
     function checkMultiWindowOrFloatingApp() {
         if (!activeExamSession || document.hidden) return;
-
-        const isInputActive = document.activeElement && 
-            (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName) || document.activeElement.isContentEditable);
 
         // 1. Detect Split-Screen / Multi-Window / Pop-up View by viewport dimension shrinkage
         const screenW = screen.width || window.outerWidth || 360;
@@ -5162,10 +5185,11 @@ async function startStudentExam(examId) {
         // Virtual keyboard on mobile reduces height, but width NEVER changes!
         // Therefore, width reduction < 82% of screen width indicates split-screen or pop-up view.
         const isWidthShrunk = currW < (screenW * 0.82);
-        // Height reduction < 55% of screen height without active typing indicates top/bottom split-screen.
-        const isHeightShrunkWithoutKeyboard = !isInputActive && (currH < (screenH * 0.55));
+        // Height reduction indicates top/bottom split-screen. With the virtual
+        // keyboard up, only an extreme shrink (< 35% left) still counts.
+        const isHeightShrunk = currH < (screenH * (cbtKeyboardLikely() ? 0.35 : 0.55));
 
-        if (isWidthShrunk || isHeightShrunkWithoutKeyboard) {
+        if (isWidthShrunk || isHeightShrunk) {
             if (!window._lastSplitScreenViolationTime || (Date.now() - window._lastSplitScreenViolationTime > 4000)) {
                 window._lastSplitScreenViolationTime = Date.now();
                 window.triggerExamViolation('Tampilan Multi-Window / Split-Screen / Pop-up View Terdeteksi');
@@ -5181,7 +5205,7 @@ async function startStudentExam(examId) {
         // trusted reference iframe within this same CBT page.
         const trustedReference = typeof window.isTrustedLearningReferenceFocus === 'function' &&
             window.isTrustedLearningReferenceFocus(String(activeExamSession.exam.id));
-        if (!document.hasFocus() && !isInputActive && !trustedReference) {
+        if (!document.hasFocus() && !cbtKeyboardLikely() && !trustedReference) {
             if (!window._focusLostStartTime) {
                 window._focusLostStartTime = Date.now();
             } else if (Date.now() - window._focusLostStartTime > 1000) { // Lost focus for > 1 sec
