@@ -5718,6 +5718,14 @@ function renderActiveExamScreen() {
     const container = document.getElementById('view-container');
     const sess = activeExamSession;
     if (!sess) return;
+    // CBT_FOCUS_CHROME_V1: while the question page is up, no app chrome may
+    // show (sidebar, header with logout, global back bar) on ANY entry path.
+    const _cbtSidebar = document.getElementById('sidebar');
+    if (_cbtSidebar) _cbtSidebar.style.display = 'none';
+    const _cbtHeader = document.querySelector('header');
+    if (_cbtHeader) _cbtHeader.style.display = 'none';
+    const _cbtBackBar = document.getElementById('global-back-bar');
+    if (_cbtBackBar) _cbtBackBar.classList.add('hidden');
     const q = sess.questions[sess.currentIndex];
     const isExpiredFrozen = isCbtSessionFrozen(sess);
     if (!sess.flagged) sess.flagged = {};
@@ -6375,6 +6383,7 @@ async function submitExamFinal() {
         if (header) header.style.display = '';
         showToast(res.alreadyCompleted ? 'Ujian sudah tercatat selesai di server.' : 'Ujian berhasil diselesaikan dan dikirim!', 'success');
         renderStudentCBTList(document.getElementById('view-container'));
+        if (window.updateGlobalBackBar) window.updateGlobalBackBar();
     } catch (err) {
         // Preserve the recovery snapshot exactly when finalization is not confirmed.
         if (!appState.activeExamSessions) appState.activeExamSessions = JSON.parse(localStorage.getItem('madrasah_active_exam_sessions') || '{}') || {};
