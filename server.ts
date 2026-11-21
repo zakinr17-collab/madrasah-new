@@ -23809,7 +23809,16 @@ app.delete("/api/generated-exams/:id", async (req, res) => {
 // Settings API
 app.get("/api/settings", (req, res) => {
   const authenticatedUser = getAuthUser(req);
-  const sourceSettings = authenticatedUser ? effectiveSettingsForRequest(req) : globalSettingsBase();
+  let sourceSettings = authenticatedUser ? effectiveSettingsForRequest(req) : globalSettingsBase();
+  // LOGIN_CONFIG_PUBLIC_V1: the login page loads settings before authentication,
+  // so overlay the portal tenant's loginConfig (display-only config) onto the
+  // global base; without this, per-madrasah login customization never shows.
+  if (!authenticatedUser && isOnlineMode) {
+    const scopedLoginSettings = tenantConfigValue(appSettings?.__tenantScopedSettingsV1, req, {}, 'settings');
+    if (scopedLoginSettings && typeof scopedLoginSettings === 'object' && !Array.isArray(scopedLoginSettings) && scopedLoginSettings.loginConfig) {
+      sourceSettings = { ...sourceSettings, loginConfig: scopedLoginSettings.loginConfig };
+    }
+  }
   const safeSettings = authenticatedUser
     ? sanitizeSettingsForClient(sourceSettings)
     : sanitizeSettingsForPublic(sourceSettings);
