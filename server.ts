@@ -15243,6 +15243,18 @@ app.get("/api/exam/review", requireAuth, requireRole(['teacher', 'guru', 'admin'
 
 // Student self-review: return only the exact assigned questions and the student's own submitted answers.
 // Never expose answer keys, correctness flags, master-key fields, or explanations to student clients.
+// CBT_REVIEW_GATE_V1: student review opens only after the exam window has
+// ended for everyone (window end + exam duration, so the last possible
+// finisher is done), or when the teacher opens it manually (reviewOpen).
+function isExamReviewOpenForStudent(exam: any): boolean {
+  if (!exam) return false;
+  if (exam.reviewOpen === true) return true;
+  const schedule = getExamScheduleAccess(exam, Date.now());
+  if (!schedule || !Number.isFinite(schedule.endMs)) return false;
+  const durationSec = Math.max(1, parseInt(exam.duration || 60, 10) || 60) * 60;
+  return Date.now() > schedule.endMs + (durationSec * 1000);
+}
+
 app.get("/api/exam/my-review", requireAuth, requireRole(['student', 'siswa', 'class_leader', 'ketua_kelas']), async (req: any, res) => {
   try {
     const authUser = req.user || getAuthUser(req);
@@ -15259,6 +15271,12 @@ app.get("/api/exam/my-review", requireAuth, requireRole(['student', 'siswa', 'cl
     const completed = Boolean(completedExams[key] || forceFinishedExams[key]);
     if (!completed) {
       return res.status(409).json({ success: false, message: "Review tersedia setelah ujian selesai dikerjakan." });
+    }
+
+    // CBT_REVIEW_GATE_V1: hold the review until the exam is over for everyone
+    // (or the teacher opens it), so finished students cannot leak questions.
+    if (!isExamReviewOpenForStudent(context.exam)) {
+      return res.status(403).json({ success: false, reviewLocked: true, message: "Review jawaban dibuka setelah ujian berakhir untuk semua siswa, atau setelah guru membukanya." });
     }
 
     await refreshAttemptAnswerKeysFromCurrentBank(req, key, context.exam);
@@ -16798,6 +16816,92 @@ app.post("/api/reset-student-exam", requireAuth, requireRole(['teacher', 'guru',
   await saveData('studentExamGrades', studentExamGrades);
   
   res.json({ success: true, message: "Sesi ujian siswa berhasil direset!" });
+});
+
+// CBT_REOPEN_EXAM_V1: build the restored session for a reopened attempt.
+// Answers and assigned questions are preserved; only the deadline is new.
+function buildReopenedSession(previousSession: any, answers: any, exam: any, addedMinutes: number, now: number, totalQuestions: number): any {
+  const addedSec = addedMinutes * 60;
+  const examDurationMin = Math.max(1, parseInt(exam?.duration || 60, 10) || 60);
+  const safeAnswers = answers && typeof answers === 'object' ? answers : {};
+  return {
+    ...(previousSession && typeof previousSession === 'object' ? previousSession : {}),
+    startTime: previousSession?.startedAt || previousSession?.startTime || now,
+    startedAt: previousSession?.startedAt || previousSession?.startTime || now,
+    endsAt: now + (addedSec * 1000),
+    durationSec: examDurationMin * 60,
+    duration: examDurationMin,
+    status: 'active',
+    answers: safeAnswers,
+    currentIndex: Number(previousSession?.currentIndex || 0),
+    totalQuestions: Number(totalQuestions || previousSession?.totalQuestions || 0),
+    answeredCount: Object.keys(safeAnswers).length,
+    timeLeft: addedSec,
+    lastSeenAt: now,
+    extraTimeAdded: Math.max(0, Number(previousSession?.extraTimeAdded) || 0) + addedSec,
+    reopenedAt: now
+  };
+}
+
+// CBT_REOPEN_EXAM_V1: reopen a finished/expired attempt with extra time,
+// keeping the student's saved answers and assigned questions.
+app.post("/api/reopen-student-exam", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req: any, res) => {
+  const { studentId, examId } = req.body;
+  if (!studentId || !examId) return res.status(400).json({ success: false, message: "studentId and examId required" });
+  const addedMinutes = Math.min(240, Math.max(1, parseInt(req.body?.addedMinutes, 10) || 30));
+  const context = getExamAttemptContext(req, req.user || getAuthUser(req), String(studentId), String(examId));
+  if (rejectExamAttemptContext(res, context)) return;
+  const key = resolveExamStateKey(req, studentId, examId);
+
+  const previousSession = activeExamSessions[key] && typeof activeExamSessions[key] === 'object' ? activeExamSessions[key] : null;
+  const hasAttempt = Boolean(previousSession || completedExams[key] || forceFinishedExams[key] ||
+    (studentExamAnswers[key] && Object.keys(studentExamAnswers[key]).length > 0) ||
+    (Array.isArray(studentExamQuestions[key]) && studentExamQuestions[key].length > 0));
+  if (!hasAttempt) {
+    return res.status(404).json({ success: false, message: "Siswa belum pernah memulai ujian ini." });
+  }
+
+  const now = Date.now();
+  const answers = {
+    ...(studentExamAnswers[key] && typeof studentExamAnswers[key] === 'object' ? studentExamAnswers[key] : {}),
+    ...(previousSession?.answers && typeof previousSession.answers === 'object' ? previousSession.answers : {})
+  };
+
+  delete completedExams[key];
+  delete forceFinishedExams[key];
+  delete blockedStudents[key];
+  delete studentOutOfTab[key];
+  delete studentExamGrades[key];
+
+  const reopenedSession = buildReopenedSession(
+    previousSession,
+    answers,
+    context.exam,
+    addedMinutes,
+    now,
+    Array.isArray(studentExamQuestions[key]) ? studentExamQuestions[key].length : 0
+  );
+  reopenedSession.reopenedBy = String((req.user || getAuthUser(req))?.id || '');
+  activeExamSessions[key] = reopenedSession;
+
+  const promises = [
+    saveDeltaDb('activeExamSessions', key, reopenedSession),
+    saveDeltaDb('completedExams', key, null),
+    saveDeltaDb('forceFinishedExams', key, null),
+    saveDeltaDb('blockedStudents', key, null),
+    saveDeltaDb('studentOutOfTab', key, null)
+  ];
+  await Promise.all(promises);
+
+  broadcastStateUpdate('activeExamSessions');
+  broadcastStateUpdate('completedExams');
+  broadcastStateUpdate('forceFinishedExams');
+  broadcastStateUpdate('blockedStudents');
+  broadcastStateUpdate('studentOutOfTab');
+
+  await saveData('studentExamGrades', studentExamGrades);
+
+  res.json({ success: true, message: `Ujian dibuka kembali dengan tambahan ${addedMinutes} menit.`, endsAt: reopenedSession.endsAt, addedMinutes });
 });
 
 // WebRTC Signaling API for Livecam Exam Monitoring (P2P zero-storage streaming)
