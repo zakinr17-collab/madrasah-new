@@ -203,6 +203,7 @@ function isStudentCbtFullscreenContext() {
 }
 function exitCbtFullscreen() {
     cbtFullscreenGeneration++;
+    hideCbtFullscreenGate();
     if (!cbtFullscreenOwned) return;
     cbtFullscreenOwned = false;
     // CBT_ENTRY_FIXES_V1: release the portrait pin together with the fullscreen.
@@ -211,6 +212,54 @@ function exitCbtFullscreen() {
         typeof document.exitFullscreen === 'function') {
         try { Promise.resolve(document.exitFullscreen()).catch(() => {}); } catch (_) {}
     }
+}
+// CBT_FULLSCREEN_GATE_V1: the phone back button (or swipe) exits fullscreen
+// first; without a gate the student could keep working outside fullscreen.
+// While the exam screen is up and fullscreen is supported but not active, a
+// blocking overlay forces a tap back into fullscreen (a tap is the user
+// gesture requestFullscreen needs). The overlay only hides once fullscreen
+// is actually regained, so a denied request simply keeps it up for a retry.
+function cbtFullscreenSupported() {
+    return !!(document.fullscreenEnabled && document.documentElement &&
+        typeof document.documentElement.requestFullscreen === 'function');
+}
+function showCbtFullscreenGate() {
+    let gate = document.getElementById('cbt-fullscreen-gate');
+    if (!gate) {
+        gate = document.createElement('div');
+        gate.id = 'cbt-fullscreen-gate';
+        gate.className = 'fixed inset-0 z-40 flex items-center justify-center bg-slate-900/90 backdrop-blur-md p-4';
+        gate.innerHTML = `
+            <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 text-center space-y-4 border-2 border-emerald-500">
+                <div class="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-3xl">
+                    <i class="fa-solid fa-expand"></i>
+                </div>
+                <h3 class="font-bold text-slate-900 text-lg">Layar Penuh Terputus</h3>
+                <p class="text-xs text-slate-600 leading-relaxed">
+                    Ujian hanya dapat dilanjutkan dalam mode layar penuh. Ketuk tombol di bawah untuk kembali ke layar penuh.
+                </p>
+                <button type="button" onclick="requestCbtFullscreen()" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-2xl text-xs shadow-md transition cursor-pointer">
+                    <i class="fa-solid fa-expand mr-1.5"></i> Kembali ke Layar Penuh
+                </button>
+            </div>`;
+        document.body.appendChild(gate);
+    }
+    gate.classList.remove('hidden');
+}
+function hideCbtFullscreenGate() {
+    const gate = document.getElementById('cbt-fullscreen-gate');
+    if (gate) gate.classList.add('hidden');
+}
+function refreshCbtFullscreenGate() {
+    const examUp = !!document.getElementById('cbt-active-exam-screen');
+    if (!examUp || !activeExamSession || !cbtFullscreenSupported() || document.fullscreenElement) {
+        hideCbtFullscreenGate();
+        return;
+    }
+    const startedAt = window._cbtExamStartedAt || 0;
+    // At fresh entry the fullscreen request is still in flight; do not flash.
+    if (startedAt && (Date.now() - startedAt) < 3000) return;
+    showCbtFullscreenGate();
 }
 function requestCbtFullscreen() {
     if (!activeExamSession || !isStudentCbtFullscreenContext() ||
@@ -236,6 +285,7 @@ function requestCbtFullscreen() {
     } catch (_) {}
 }
 document.addEventListener('fullscreenchange', () => {
+    refreshCbtFullscreenGate();
     if (document.fullscreenElement !== document.documentElement) {
         const wasOwned = cbtFullscreenOwned;
         cbtFullscreenOwned = false;
@@ -5634,6 +5684,7 @@ function closeCbtImageZoom() {
 
 function updateCbtTimerDisplay() {
     if (!activeExamSession) return;
+    refreshCbtFullscreenGate();
     const t = Math.max(0, activeExamSession.timeLeft || 0);
     const m = Math.floor(t / 60);
     const s = String(t % 60).padStart(2, '0');
@@ -5726,6 +5777,7 @@ function renderActiveExamScreen() {
     if (_cbtHeader) _cbtHeader.style.display = 'none';
     const _cbtBackBar = document.getElementById('global-back-bar');
     if (_cbtBackBar) _cbtBackBar.classList.add('hidden');
+    refreshCbtFullscreenGate();
     const q = sess.questions[sess.currentIndex];
     const isExpiredFrozen = isCbtSessionFrozen(sess);
     if (!sess.flagged) sess.flagged = {};
