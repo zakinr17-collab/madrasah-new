@@ -5112,6 +5112,11 @@ async function startStudentExam(examId) {
                 window._cbtLastInputBlurAt = Date.now();
             }
         });
+        // CBT_KEYBOARD_GUARD_V2: real keystrokes in the page prove the student
+        // is typing the exam answer, not interacting elsewhere.
+        document.addEventListener('input', () => {
+            window._cbtLastInputAt = Date.now();
+        });
         
         document.addEventListener('visibilitychange', () => {
             if (!activeExamSession) return;
@@ -5205,12 +5210,19 @@ async function startStudentExam(examId) {
         // trusted reference iframe within this same CBT page.
         const trustedReference = typeof window.isTrustedLearningReferenceFocus === 'function' &&
             window.isTrustedLearningReferenceFocus(String(activeExamSession.exam.id));
-        if (!document.hasFocus() && !cbtKeyboardLikely() && !trustedReference) {
+        if (!document.hasFocus() && !trustedReference) {
             if (!window._focusLostStartTime) {
                 window._focusLostStartTime = Date.now();
-            } else if (Date.now() - window._focusLostStartTime > 1000) { // Lost focus for > 1 sec
-                window._focusLostStartTime = null;
-                window.triggerExamViolation('Aplikasi Melayang / Pop-up View Terdeteksi');
+            } else {
+                const lostMs = Date.now() - window._focusLostStartTime;
+                // CBT_KEYBOARD_GUARD_V2: even with the essay keyboard up, a
+                // sustained focus loss with no typing in the page means the
+                // student is interacting elsewhere (e.g. notification shade).
+                const typingRecently = window._cbtLastInputAt && (Date.now() - window._cbtLastInputAt) < 3000;
+                if ((lostMs > 1000 && !cbtKeyboardLikely()) || (lostMs > 3000 && !typingRecently)) {
+                    window._focusLostStartTime = null;
+                    window.triggerExamViolation('Aplikasi Melayang / Pop-up View Terdeteksi');
+                }
             }
         } else {
             window._focusLostStartTime = null;
