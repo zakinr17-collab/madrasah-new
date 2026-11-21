@@ -3814,7 +3814,7 @@ setAssistantDataStore({ get students(){ return students; }, get teachers(){ retu
     const changes: string[] = [];
     if (args.adminName) { appSettings.adminName = String(args.adminName).trim(); changes.push('nama admin=' + appSettings.adminName); }
     if (args.schoolName) { appSettings.schoolName = String(args.schoolName).trim(); const m0 = madrasahs[0]; if (m0) m0.name = appSettings.schoolName; changes.push('nama madrasah=' + appSettings.schoolName); }
-    if (args.newPassword) { const salt = crypto.randomBytes(16).toString('hex'); appSettings.adminPass = 'scrypt$16384$8$1$' + salt + '$' + crypto.scryptSync(String(args.newPassword), salt, 64).toString('hex'); const m0 = madrasahs[0]; if (m0) m0.adminPass = appSettings.adminPass; changes.push('password admin=diperbarui'); }
+    if (args.newPassword) { const salt = crypto.randomBytes(16).toString('hex'); appSettings.adminPass = 'scrypt$16384$8$1$' + salt + '$' + crypto.scryptSync(String(args.newPassword), salt, 64).toString('hex'); const m0 = madrasahs[0]; if (m0) { m0.adminPass = appSettings.adminPass; m0.adminPassCipher = encryptStudentAdminPassword(String(args.newPassword)); } changes.push('password admin=diperbarui'); }
 
     if (args.runningText !== undefined) { appSettings.runningText = String(args.runningText); changes.push('teks berjalan=diperbarui'); }
     if (!changes.length) throw new Error('Tidak ada perubahan. Isi adminName/schoolName/newPassword/runningText.');
@@ -4754,6 +4754,7 @@ async function runOneTimeMigrations() {
         !String(m.adminPass).startsWith('scrypt$') &&
         !String(m.adminPass).startsWith('sha256$')
       ) {
+        if (!String(m.adminPassCipher || '').trim()) m.adminPassCipher = encryptStudentAdminPassword(String(m.adminPass));
         m.adminPass = hashPassword(String(m.adminPass));
         madrasahsChanged = true;
       }
@@ -6977,7 +6978,7 @@ app.get("/api/all-data", requireAuth, (req, res) => {
         return String(m.id) === requestId || String(m.slug) === requestId;
       });
   const sanitizedMadrasahs = visibleMadrasahs
-    .map(isBosUser ? sanitizeMadrasahAdminView : sanitizeMadrasahMemberView)
+    .map(isBosUser ? (m: any) => sanitizeMadrasahAdminView(m, true) : sanitizeMadrasahMemberView)
     .filter(Boolean);
   const sanitizedSettings = sanitizeSettingsForClient(effectiveSettingsForRequest(req));
   if (sanitizedSettings && typeof sanitizedSettings === 'object') {
@@ -8226,9 +8227,12 @@ function sanitizeMadrasahPublic(m: any) {
   };
 }
 
-function sanitizeMadrasahAdminView(m: any) {
+function sanitizeMadrasahAdminView(m: any, includeAdminPassDisplay = false) {
   if (!m || typeof m !== 'object') return null;
-  const { adminPass, tokenSignature, tokenSignatureInvalid, ...safe } = m;
+  const { adminPass, adminPassCipher, tokenSignature, tokenSignatureInvalid, ...safe } = m;
+  // BOSS_ADMIN_CREDENTIAL_V1: decrypted admin password is exposed ONLY when the
+  // caller is a verified bos/superadmin listing (never to madrasah members).
+  if (includeAdminPassDisplay) safe.adminPassDisplay = decryptStudentAdminPassword(adminPassCipher) || '';
   return safe;
 }
 
@@ -8250,7 +8254,7 @@ app.get("/api/madrasahs", requireAuth, (req: any, res) => {
   if (isBos) {
     return res.json({
       success: true,
-      madrasahs: (madrasahs || []).map(sanitizeMadrasahAdminView).filter(Boolean)
+      madrasahs: (madrasahs || []).map((m: any) => sanitizeMadrasahAdminView(m, true)).filter(Boolean)
     });
   }
 
@@ -8377,6 +8381,7 @@ app.post("/api/register-madrasah", async (req: any, res) => {
     adminName: rawAdminName,
     adminUser: rawAdminUser,
     adminPass: hashPassword(rawAdminPass),
+    adminPassCipher: encryptStudentAdminPassword(rawAdminPass),
     phone: String(phone || '').trim(),
     cbtTokenBalance: 1, // Free welcome token
     tokenSignature: calculateTokenSignature(newMadrasahId, 1),
@@ -10013,6 +10018,7 @@ app.post("/api/madrasahs/:id/update", requireAuth, requireRole(['bos', 'superadm
       const pass = String(adminPass);
       if (pass.length > 128) return res.status(400).json({ success: false, message: "Password admin maksimal 128 karakter." });
       targetM.adminPass = hashPassword(pass);
+      targetM.adminPassCipher = encryptStudentAdminPassword(pass);
     }
     if (phone !== undefined) targetM.phone = String(phone).trim().slice(0, 40);
 
@@ -14489,6 +14495,7 @@ app.post("/api/exam/attempt/start", cbtAsyncEndpoint(async (req, res) => {
   if (!authUser) return res.status(401).json({ success: false, message: "Akses ditolak: Silakan login terlebih dahulu." });
   const sId = resolveStudentId(req, authUser);
   const { examId } = req.body;
+  const deviceSessionId = typeof req.body?.deviceSessionId === 'string' ? req.body.deviceSessionId.trim().slice(0, 128) : '';
   if (!sId || !examId) return res.status(400).json({ success: false, message: "studentId and examId required" });
 
   const eId = String(examId);
@@ -14607,6 +14614,12 @@ app.post("/api/exam/attempt/start", cbtAsyncEndpoint(async (req, res) => {
     // does not consume another Cloud SQL connection for every student.
     sessionNeedsPersistence = !hadEndsAt || !hadStartedAt || answersNeedRecovery ||
       previousTotalQuestions !== Number(session.totalQuestions || 0);
+  }
+
+  // CBT_ONE_SESSION_V1: the most recent device to start/resume owns the attempt.
+  if (deviceSessionId && session.deviceSessionId !== deviceSessionId) {
+    session.deviceSessionId = deviceSessionId;
+    sessionNeedsPersistence = true;
   }
 
   activeExamSessions[key] = session;
@@ -15552,7 +15565,7 @@ app.post("/api/exam/attempt/answer", cbtAsyncEndpoint(async (req, res) => {
   const authUser = getAuthUser(req);
   if (!authUser) return res.status(401).json({ success: false, message: "Akses ditolak: Silakan login terlebih dahulu." });
   const sId = resolveStudentId(req, authUser);
-  const { examId, questionId, answer, currentIndex } = req.body;
+  const { examId, questionId, answer, currentIndex, deviceSessionId } = req.body;
   if (!sId || !examId || !questionId) return res.status(400).json({ success: false, message: "studentId, examId, and questionId are required" });
   const eId = String(examId);
   const qId = String(questionId);
@@ -15573,6 +15586,7 @@ app.post("/api/exam/attempt/answer", cbtAsyncEndpoint(async (req, res) => {
 
   const session = activeExamSessions[key];
   if (!session) return res.status(409).json({ success: false, message: "Session ujian tidak aktif. Muat ulang dan lanjutkan ujian." });
+  if (cbtSessionTakenOver(session, deviceSessionId)) return res.status(409).json({ success: false, code: 'SESSION_TAKEN_OVER', message: "Ujian ini sedang dibuka di perangkat lain." });
   const now = Date.now();
   if (session.endsAt && Number(session.endsAt) <= now) return res.status(409).json({ success: false, message: "Waktu ujian sudah habis." });
 
@@ -15740,6 +15754,15 @@ app.post("/api/exam/livecam/snapshot", requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
+// CBT_ONE_SESSION_V1: true when a request carries a different device token than
+// the one that most recently started this attempt (exam opened on another device).
+// Missing tokens (older cached clients) never trigger a takeover.
+function cbtSessionTakenOver(session: any, deviceSessionId: unknown): boolean {
+  const stored = session && typeof session.deviceSessionId === 'string' ? session.deviceSessionId : '';
+  const incoming = typeof deviceSessionId === 'string' ? deviceSessionId.trim().slice(0, 128) : '';
+  return Boolean(stored && incoming && stored !== incoming);
+}
+
 // Phase 2 Endpoint: Lightweight Micro-Heartbeat (POST /api/exam/heartbeat)
 app.post("/api/exam/heartbeat", async (req, res) => {
   const authUser = getAuthUser(req);
@@ -15747,7 +15770,7 @@ app.post("/api/exam/heartbeat", async (req, res) => {
     return res.status(401).json({ success: false, message: "Akses ditolak: Silakan login terlebih dahulu." });
   }
   const sId = resolveStudentId(req, authUser);
-  const { examId, currentIndex } = req.body;
+  const { examId, currentIndex, deviceSessionId } = req.body;
   if (!sId || !examId) {
     return res.status(400).json({ success: false, message: "studentId and examId required" });
   }
@@ -15760,6 +15783,19 @@ app.post("/api/exam/heartbeat", async (req, res) => {
   const now = Date.now();
 
   const session = activeExamSessions[key];
+  // CBT_ONE_SESSION_V1: stale device gets told to stop; never refresh its presence.
+  if (cbtSessionTakenOver(session, deviceSessionId)) {
+    return res.json({
+      success: true,
+      serverTime: now,
+      sessionTakenOver: true,
+      blocked: false,
+      forceFinished: false,
+      remainingTime: session ? session.timeLeft : null,
+      messageBroadcast: null,
+      messagePersonal: null
+    });
+  }
   if (session) {
     session.lastSeenAt = now;
     if (currentIndex !== undefined) session.currentIndex = currentIndex;

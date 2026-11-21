@@ -1584,8 +1584,134 @@ window.generateOfflineMadrasahLicense = generateOfflineMadrasahLicense;
 window.copyOfflineMadrasahLicenseKey = copyOfflineMadrasahLicenseKey;
 window.renameMadrasahFromBoss = renameMadrasahFromBoss;
 
+// BOSS_ADMIN_CREDENTIAL_V1: reset a madrasah's admin username/password from the
+// bos dashboard (for madrasahs that forgot their admin account), plus an
+// eye-toggle to view the current admin password when a cipher copy exists.
+function bossEsc(value) {
+    return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+function toggleBossAdminPass(madrasahId) {
+    const el = document.getElementById('boss-admin-pass-' + madrasahId);
+    if (!el) return;
+    const real = (window._bossAdminPassMap || {})[String(madrasahId)] || '';
+    el.textContent = (el.textContent === '••••••••') ? real : '••••••••';
+}
+
+function openResetMadrasahAdminModal(madrasahId, madrasahName, currentAdminUser) {
+    const modal = document.getElementById('modal-container');
+    if (!modal) return;
+    const generated = (typeof generateAdminTemporaryPassword === 'function')
+        ? generateAdminTemporaryPassword()
+        : Math.random().toString(36).slice(2, 10) + 'A1!';
+    modal.innerHTML = `
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-fade-in">
+            <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 space-y-4">
+                <div class="text-center space-y-1">
+                    <i class="fa-solid fa-key text-rose-500 text-3xl"></i>
+                    <h3 class="font-bold text-slate-800">Reset Akun Admin Madrasah</h3>
+                    <p class="text-xs text-slate-500">${bossEsc(madrasahName || 'Madrasah')} — gunakan bila madrasah lupa username/password adminnya.</p>
+                </div>
+                <div class="space-y-2">
+                    <label class="block text-xs font-bold uppercase text-slate-500">Username Admin</label>
+                    <input id="boss-reset-admin-user" type="text" value="${bossEsc(currentAdminUser || 'admin')}" autocomplete="off" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-mono">
+                </div>
+                <div class="space-y-2">
+                    <label class="block text-xs font-bold uppercase text-slate-500">Password Baru</label>
+                    <div class="flex gap-2">
+                        <input id="boss-reset-admin-pass" type="text" value="${bossEsc(generated)}" autocomplete="new-password" class="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-sm font-mono">
+                        <button type="button" onclick="document.getElementById('boss-reset-admin-pass').value = (typeof generateAdminTemporaryPassword === 'function') ? generateAdminTemporaryPassword() : Math.random().toString(36).slice(2, 10) + 'A1!'" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-xs font-semibold">Acak</button>
+                    </div>
+                    <p class="text-[10px] text-slate-400">Minimal 8 karakter. Password lama langsung tidak berlaku setelah reset.</p>
+                </div>
+                <div class="flex justify-end space-x-2 pt-2">
+                    <button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-100 rounded-xl text-xs font-semibold">Batal</button>
+                    <button type="button" onclick="submitResetMadrasahAdmin('${bossEsc(madrasahId)}')" class="px-4 py-2 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700">Reset Akun Admin</button>
+                </div>
+            </div>
+        </div>`;
+}
+
+async function submitResetMadrasahAdmin(madrasahId) {
+    const userInput = document.getElementById('boss-reset-admin-user');
+    const passInput = document.getElementById('boss-reset-admin-pass');
+    const adminUser = userInput ? String(userInput.value || '').trim() : '';
+    const adminPass = passInput ? String(passInput.value || '') : '';
+    if (!/^[A-Za-z0-9._-]{3,64}$/.test(adminUser)) {
+        if (window.showToast) window.showToast('Username admin tidak valid (3-64 karakter: huruf, angka, titik, strip, underscore).', 'error');
+        return;
+    }
+    if (adminPass.length < 8) {
+        if (window.showToast) window.showToast('Password baru minimal 8 karakter.', 'error');
+        return;
+    }
+    try {
+        const res = await fetch('/api/madrasahs/' + encodeURIComponent(madrasahId) + '/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ adminUser, adminPass })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+            if (window.showToast) window.showToast(data.message || 'Gagal mereset akun admin.', 'error');
+            return;
+        }
+        const idx = (appState.madrasahs || []).findIndex(m => String(m.id) === String(madrasahId) || String(m.slug) === String(madrasahId));
+        if (idx >= 0) {
+            appState.madrasahs[idx] = { ...appState.madrasahs[idx], ...(data.madrasah || {}), adminUser, adminPassDisplay: adminPass };
+        }
+        if (!window._bossAdminPassMap) window._bossAdminPassMap = {};
+        window._bossAdminPassMap[String(madrasahId)] = adminPass;
+        const modal = document.getElementById('modal-container');
+        if (modal) {
+            modal.innerHTML = `
+                <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-fade-in">
+                    <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 space-y-4">
+                        <div class="text-center space-y-2">
+                            <i class="fa-solid fa-circle-check text-emerald-600 text-3xl"></i>
+                            <h3 class="font-bold text-slate-800">Akun Admin Berhasil Direset</h3>
+                            <p class="text-xs text-slate-500">Sampaikan kredensial ini ke admin madrasah. Password juga dapat dilihat lagi dari tabel madrasah (ikon mata).</p>
+                        </div>
+                        <div class="p-4 bg-slate-900 text-white rounded-2xl font-mono text-center text-sm break-all">
+                            <div>user: <span id="boss-reset-admin-result-user">${bossEsc(adminUser)}</span></div>
+                            <div>pass: <span id="boss-reset-admin-result-pass">${bossEsc(adminPass)}</span></div>
+                        </div>
+                        <div class="flex justify-center gap-2">
+                            <button type="button" onclick="copyBossAdminResetResult()" class="px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-bold">Salin Kredensial</button>
+                            <button type="button" onclick="closeModal(); renderBossDashboard(document.getElementById('view-container'), 'madrasahs')" class="px-4 py-2 bg-slate-100 text-slate-700 rounded-xl text-xs font-semibold">Tutup</button>
+                        </div>
+                    </div>
+                </div>`;
+        }
+        if (window.showToast) window.showToast('Akun admin madrasah berhasil direset.', 'success');
+    } catch (_) {
+        if (window.showToast) window.showToast('Gagal terhubung ke server.', 'error');
+    }
+}
+
+async function copyBossAdminResetResult() {
+    const u = document.getElementById('boss-reset-admin-result-user');
+    const p = document.getElementById('boss-reset-admin-result-pass');
+    if (!u || !p) return;
+    try {
+        await navigator.clipboard.writeText('user: ' + u.textContent + '\npass: ' + p.textContent);
+        if (window.showToast) window.showToast('Kredensial admin disalin.', 'success');
+    } catch (_) {
+        if (window.showToast) window.showToast('Gagal menyalin kredensial.', 'error');
+    }
+}
+window.toggleBossAdminPass = toggleBossAdminPass;
+window.openResetMadrasahAdminModal = openResetMadrasahAdminModal;
+window.submitResetMadrasahAdmin = submitResetMadrasahAdmin;
+window.copyBossAdminResetResult = copyBossAdminResetResult;
+
 function renderBossMadrasahsTab(container) {
     const madrasahs = appState.madrasahs || [];
+
+    // BOSS_ADMIN_CREDENTIAL_V1: keep decrypted admin passwords in JS memory only
+    // (never in HTML attributes); the eye button toggles them in the table.
+    window._bossAdminPassMap = {};
+    madrasahs.forEach(m => { if (m.adminPassDisplay) window._bossAdminPassMap[String(m.id)] = m.adminPassDisplay; });
 
     container.innerHTML = `
         <div class="mb-5 bg-indigo-50 border border-indigo-100 rounded-3xl p-5 shadow-sm space-y-4">
@@ -1705,6 +1831,13 @@ function renderBossMadrasahsTab(container) {
                                     <td class="p-3.5 font-medium text-slate-700">
                                         <div>${m.adminName || 'Admin'}</div>
                                         <span class="text-[10px] text-slate-400 font-mono">user: ${m.adminUser || 'admin'}</span>
+                                        <div class="flex items-center gap-1 mt-0.5">
+                                            <span class="text-[10px] text-slate-400 font-mono">pass:</span>
+                                            ${m.adminPassDisplay ? `
+                                                <span class="text-[10px] font-mono text-slate-600" id="boss-admin-pass-${m.id}">••••••••</span>
+                                                <button type="button" onclick="toggleBossAdminPass('${m.id}')" class="text-slate-400 hover:text-slate-700 cursor-pointer" title="Lihat / sembunyikan password admin"><i class="fa-solid fa-eye text-[10px]"></i></button>
+                                            ` : '<span class="text-[10px] text-slate-400" title="Password lama ter-hash dan tidak dapat ditampilkan. Gunakan Reset Admin untuk membuat password baru.">—</span>'}
+                                        </div>
                                     </td>
                                     <td class="p-3.5">
                                         <div class="inline-flex flex-col gap-1">
@@ -1725,6 +1858,11 @@ function renderBossMadrasahsTab(container) {
                                                     <i class="fa-solid fa-hard-drive"></i> Data Lokal
                                                 </span>
                                             `}
+                                            ${!isOfflineMadrasah ? `
+                                                <button type="button" onclick="openResetMadrasahAdminModal('${m.id}', '${safeName}', '${String(m.adminUser || 'admin').replace(/'/g, "\\'")}')" class="px-2.5 py-1.5 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded-xl text-[10px] transition shadow-sm inline-flex items-center gap-1 cursor-pointer" title="Reset username/password admin madrasah (untuk madrasah yang lupa akun adminnya)">
+                                                    <i class="fa-solid fa-key"></i> Reset Admin
+                                                </button>
+                                            ` : ''}
                                             <button type="button" onclick="renameMadrasahFromBoss('${m.id}', '${safeName}')" class="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-[10px] transition shadow-sm inline-flex items-center gap-1 cursor-pointer" title="Ganti nama madrasah"><i class="fa-solid fa-pen"></i> Rename</button>
                                             <button type="button" onclick="openEditMadrasahTokenModal('${m.id}', '${safeName}', ${m.cbtTokenBalance || 0}, ${isOfflineMadrasah ? 'true' : 'false'}, ${Number(m.offlinePendingTokenCredits || 0)})" class="px-2.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white font-bold rounded-xl text-[10px] transition shadow-sm inline-flex items-center gap-1 cursor-pointer" title="${isOfflineMadrasah ? 'Buat kode token yang dapat dipakai tanpa internet' : 'Edit saldo token'}">
                                                 <i class="fa-solid fa-coins"></i> ${isOfflineMadrasah ? 'Tambah Token' : 'Token'}

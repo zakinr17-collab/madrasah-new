@@ -4666,7 +4666,7 @@ async function startStudentExam(examId) {
             preflightRes = await fetch('/api/exam/attempt/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ studentId: st.id, examId: ex.id }),
+                body: JSON.stringify({ studentId: st.id, examId: ex.id, deviceSessionId: getCbtDeviceSessionId() }),
                 signal: preflightController.signal
             });
         } finally {
@@ -4780,6 +4780,8 @@ async function startStudentExam(examId) {
             startedAt: Date.now(),
             status: 'active',
             answers: {},
+            flagged: {},
+            fontScale: 1,
             currentIndex: 0,
             totalQuestions: questions.length,
             answeredCount: 0,
@@ -4795,7 +4797,7 @@ async function startStudentExam(examId) {
             const startRes = await fetch('/api/exam/attempt/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ studentId: st.id, examId: ex.id, totalQuestions: questions.length }),
+                body: JSON.stringify({ studentId: st.id, examId: ex.id, totalQuestions: questions.length, deviceSessionId: getCbtDeviceSessionId() }),
                 signal: startController.signal
             });
             clearTimeout(startTimeout);
@@ -4859,7 +4861,7 @@ async function startStudentExam(examId) {
             const startRes = await fetch('/api/exam/attempt/start', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ studentId: st.id, examId: ex.id, totalQuestions: questions.length }),
+                body: JSON.stringify({ studentId: st.id, examId: ex.id, totalQuestions: questions.length, deviceSessionId: getCbtDeviceSessionId() }),
                 signal: startController.signal
             });
             clearTimeout(startTimeout);
@@ -4887,8 +4889,12 @@ async function startStudentExam(examId) {
         questions: questions,
         currentIndex: sessionData.currentIndex || 0,
         answers: sessionData.answers || {},
+        flagged: sessionData.flagged || {},
+        fontScale: sessionData.fontScale || 1,
+        durationSec: sessionData.durationSec || durationSec,
         timeLeft: sessionData.timeLeft
     };
+    window._cbtTakenOverHandled = false;
 
     // If remaining time is already expired, trigger immediate submit
     if (activeExamSession.timeLeft <= 0) {
@@ -4914,6 +4920,27 @@ async function startStudentExam(examId) {
     }
 
     // The CBT player requests fullscreen only after its actual screen renders.
+
+    // CBT_ANTI_COPY_V1: block right-click menu, copying/cutting question text,
+    // and dragging question images out of the exam screen. The student's own
+    // essay textarea stays exempt so they can manage their own text.
+    if (!window._cbtAntiCopyAdded) {
+        window._cbtAntiCopyAdded = true;
+        const inExamScreen = (el) => !!(el && el.closest && el.closest('#cbt-active-exam-screen'));
+        const isOwnTextField = (el) => !!(el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT'));
+        document.addEventListener('contextmenu', (e) => {
+            if (activeExamSession && inExamScreen(e.target)) e.preventDefault();
+        });
+        document.addEventListener('copy', (e) => {
+            if (activeExamSession && inExamScreen(e.target) && !isOwnTextField(e.target)) e.preventDefault();
+        });
+        document.addEventListener('cut', (e) => {
+            if (activeExamSession && inExamScreen(e.target) && !isOwnTextField(e.target)) e.preventDefault();
+        });
+        document.addEventListener('dragstart', (e) => {
+            if (activeExamSession && inExamScreen(e.target) && e.target.tagName === 'IMG') e.preventDefault();
+        });
+    }
 
     // Global Violation Handler
     window.triggerExamViolation = function(reason) {
@@ -5094,12 +5121,7 @@ async function startStudentExam(examId) {
         if (activeExamSession && activeExamSession.timeLeft > 0) {
             checkMultiWindowOrFloatingApp();
             activeExamSession.timeLeft--;
-            const timerDisplay = document.getElementById('exam-timer-display');
-            if (timerDisplay) {
-                const m = Math.floor(activeExamSession.timeLeft / 60);
-                const s = String(activeExamSession.timeLeft % 60).padStart(2, '0');
-                timerDisplay.textContent = `${m}:${s}`;
-            }
+            updateCbtTimerDisplay();
 
             // Synchronize the server-authoritative timer with a backpressure-aware heartbeat.
             // A 15s base cadence plus jitter avoids hundreds of students hitting the service
@@ -5125,7 +5147,8 @@ async function startStudentExam(examId) {
                     body: JSON.stringify({
                         studentId: st.id,
                         examId: ex.id,
-                        currentIndex: activeExamSession.currentIndex
+                        currentIndex: activeExamSession.currentIndex,
+                        deviceSessionId: getCbtDeviceSessionId()
                     }),
                     ...(heartbeatController ? { signal: heartbeatController.signal } : {})
                 })
@@ -5141,6 +5164,12 @@ async function startStudentExam(examId) {
                     .then(data => {
                         if (!data || !activeExamSession) return;
 
+                        // CBT_ONE_SESSION_V1: this exam was opened on another device.
+                        if (data.sessionTakenOver) {
+                            handleCbtSessionTakenOver();
+                            return;
+                        }
+
                         // Server-authoritative timer synchronization
                         if (data.remainingTime !== null && data.remainingTime !== undefined) {
                             const diff = Math.abs(data.remainingTime - activeExamSession.timeLeft);
@@ -5150,9 +5179,7 @@ async function startStudentExam(examId) {
                                     appState.activeExamSessions[st.id + '_' + ex.id].timeLeft = data.remainingTime;
                                     safeSetStorage('madrasah_active_exam_sessions', appState.activeExamSessions);
                                 }
-                                const m = Math.floor(activeExamSession.timeLeft / 60);
-                                const s = String(activeExamSession.timeLeft % 60).padStart(2, '0');
-                                if (timerDisplay) timerDisplay.textContent = `${m}:${s}`;
+                                updateCbtTimerDisplay();
                             }
                         }
 
@@ -5475,14 +5502,211 @@ function freezeExpiredCbtSessionForFinalization() {
     }
 }
 
+// CBT_UI_V2: helpers for the redesigned student exam screen (progress bar,
+// circular timer, ragu-ragu flags, font size, mobile navigation sheet,
+// image zoom, watermark, one-session-per-student device token).
+function cbtAnsweredCount(sess) {
+    if (!sess || !Array.isArray(sess.questions)) return 0;
+    return sess.questions.filter(qItem => sess.answers[qItem.id] && String(sess.answers[qItem.id]).trim() !== '').length;
+}
+
+function cbtNavGridHtml(sess) {
+    return sess.questions.map((qItem, idx) => {
+        const isCurrent = idx === sess.currentIndex;
+        const isAnswered = Boolean(sess.answers[qItem.id] && String(sess.answers[qItem.id]).trim() !== '');
+        const isFlagged = Boolean(sess.flagged && sess.flagged[qItem.id]);
+        let navClass;
+        if (isFlagged) {
+            navClass = isCurrent
+                ? 'bg-amber-500 text-white ring-2 ring-amber-300 shadow'
+                : 'bg-amber-500 hover:bg-amber-600 text-white shadow-sm';
+        } else if (isAnswered) {
+            navClass = isCurrent
+                ? 'bg-emerald-800 text-white border border-emerald-900 ring-2 ring-emerald-300 shadow'
+                : 'bg-emerald-800 hover:bg-emerald-900 text-white border border-emerald-900 shadow-sm';
+        } else {
+            navClass = isCurrent
+                ? 'bg-emerald-600 text-white ring-2 ring-emerald-300 shadow'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200';
+        }
+        return `
+            <button type="button" onclick="jumpToExamQuestion(${idx})" class="w-9 h-9 rounded-xl text-xs font-bold transition flex items-center justify-center cursor-pointer ${navClass}">
+                ${idx + 1}
+            </button>
+        `;
+    }).join('');
+}
+
+function cbtNavLegendHtml() {
+    return `
+        <div class="flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] font-semibold text-slate-500">
+            <span class="flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded bg-emerald-800 inline-block"></span> Sudah dijawab</span>
+            <span class="flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded bg-emerald-600 inline-block"></span> Soal saat ini</span>
+            <span class="flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded bg-amber-500 inline-block"></span> Ragu-ragu</span>
+            <span class="flex items-center gap-1.5"><span class="w-3.5 h-3.5 rounded bg-slate-100 border border-slate-200 inline-block"></span> Belum dijawab</span>
+        </div>
+    `;
+}
+
+function persistCbtSessionExtras() {
+    if (!activeExamSession) return;
+    const st = appState.currentUser && appState.currentUser.id ? appState.currentUser : (appState.students[0] || {});
+    const key = st.id + '_' + activeExamSession.exam.id;
+    if (!appState.activeExamSessions) appState.activeExamSessions = JSON.parse(localStorage.getItem('madrasah_active_exam_sessions')) || {};
+    if (appState.activeExamSessions[key]) {
+        appState.activeExamSessions[key].flagged = activeExamSession.flagged || {};
+        appState.activeExamSessions[key].fontScale = activeExamSession.fontScale || 1;
+        appState.activeExamSessions[key].currentIndex = activeExamSession.currentIndex;
+        safeSetStorage('madrasah_active_exam_sessions', appState.activeExamSessions);
+    }
+}
+
+function toggleCbtFlag() {
+    if (!activeExamSession || isCbtSessionFrozen(activeExamSession)) return;
+    const q = activeExamSession.questions[activeExamSession.currentIndex];
+    if (!q) return;
+    if (!activeExamSession.flagged) activeExamSession.flagged = {};
+    if (activeExamSession.flagged[q.id]) delete activeExamSession.flagged[q.id];
+    else activeExamSession.flagged[q.id] = true;
+    persistCbtSessionExtras();
+    renderActiveExamScreen();
+}
+
+function adjustCbtFontSize(delta) {
+    if (!activeExamSession) return;
+    const cur = activeExamSession.fontScale || 1;
+    activeExamSession.fontScale = Math.min(1.4, Math.max(0.85, Math.round((cur + delta) * 100) / 100));
+    persistCbtSessionExtras();
+    renderActiveExamScreen();
+}
+
+function toggleCbtNavSheet(show) {
+    const sheet = document.getElementById('cbt-nav-sheet');
+    if (!sheet) return;
+    if (show) sheet.classList.remove('hidden');
+    else sheet.classList.add('hidden');
+}
+
+function openCbtImageZoom(src) {
+    const wrap = document.getElementById('cbt-image-zoom');
+    const img = document.getElementById('cbt-image-zoom-img');
+    if (!wrap || !img || !src) return;
+    img.src = src;
+    wrap.classList.remove('hidden');
+    wrap.classList.add('flex');
+}
+
+function closeCbtImageZoom() {
+    const wrap = document.getElementById('cbt-image-zoom');
+    if (!wrap) return;
+    wrap.classList.add('hidden');
+    wrap.classList.remove('flex');
+}
+
+function updateCbtTimerDisplay() {
+    if (!activeExamSession) return;
+    const t = Math.max(0, activeExamSession.timeLeft || 0);
+    const m = Math.floor(t / 60);
+    const s = String(t % 60).padStart(2, '0');
+    const timerDisplay = document.getElementById('exam-timer-display');
+    if (timerDisplay) timerDisplay.textContent = `${m}:${s}`;
+    const ring = document.getElementById('exam-timer-ring');
+    if (ring) {
+        const total = activeExamSession.durationSec || (parseInt(activeExamSession.exam.duration || 60, 10) * 60) || 3600;
+        const C = 188.5;
+        const frac = total > 0 ? Math.min(1, Math.max(0, t / total)) : 0;
+        ring.style.strokeDashoffset = String(C * (1 - frac));
+        ring.style.stroke = t <= 300 ? '#e11d48' : (t <= 600 ? '#f59e0b' : '#f43f5e');
+    }
+    const wrap = document.getElementById('exam-timer-wrap');
+    if (wrap) wrap.classList.toggle('animate-pulse', t <= 300 && t > 0);
+    if (t <= 600 && t > 300 && !activeExamSession._warned10) {
+        activeExamSession._warned10 = true;
+        showToast('Waktu ujian tersisa 10 menit.', 'warning');
+    }
+    if (t <= 300 && t > 0 && !activeExamSession._warned5) {
+        activeExamSession._warned5 = true;
+        showToast('Waktu ujian tersisa 5 menit! Segera selesaikan jawaban Anda.', 'error');
+    }
+}
+
+function getCbtDeviceSessionId() {
+    try {
+        let tok = localStorage.getItem('madrasah_cbt_device_token');
+        if (!tok) {
+            const arr = new Uint8Array(16);
+            if (window.crypto && typeof window.crypto.getRandomValues === 'function') window.crypto.getRandomValues(arr);
+            else for (let i = 0; i < arr.length; i++) arr[i] = Math.floor(Math.random() * 256);
+            tok = Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('');
+            localStorage.setItem('madrasah_cbt_device_token', tok);
+        }
+        return tok;
+    } catch (e) { return ''; }
+}
+
+function handleCbtSessionTakenOver() {
+    if (window._cbtTakenOverHandled) return;
+    window._cbtTakenOverHandled = true;
+    const sess = activeExamSession;
+    const st = appState.currentUser && appState.currentUser.id ? appState.currentUser : (appState.students[0] || {});
+    // Drop queued writes from this (stale) device so they never replay later.
+    try {
+        const cleaned = getPendingOfflineQueue().filter(item =>
+            !(String(item?.studentId) === String(st.id) && String(item?.examId) === String(sess?.exam?.id))
+        );
+        setPendingOfflineQueue(cleaned);
+        window._pendingOfflineAnswers = cleaned;
+    } catch (e) {}
+    if (window.__examTimerInterval) { clearInterval(window.__examTimerInterval); window.__examTimerInterval = null; }
+    exitCbtFullscreen();
+    activeExamSession = null;
+    const sidebar = document.getElementById('sidebar');
+    const header = document.querySelector('header');
+    if (sidebar) sidebar.style.display = '';
+    if (header) header.style.display = '';
+    const modal = document.getElementById('modal-container');
+    if (modal) {
+        modal.innerHTML = `
+            <div class="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/80 backdrop-blur-md p-4">
+                <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 text-center space-y-4 border-2 border-amber-400">
+                    <div class="w-16 h-16 bg-amber-100 text-amber-600 rounded-full flex items-center justify-center mx-auto text-3xl">
+                        <i class="fa-solid fa-mobile-screen"></i>
+                    </div>
+                    <h3 class="font-bold text-slate-900 text-lg">Ujian Dibuka di Perangkat Lain</h3>
+                    <p class="text-xs text-slate-600 leading-relaxed">
+                        Ujian ini sedang dibuka dengan akun Anda di perangkat lain, sehingga sesi di perangkat ini dihentikan.
+                        Jawaban yang sudah tersinkron tetap tersimpan dan ujian dilanjutkan di perangkat tersebut.
+                    </p>
+                    <button type="button" onclick="document.getElementById('modal-container').innerHTML=''; window._cbtTakenOverHandled=false; renderStudentCBTList(document.getElementById('view-container'))" class="w-full py-3 bg-slate-900 hover:bg-slate-800 text-white font-semibold rounded-2xl text-xs shadow cursor-pointer">Kembali ke Daftar Ujian</button>
+                </div>
+            </div>
+        `;
+    }
+    showToast('Ujian ini dibuka di perangkat lain. Sesi di perangkat ini dihentikan.', 'error');
+}
+
 function renderActiveExamScreen() {
     const container = document.getElementById('view-container');
     const sess = activeExamSession;
     if (!sess) return;
     const q = sess.questions[sess.currentIndex];
     const isExpiredFrozen = isCbtSessionFrozen(sess);
+    if (!sess.flagged) sess.flagged = {};
+    const fontScale = sess.fontScale || 1;
+    const qFontPx = Math.round(16 * fontScale * 10) / 10;
+    const optFontPx = Math.round(14 * fontScale * 10) / 10;
+    const answeredCount = cbtAnsweredCount(sess);
+    const totalQ = sess.questions.length;
+    const progressPct = totalQ > 0 ? Math.round((answeredCount / totalQ) * 100) : 0;
+    const totalSec = sess.durationSec || (parseInt(sess.exam.duration || 60, 10) * 60) || 3600;
+    const ringC = 188.5;
+    const ringOffset = ringC * (1 - Math.min(1, Math.max(0, (sess.timeLeft || 0) / totalSec)));
+    const isCurrentFlagged = Boolean(sess.flagged[q.id]);
 
     const st = appState.currentUser && appState.currentUser.id ? appState.currentUser : (appState.students[0] || {});
+    const firstName = String(st.name || '').trim().split(/\s+/)[0] || '';
+    const watermarkText = assessmentEscapeHtml(String(st.name || 'Siswa'));
+    const watermarkHtml = Array.from({ length: 30 }).map(() => `<span class="mx-4 whitespace-nowrap">${watermarkText}</span>`).join('');
     const isBlocked = isStudentBlocked(sess.exam.id, st.id);
     if (isBlocked) {
         exitCbtFullscreen();
@@ -5517,8 +5741,14 @@ function renderActiveExamScreen() {
         `;
     }
 
+    const isLast = sess.currentIndex >= sess.questions.length - 1;
+    const prevBtnHtml = `<button type="button" onclick="prevExamQuestion()" ${sess.currentIndex === 0 ? 'disabled class="px-5 py-2.5 bg-slate-100 text-slate-400 rounded-2xl text-xs font-semibold cursor-not-allowed"' : 'class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-semibold cursor-pointer"'}>Sebelumnya</button>`;
+    const nextBtnHtml = !isLast
+        ? `<button type="button" onclick="nextExamQuestion()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-semibold shadow cursor-pointer">Selanjutnya</button>`
+        : `<button type="button" onclick="confirmStudentExamSubmit()" class="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-semibold shadow cursor-pointer">Selesai & Kirim</button>`;
+
     container.innerHTML = `
-        <div id="cbt-active-exam-screen" class="space-y-4 max-w-3xl mx-auto pb-16 relative">
+        <div id="cbt-active-exam-screen" class="space-y-4 max-w-6xl mx-auto pb-24 lg:pb-16 relative">
             ${modalOverlay}
 
             <!-- DND & Protection Status Banner -->
@@ -5535,20 +5765,35 @@ function renderActiveExamScreen() {
                 </div>
             </div>
 
-            <!-- Sticky Header Timer -->
-            <div class="bg-white p-4 sm:p-5 rounded-3xl shadow-sm border flex justify-between items-center sticky top-2 z-20">
-                <div>
-                    <h2 class="text-xs sm:text-sm font-bold text-slate-800">${assessmentEscapeHtml(sess.exam.title)}</h2>
-                    <p class="text-[11px] text-slate-500 font-medium">Soal Ke-${sess.currentIndex + 1} dari ${sess.questions.length}</p>
+            <!-- Sticky Header: title, progress, sync, circular timer -->
+            <div class="bg-white p-4 sm:p-5 rounded-3xl shadow-sm border flex justify-between items-center gap-4 sticky top-2 z-20">
+                <div class="min-w-0 flex-1">
+                    <h2 class="text-xs sm:text-sm font-bold text-slate-800 truncate">${assessmentEscapeHtml(sess.exam.title)}</h2>
+                    <p class="text-[11px] text-slate-500 font-medium">${firstName ? `Semangat, <span class="font-bold text-emerald-600">${assessmentEscapeHtml(firstName)}</span>! ` : ''}Soal Ke-${sess.currentIndex + 1} dari ${totalQ}</p>
+                    <div class="mt-2.5 max-w-sm">
+                        <div class="flex justify-between text-[10px] font-bold text-slate-500 mb-1">
+                            <span>Progress jawaban</span>
+                            <span>${answeredCount}/${totalQ} terjawab (${progressPct}%)</span>
+                        </div>
+                        <div class="h-2 bg-slate-200 rounded-full overflow-hidden">
+                            <div class="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-full transition-all" style="width:${progressPct}%"></div>
+                        </div>
+                    </div>
                 </div>
-                <div class="flex items-center gap-2">
-                    <div id="cbt-sync-status-badge" class="px-2.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-2xl text-[10px] font-bold flex items-center space-x-1.5 border border-emerald-200">
+                <div class="flex items-center gap-2 sm:gap-3 shrink-0">
+                    <div id="cbt-sync-status-badge" class="px-2.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-2xl text-[10px] font-bold hidden sm:flex items-center space-x-1.5 border border-emerald-200">
                         <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
                         <span id="cbt-sync-status-text">${(window._pendingOfflineAnswers && window._pendingOfflineAnswers.length > 0) ? `Offline (${window._pendingOfflineAnswers.length})` : 'Tersinkron'}</span>
                     </div>
-                    <div class="px-3.5 py-2 bg-rose-50 text-rose-700 rounded-2xl text-xs font-mono font-bold flex items-center space-x-2 border border-rose-200">
-                        <i class="fa-solid fa-stopwatch animate-pulse"></i>
-                        <span id="exam-timer-display">${Math.floor(sess.timeLeft / 60)}:${String(sess.timeLeft % 60).padStart(2, '0')}</span>
+                    <div id="exam-timer-wrap" class="relative w-[72px] h-[72px] shrink-0" title="Sisa waktu">
+                        <svg width="72" height="72" class="-rotate-90">
+                            <circle cx="36" cy="36" r="30" fill="none" stroke="#ffe4e6" stroke-width="6"/>
+                            <circle id="exam-timer-ring" cx="36" cy="36" r="30" fill="none" stroke="#f43f5e" stroke-width="6" stroke-linecap="round" stroke-dasharray="${ringC}" stroke-dashoffset="${ringOffset}"/>
+                        </svg>
+                        <div class="absolute inset-0 flex flex-col items-center justify-center">
+                            <span id="exam-timer-display" class="text-sm font-mono font-extrabold text-rose-700">${Math.floor(sess.timeLeft / 60)}:${String(sess.timeLeft % 60).padStart(2, '0')}</span>
+                            <span class="text-[7px] font-bold tracking-wide text-slate-400">SISA WAKTU</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -5559,54 +5804,82 @@ function renderActiveExamScreen() {
                 </div>
             ` : ''}
 
-            <!-- Question Box -->
-            <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border space-y-6">
-                <div class="font-semibold text-slate-800 text-base leading-relaxed select-none">${assessmentRenderQuestionText(q.question)}</div>
-                ${((q.imageUrl || q.image) && (!q.question || !q.question.includes(q.imageUrl || q.image))) ? `<div class="my-3 flex justify-center"><img src="${assessmentSafeImageSrc(q.imageUrl || q.image)}" class="max-h-64 rounded-2xl border border-slate-200 object-contain shadow-sm" alt="Gambar Soal"/></div>` : ''}
-                <div class="space-y-3">
-                    ${(q.type === 'esay' || q.type === 'essay') ? `
-                        <textarea onchange="saveExamAnswer('${q.id}', this.value)" ${isExpiredFrozen ? 'disabled' : ''} rows="6" class="w-full p-4 border rounded-2xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition resize-none text-sm ${isExpiredFrozen ? 'opacity-70 cursor-not-allowed' : ''}" placeholder="Ketik jawaban esay Anda di sini...">${assessmentEscapeHtml(sess.answers[q.id] || '')}</textarea>
-                    ` : (q.options || []).map((opt, oIdx) => `
-                        <div onclick="selectExamOption(${oIdx})" class="flex items-center space-x-3 p-4 rounded-2xl border transition select-none ${isExpiredFrozen ? 'cursor-not-allowed opacity-75' : 'cursor-pointer'} ${sess.answers[q.id] === opt ? 'bg-emerald-50 border-emerald-500 font-bold text-emerald-900 shadow-sm' : 'bg-slate-50 hover:bg-slate-100'}">
-                            <span class="w-7 h-7 shrink-0 rounded-xl flex items-center justify-center text-xs font-bold ${sess.answers[q.id] === opt ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}">${String.fromCharCode(65 + oIdx)}</span>
-                            <span class="text-sm flex-1">${assessmentEscapeHtml(opt)}${((q.optionImages || [])[oIdx]) ? `<img src="${assessmentSafeImageSrc((q.optionImages || [])[oIdx])}" class="block mt-2 max-h-40 rounded-xl border object-contain" alt="Gambar Opsi ${String.fromCharCode(65 + oIdx)}"/>` : ''}</span>
+            <div class="grid lg:grid-cols-[1fr_300px] gap-4 items-start">
+                <!-- Question Box -->
+                <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-sm border space-y-5 relative overflow-hidden">
+                    <div aria-hidden="true" class="absolute inset-0 pointer-events-none select-none overflow-hidden z-10">
+                        <div class="absolute -inset-10 flex flex-wrap content-center justify-center gap-y-10 text-slate-900 font-extrabold text-lg opacity-[0.05] -rotate-[18deg] scale-125">${watermarkHtml}</div>
+                    </div>
+                    <div class="relative z-0 flex items-center justify-between gap-2">
+                        <span class="bg-emerald-600 text-white text-xs font-extrabold rounded-xl px-3 py-1.5">Soal ${sess.currentIndex + 1}</span>
+                        <div class="flex items-center gap-1.5">
+                            <button type="button" onclick="adjustCbtFontSize(-0.1)" class="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-[11px] font-extrabold text-slate-600 cursor-pointer" title="Perkecil huruf">A−</button>
+                            <button type="button" onclick="adjustCbtFontSize(0.1)" class="px-2.5 py-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl text-[11px] font-extrabold text-slate-600 cursor-pointer" title="Perbesar huruf">A+</button>
+                            <button type="button" onclick="toggleCbtFlag()" ${isExpiredFrozen ? 'disabled' : ''} class="px-3 py-1.5 rounded-xl text-[11px] font-extrabold border cursor-pointer ${isCurrentFlagged ? 'bg-amber-500 text-white border-amber-600 shadow-sm' : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200'} ${isExpiredFrozen ? 'opacity-60 cursor-not-allowed' : ''}"><i class="fa-solid fa-flag mr-1"></i> Ragu-ragu</button>
                         </div>
-                    `).join('')}
+                    </div>
+                    <div class="relative z-0 font-semibold text-slate-800 leading-relaxed select-none" style="font-size:${qFontPx}px">${assessmentRenderQuestionText(q.question)}</div>
+                    ${((q.imageUrl || q.image) && (!q.question || !q.question.includes(q.imageUrl || q.image))) ? `<div class="relative z-0 my-3 flex justify-center"><img src="${assessmentSafeImageSrc(q.imageUrl || q.image)}" onclick="openCbtImageZoom(this.src)" class="max-h-64 rounded-2xl border border-slate-200 object-contain shadow-sm cursor-zoom-in" alt="Gambar Soal" title="Ketuk untuk memperbesar"/></div>` : ''}
+                    <div class="relative z-0 space-y-3">
+                        ${(q.type === 'esay' || q.type === 'essay') ? `
+                            <textarea onchange="saveExamAnswer('${q.id}', this.value)" ${isExpiredFrozen ? 'disabled' : ''} rows="6" class="w-full p-4 border rounded-2xl bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition resize-none text-sm ${isExpiredFrozen ? 'opacity-70 cursor-not-allowed' : ''}" placeholder="Ketik jawaban esay Anda di sini...">${assessmentEscapeHtml(sess.answers[q.id] || '')}</textarea>
+                        ` : (q.options || []).map((opt, oIdx) => `
+                            <div onclick="selectExamOption(${oIdx})" class="flex items-center space-x-3 p-4 rounded-2xl border-2 transition select-none ${isExpiredFrozen ? 'cursor-not-allowed opacity-75' : 'cursor-pointer'} ${sess.answers[q.id] === opt ? 'bg-emerald-50 border-emerald-500 font-bold text-emerald-900 shadow-sm' : 'bg-slate-50 hover:bg-slate-100 border-slate-200'}">
+                                <span class="w-8 h-8 shrink-0 rounded-xl flex items-center justify-center text-xs font-extrabold ${sess.answers[q.id] === opt ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-700'}">${String.fromCharCode(65 + oIdx)}</span>
+                                <span class="flex-1" style="font-size:${optFontPx}px">${assessmentEscapeHtml(opt)}${((q.optionImages || [])[oIdx]) ? `<img src="${assessmentSafeImageSrc((q.optionImages || [])[oIdx])}" onclick="event.stopPropagation(); openCbtImageZoom(this.src)" class="block mt-2 max-h-40 rounded-xl border object-contain cursor-zoom-in" alt="Gambar Opsi ${String.fromCharCode(65 + oIdx)}" title="Ketuk untuk memperbesar"/>` : ''}</span>
+                                ${sess.answers[q.id] === opt ? '<span class="w-6 h-6 shrink-0 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[11px] font-black"><i class="fa-solid fa-check"></i></span>' : ''}
+                            </div>
+                        `).join('')}
+                    </div>
+
+                    <div class="relative z-0 hidden lg:flex justify-between items-center pt-4 border-t">
+                        ${prevBtnHtml}
+                        ${nextBtnHtml}
+                    </div>
                 </div>
 
-                <div class="flex justify-between items-center pt-4 border-t">
-                    <button type="button" onclick="prevExamQuestion()" ${sess.currentIndex === 0 ? 'disabled class="px-5 py-2.5 bg-slate-100 text-slate-400 rounded-2xl text-xs font-semibold cursor-not-allowed"' : 'class="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-semibold cursor-pointer"'}>Sebelumnya</button>
-                    ${sess.currentIndex < sess.questions.length - 1 ? `
-                        <button type="button" onclick="nextExamQuestion()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-semibold shadow cursor-pointer">Selanjutnya</button>
-                    ` : `
-                        <button type="button" onclick="confirmStudentExamSubmit()" class="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-semibold shadow cursor-pointer">Selesai & Kirim</button>
-                    `}
+                <!-- Desktop side navigation -->
+                <div class="hidden lg:block space-y-4">
+                    <div class="bg-white p-5 rounded-3xl shadow-sm border space-y-3">
+                        <div class="text-xs font-extrabold text-slate-700"><i class="fa-solid fa-list-ol text-emerald-600 mr-1.5"></i> Navigasi Soal</div>
+                        <div class="text-[11px] text-slate-500 font-medium">${answeredCount} dari ${totalQ} soal terjawab</div>
+                        <div class="flex flex-wrap gap-1.5">${cbtNavGridHtml(sess)}</div>
+                        <div class="pt-2 border-t border-slate-100">${cbtNavLegendHtml()}</div>
+                    </div>
+                    <div class="bg-amber-50 border border-amber-200 rounded-3xl p-4 text-xs text-amber-900 leading-relaxed">
+                        <span class="font-extrabold text-amber-700">Tips:</span> Tandai soal yang belum yakin dengan tombol <span class="font-extrabold">Ragu-ragu</span>, lalu kembali lagi setelah semua soal terjawab. Jawaban tersimpan otomatis.
+                    </div>
                 </div>
             </div>
 
-            <!-- Question Number Matrix Grid -->
-            <div class="bg-white p-4 rounded-3xl shadow-sm border space-y-2">
-                <div class="flex items-center justify-between text-xs font-bold text-slate-700">
-                    <span><i class="fa-solid fa-list-ol text-emerald-600 mr-1.5"></i> Navigasi Soal (${Object.keys(sess.answers).length}/${sess.questions.length} Terjawab)</span>
+            <!-- Mobile bottom bar -->
+            <div class="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200 shadow-[0_-4px_18px_rgba(15,23,42,0.08)] px-3 py-2.5 flex gap-2">
+                <button type="button" onclick="prevExamQuestion()" ${sess.currentIndex === 0 ? 'disabled class="flex-1 py-3 bg-slate-100 text-slate-400 rounded-2xl text-xs font-extrabold cursor-not-allowed"' : 'class="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl text-xs font-extrabold cursor-pointer"'}>← Sebelumnya</button>
+                <button type="button" onclick="toggleCbtNavSheet(true)" class="flex-[1.3] py-3 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl text-xs font-extrabold shadow cursor-pointer"><i class="fa-solid fa-list-ol mr-1.5"></i> Navigasi (${answeredCount}/${totalQ})</button>
+                ${!isLast
+                    ? '<button type="button" onclick="nextExamQuestion()" class="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-extrabold shadow cursor-pointer">Selanjutnya →</button>'
+                    : '<button type="button" onclick="confirmStudentExamSubmit()" class="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl text-xs font-extrabold shadow cursor-pointer">Selesai & Kirim</button>'}
+            </div>
+
+            <!-- Mobile navigation sheet -->
+            <div id="cbt-nav-sheet" class="lg:hidden fixed inset-0 z-[60] hidden">
+                <div class="absolute inset-0 bg-slate-900/60" onclick="toggleCbtNavSheet(false)"></div>
+                <div class="absolute bottom-0 left-0 right-0 bg-white rounded-t-3xl p-5 pb-7 max-h-[78vh] overflow-y-auto shadow-2xl">
+                    <div class="w-11 h-1.5 rounded-full bg-slate-300 mx-auto mb-4"></div>
+                    <div class="flex items-center justify-between mb-1">
+                        <div class="text-sm font-extrabold text-slate-800">Navigasi Soal</div>
+                        <button type="button" onclick="toggleCbtNavSheet(false)" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 text-sm font-black flex items-center justify-center cursor-pointer" aria-label="Tutup navigasi">✕</button>
+                    </div>
+                    <div class="text-[11px] text-slate-500 font-medium mb-3">${answeredCount} dari ${totalQ} soal terjawab — ketuk nomor untuk pindah soal</div>
+                    <div class="flex flex-wrap gap-1.5 mb-4">${cbtNavGridHtml(sess)}</div>
+                    <div class="pt-3 border-t border-slate-100">${cbtNavLegendHtml()}</div>
                 </div>
-                <div class="flex flex-wrap gap-1.5 pt-1">
-                    ${sess.questions.map((qItem, idx) => {
-                        const isCurrent = idx === sess.currentIndex;
-                        const isAnswered = Boolean(sess.answers[qItem.id] && String(sess.answers[qItem.id]).trim() !== '');
-                        const navClass = isAnswered
-                            ? (isCurrent
-                                ? 'bg-emerald-800 text-white border border-emerald-900 ring-2 ring-emerald-300 shadow'
-                                : 'bg-emerald-800 hover:bg-emerald-900 text-white border border-emerald-900 shadow-sm')
-                            : (isCurrent
-                                ? 'bg-emerald-600 text-white ring-2 ring-emerald-300 shadow'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200');
-                        return `
-                            <button type="button" onclick="jumpToExamQuestion(${idx})" class="w-8 h-8 rounded-xl text-xs font-bold transition flex items-center justify-center cursor-pointer ${navClass}">
-                                ${idx + 1}
-                            </button>
-                        `;
-                    }).join('')}
-                </div>
+            </div>
+
+            <!-- Image zoom lightbox -->
+            <div id="cbt-image-zoom" class="fixed inset-0 z-[70] hidden items-center justify-center bg-slate-900/90 p-4" onclick="closeCbtImageZoom()">
+                <button type="button" onclick="event.stopPropagation(); closeCbtImageZoom()" class="absolute top-4 right-4 w-11 h-11 rounded-full bg-white text-slate-800 text-lg font-black shadow-lg flex items-center justify-center cursor-pointer z-10" aria-label="Tutup gambar">✕</button>
+                <img id="cbt-image-zoom-img" src="" alt="Gambar diperbesar" class="max-w-full max-h-[88vh] rounded-2xl object-contain shadow-2xl" onclick="event.stopPropagation()"/>
             </div>
         </div>
     `;
@@ -5628,9 +5901,12 @@ window.jumpToExamQuestion = function(idx) {
         const key = st.id + '_' + activeExamSession.exam.id;
         if (appState.activeExamSessions && appState.activeExamSessions[key]) {
             appState.activeExamSessions[key].currentIndex = idx;
+            appState.activeExamSessions[key].flagged = activeExamSession.flagged || {};
+            appState.activeExamSessions[key].fontScale = activeExamSession.fontScale || 1;
             safeSetStorage('madrasah_active_exam_sessions', appState.activeExamSessions);
         }
         renderActiveExamScreen();
+        toggleCbtNavSheet(false);
     }
 };
 
@@ -5786,6 +6062,11 @@ window.flushPendingOfflineAnswers = async function() {
                 body: JSON.stringify(item)
             });
             const data = await res.json().catch(() => ({ success: false }));
+            if (data && data.code === 'SESSION_TAKEN_OVER') {
+                // Stale device: drop this queued write and stop the local session.
+                handleCbtSessionTakenOver();
+                continue;
+            }
             if (!res.ok || !data.success) throw new Error(data.message || 'Sync failed');
 
             const key = String(item.studentId) + '_' + String(item.examId);
@@ -5843,6 +6124,8 @@ function saveExamAnswer(qId, val) {
              appState.activeExamSessions[key].answeredCount = Object.keys(activeExamSession.answers).length;
              appState.activeExamSessions[key].totalQuestions = activeExamSession.questions.length;
              appState.activeExamSessions[key].answers = activeExamSession.answers;
+             appState.activeExamSessions[key].flagged = activeExamSession.flagged || {};
+             appState.activeExamSessions[key].fontScale = activeExamSession.fontScale || 1;
              appState.activeExamSessions[key].currentIndex = activeExamSession.currentIndex;
              safeSetStorage('madrasah_active_exam_sessions', appState.activeExamSessions);
         }
@@ -5864,7 +6147,8 @@ function saveExamAnswer(qId, val) {
             examId: activeExamSession.exam.id,
             questionId: qId,
             answer: val,
-            currentIndex: activeExamSession.currentIndex
+            currentIndex: activeExamSession.currentIndex,
+            deviceSessionId: getCbtDeviceSessionId()
         };
 
         // Instant Micro-Payload Answer Sync with persistent write-ahead queue.
@@ -5876,9 +6160,15 @@ function saveExamAnswer(qId, val) {
             body: JSON.stringify(payload)
         }).then(async r => {
             const res = await r.json().catch(() => ({ success: false }));
+            if (res && res.code === 'SESSION_TAKEN_OVER') {
+                removePendingOfflineAnswer(payload);
+                handleCbtSessionTakenOver();
+                return { _takenOver: true };
+            }
             if (!r.ok || !res.success) throw new Error(res.message || 'Answer sync failed');
             return res;
         }).then(res => {
+            if (res && res._takenOver) return;
             if (res.remainingTime !== undefined && res.remainingTime !== null) {
                 activeExamSession.timeLeft = res.remainingTime;
             }
@@ -8523,7 +8813,41 @@ function confirmStudentExamSubmit() {
         submitExamFinal();
         return;
     }
-    
+
+    // CBT_UI_V2: pre-submit summary — unanswered and ragu-ragu question numbers,
+    // tappable to jump straight to that question before submitting.
+    let summaryHtml = '';
+    if (activeExamSession && Array.isArray(activeExamSession.questions)) {
+        const sess = activeExamSession;
+        const unansweredIdx = sess.questions
+            .map((qq, i) => ({ qq, i }))
+            .filter(x => !(sess.answers[x.qq.id] && String(sess.answers[x.qq.id]).trim() !== ''));
+        const flaggedIdx = sess.questions
+            .map((qq, i) => ({ qq, i }))
+            .filter(x => sess.flagged && sess.flagged[x.qq.id]);
+        const chip = (i, cls) => `<button type="button" onclick="closeModal(); jumpToExamQuestion(${i})" class="w-8 h-8 rounded-lg text-[11px] font-extrabold ${cls} cursor-pointer">${i + 1}</button>`;
+        if (unansweredIdx.length === 0 && flaggedIdx.length === 0) {
+            summaryHtml = `
+                <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-2xl text-xs font-bold text-emerald-800">
+                    <i class="fa-solid fa-circle-check mr-1"></i> Semua soal sudah dijawab. Siap dikumpulkan!
+                </div>`;
+        } else {
+            summaryHtml = `
+                <div class="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-left space-y-2.5">
+                    ${unansweredIdx.length > 0 ? `
+                        <div>
+                            <div class="text-[11px] font-extrabold text-rose-600 mb-1.5"><i class="fa-solid fa-circle-exclamation mr-1"></i> Belum dijawab (${unansweredIdx.length} soal) — ketuk untuk mengerjakan:</div>
+                            <div class="flex flex-wrap gap-1.5">${unansweredIdx.map(x => chip(x.i, 'bg-rose-100 text-rose-700 hover:bg-rose-200')).join('')}</div>
+                        </div>` : ''}
+                    ${flaggedIdx.length > 0 ? `
+                        <div>
+                            <div class="text-[11px] font-extrabold text-amber-600 mb-1.5"><i class="fa-solid fa-flag mr-1"></i> Ditandai ragu-ragu (${flaggedIdx.length} soal) — ketuk untuk memeriksa:</div>
+                            <div class="flex flex-wrap gap-1.5">${flaggedIdx.map(x => chip(x.i, 'bg-amber-100 text-amber-700 hover:bg-amber-200')).join('')}</div>
+                        </div>` : ''}
+                </div>`;
+        }
+    }
+
     modal.innerHTML = `
         <div class="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
             <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-6 text-center space-y-4 border border-slate-100">
@@ -8534,6 +8858,7 @@ function confirmStudentExamSubmit() {
                 <p class="text-xs text-slate-500 leading-relaxed">
                     Apakah Anda yakin sudah menyelesaikan seluruh soal dengan benar dan jujur serta ingin mengakhiri ujian sekarang?
                 </p>
+                ${summaryHtml}
                 <div class="p-3.5 bg-slate-50 border border-slate-100 rounded-2xl flex items-start space-x-3 text-left">
                     <input type="checkbox" id="chk-confirm-selesai" class="mt-0.5 h-4 w-4 text-emerald-600 border-slate-300 rounded cursor-pointer" onchange="toggleConfirmSelesaiBtn(this.checked)">
                     <label for="chk-confirm-selesai" class="text-xs font-bold text-slate-600 cursor-pointer select-none">

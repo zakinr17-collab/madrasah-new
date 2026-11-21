@@ -1797,7 +1797,8 @@ function injectLearningMenus() {
         btn.onclick = () => window.navigateTo('learning_student');
         const cbtButton = Array.from(sidebar.querySelectorAll('button')).find(button => /CBT|Ujian/i.test(button.textContent || ''));
         sidebar.insertBefore(btn, cbtButton || sidebar.firstChild?.nextSibling || null);
-    } else if (STAFF_ROLES.has(role)) {
+    } else if (STAFF_ROLES.has(role) && !['bos', 'boss', 'superadmin'].includes(role)) {
+        // BOSS hard-guard: menu Materi Pembelajaran tidak ditampilkan di akun bos.
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.dataset.learningMenu = '1';
