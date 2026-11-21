@@ -2838,6 +2838,9 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                                             <button type="button" onclick="resetStudentExam('${st.id}')" class="w-28 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-[10px] flex items-center justify-center gap-1.5 transition cursor-pointer border border-slate-200">
                                                                 <i class="fa-solid fa-rotate-left text-xs text-slate-500"></i><span>Ulang Ujian</span>
                                                             </button>
+                                                            <button type="button" onclick="reopenStudentExam('${st.id}')" class="w-28 px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold rounded-xl text-[10px] flex items-center justify-center gap-1.5 transition cursor-pointer border border-amber-200" title="Buka kembali ujian dengan tambahan waktu, jawaban tersimpan tetap ada">
+                                                                <i class="fa-solid fa-clock-rotate-left text-xs"></i><span>Buka Kembali</span>
+                                                            </button>
                                                         </div>
                                                     `;
                                                 } else if (isCurrentlyWorking) {
@@ -3181,6 +3184,10 @@ function renderExamModalForm(editId = null, eventId = null) {
                             <span>Tampilkan Nilai ke Siswa Setelah Selesai</span>
                         </label>
                         <label class="flex items-center space-x-2 text-xs text-slate-600">
+                            <input type="checkbox" id="ex-review-open" ${ex && ex.reviewOpen ? 'checked' : ''} class="rounded text-emerald-600 focus:ring-emerald-500">
+                            <span>Buka Review Jawaban Siswa Sekarang (tanpa menunggu ujian berakhir untuk semua)</span>
+                        </label>
+                        <label class="flex items-center space-x-2 text-xs text-slate-600">
                             <input type="checkbox" id="ex-allow-download" ${ex && ex.allowDownloadResult ? 'checked' : ''} class="rounded text-emerald-600 focus:ring-emerald-500">
                             <span>Izinkan Siswa Unduh Hasil Jawaban/Sertifikat</span>
                         </label>
@@ -3318,6 +3325,7 @@ async function saveExam(e) {
     const shuffleQ = document.getElementById('ex-shuffle-q').checked;
     const shuffleOpt = document.getElementById('ex-shuffle-opt').checked;
     const showScore = document.getElementById('ex-show-score').checked;
+    const reviewOpen = document.getElementById('ex-review-open') ? document.getElementById('ex-review-open').checked : false;
     const allowDownloadResult = document.getElementById('ex-allow-download') ? document.getElementById('ex-allow-download').checked : false;
 
     let weightPg = 50;
@@ -3417,6 +3425,7 @@ async function saveExam(e) {
         shuffleQ,
         shuffleOpt,
         showScore,
+        reviewOpen,
         allowDownloadResult,
         status: 'Active'
     };
@@ -4257,12 +4266,21 @@ async function renderStudentCBTList(container, isRefresh = false) {
                     </div>
                 `;
             }
+            // CBT_REVIEW_GATE_V1: review opens after the exam window ends for
+            // everyone (window end + duration) or when the teacher opens it.
+            const reviewOpenNow = ex.reviewOpen === true ||
+                (schedInfo.endDate && Date.now() > schedInfo.endDate.getTime() + (Math.max(1, parseInt(ex.duration || 60, 10) || 60) * 60000));
+            const reviewBtnHtml = reviewOpenNow ? `
+                    <button type="button" onclick="window.openStudentExamReviewModal('${ex.id}')" class="w-full py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-extrabold rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5 border border-emerald-200">
+                        <i class="fa-solid fa-eye"></i> Lihat & Review Soal
+                    </button>` : `
+                    <div class="w-full py-2.5 px-3 bg-slate-50 border border-slate-200 text-slate-500 font-semibold rounded-2xl text-[11px] text-center flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-lock"></i> Review dibuka setelah ujian berakhir untuk semua siswa
+                    </div>`;
             actionBtnHtml = `
                 <div class="space-y-2 w-full">
                     <div class="p-3 bg-slate-50 rounded-2xl text-xs font-bold text-emerald-700 text-center border border-slate-100">✓ Ujian Selesai. ${scoreText}</div>
-                    <button type="button" onclick="window.openStudentExamReviewModal('${ex.id}')" class="w-full py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-extrabold rounded-2xl text-xs transition cursor-pointer flex items-center justify-center gap-1.5 border border-emerald-200">
-                        <i class="fa-solid fa-eye"></i> Lihat & Review Soal
-                    </button>
+                    ${reviewBtnHtml}
                     ${downloadBtnHtml}
                 </div>
             `;
@@ -8839,6 +8857,69 @@ function resetStudentExam(studentId) {
     });
 }
 
+// CBT_REOPEN_EXAM_V1: reopen a finished/expired attempt with extra time.
+// Saved answers stay intact; only the deadline is new.
+function reopenStudentExam(studentId) {
+    const examId = appState.evaluasiSelectedExamId;
+    const st = appState.students.find(s => String(s.id) === String(studentId));
+    if (!st || !examId) return;
+
+    const modal = document.getElementById('modal-container');
+    if (!modal) return;
+    modal.innerHTML = `
+        <div class="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
+            <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-6 space-y-4 border border-slate-100">
+                <div class="text-center space-y-2">
+                    <div class="w-12 h-12 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto text-xl">
+                        <i class="fa-solid fa-clock-rotate-left"></i>
+                    </div>
+                    <h3 class="font-bold text-slate-800 text-base">Buka Kembali Ujian</h3>
+                    <p class="text-xs text-slate-500 leading-relaxed">Ujian <b>${st.name}</b> akan dibuka kembali. Jawaban yang sudah tersimpan tetap ada, siswa melanjutkan dari posisi terakhir dengan tambahan waktu di bawah ini.</p>
+                </div>
+                <div>
+                    <label class="block text-xs uppercase text-slate-500 mb-1">Tambahan Waktu (menit)</label>
+                    <input type="number" id="reopen-added-minutes" value="30" min="1" max="240" class="w-full px-4 py-2.5 bg-slate-50 border rounded-2xl text-center font-bold">
+                </div>
+                <div class="flex space-x-3 pt-1">
+                    <button type="button" onclick="closeModal()" class="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl text-xs transition cursor-pointer">Batal</button>
+                    <button type="button" onclick="confirmReopenStudentExam('${st.id}')" class="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-2xl text-xs shadow transition cursor-pointer">Buka Kembali</button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function confirmReopenStudentExam(studentId) {
+    const examId = appState.evaluasiSelectedExamId;
+    const st = appState.students.find(s => String(s.id) === String(studentId));
+    if (!st || !examId) return;
+    const input = document.getElementById('reopen-added-minutes');
+    const addedMinutes = Math.min(240, Math.max(1, parseInt(input ? input.value : '30', 10) || 30));
+    closeModal();
+
+    try {
+        const response = await fetch('/api/reopen-student-exam', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ studentId: st.id, examId, addedMinutes })
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data || data.success !== true) {
+            showToast((data && data.message) || 'Gagal membuka kembali ujian.', 'error');
+            return;
+        }
+        const key = String(st.id) + '_' + String(examId);
+        if (appState.completedExams) delete appState.completedExams[key];
+        if (appState.studentExamGrades) delete appState.studentExamGrades[key];
+        if (appState.blockedStudents) delete appState.blockedStudents[key];
+        showToast(`Ujian ${st.name} dibuka kembali (+${addedMinutes} menit). Jawaban tersimpan tetap ada.`, 'success');
+        renderAssessmentModule(document.getElementById('view-container'), 'evaluasi', null);
+    } catch (err) {
+        console.error(err);
+        showToast('Gagal membuka kembali ujian. Periksa koneksi lalu coba lagi.', 'error');
+    }
+}
+
 async function adminForceSubmitExam(studentId, explicitExamId = null) {
     const examId = explicitExamId || appState.evaluasiSelectedExamId || appState.activeMonitoringExamId;
     if (!examId) {
@@ -11798,6 +11879,8 @@ Object.assign(window, {
   runSingleStudentAutoKoreksiNonAI,
   generateNilaiEvaluasi,
   resetStudentExam,
+  reopenStudentExam,
+  confirmReopenStudentExam,
   adminForceSubmitExam,
   confirmAdminForceSubmitExam,
   stopEvaluasiPolling,
