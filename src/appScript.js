@@ -1784,7 +1784,11 @@ window.waitForServerRuntimeReady = waitForServerRuntimeReady;
 
 async function loadInitialRuntimeSettings() {
     try {
-        const res = await fetch('/api/settings');
+        // LOGIN_CONFIG_PUBLIC_V1: tell the server which madrasah portal this is so
+        // the login page can load that madrasah's login customization pre-auth.
+        const __loginPath = window.location.pathname;
+        const __loginSlug = __loginPath.startsWith('/m/') ? __loginPath.substring(3).split('/')[0] : '';
+        const res = await fetch('/api/settings' + (__loginSlug ? '?madrasahId=' + encodeURIComponent(__loginSlug) : ''));
         const data = await res.json().catch(() => null);
         if (data && data.success && data.settings) {
             appState.settings = { ...appState.settings, ...data.settings };
