@@ -2457,6 +2457,9 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                               <button type="button" data-evaluasi-bulk onclick="bulkForceFinishEvaluasiSelected()" class="px-3 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl font-bold text-[10px] flex items-center gap-1.5 transition" ${evaluasiGetSelection().size === 0 ? 'disabled' : ''}>
                                   <i class="fa-solid fa-flag-checkered"></i><span>Force Finish</span>
                               </button>
+                              <button type="button" data-evaluasi-bulk onclick="bulkReopenEvaluasiSelected()" class="px-3 py-2 bg-sky-600 hover:bg-sky-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl font-bold text-[10px] flex items-center gap-1.5 transition" ${evaluasiGetSelection().size === 0 ? 'disabled' : ''} title="Buka kembali ujian siswa terpilih dengan tambahan waktu, jawaban tersimpan tetap ada">
+                                  <i class="fa-solid fa-clock-rotate-left"></i><span>Buka Kembali</span>
+                              </button>
                               ${hasEssay ? `
                               <button type="button" data-evaluasi-bulk onclick="bulkKoreksiEvaluasiSelected('keyword')" class="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl font-bold text-[10px] flex items-center gap-1.5 transition" ${evaluasiGetSelection().size === 0 ? 'disabled' : ''}>
                                   <i class="fa-solid fa-calculator"></i><span>Koreksi Non-AI</span>
@@ -8633,6 +8636,65 @@ function bulkForceFinishEvaluasiSelected() {
     });
 }
 
+// CBT_REOPEN_EXAM_V1: bulk reopen for checkbox-selected students.
+function bulkReopenEvaluasiSelected() {
+    const ids = evaluasiGetSelectedIds();
+    const examId = appState.evaluasiSelectedExamId;
+    if (!examId || ids.length === 0) return showToast('Pilih siswa terlebih dahulu.', 'warning');
+    const modal = document.getElementById('modal-container');
+    if (!modal) return;
+    modal.innerHTML = `
+        <div class="fixed inset-0 z-[999] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4 animate-fade-in">
+            <div class="bg-white w-full max-w-sm rounded-3xl shadow-2xl p-6 space-y-4 border border-slate-100">
+                <div class="text-center space-y-2">
+                    <div class="w-12 h-12 bg-sky-100 text-sky-600 rounded-2xl flex items-center justify-center mx-auto text-xl">
+                        <i class="fa-solid fa-clock-rotate-left"></i>
+                    </div>
+                    <h3 class="font-bold text-slate-800 text-base">Buka Kembali Ujian</h3>
+                    <p class="text-xs text-slate-500 leading-relaxed"><b>${ids.length} siswa terpilih</b> akan dibuka kembali ujiannya. Jawaban yang sudah tersimpan tetap ada, siswa melanjutkan dari posisi terakhir dengan tambahan waktu di bawah ini. Siswa yang belum pernah memulai ujian akan dilewati.</p>
+                </div>
+                <div>
+                    <label class="block text-xs uppercase text-slate-500 mb-1">Tambahan Waktu (menit)</label>
+                    <input type="number" id="bulk-reopen-added-minutes" value="30" min="1" max="240" class="w-full px-4 py-2.5 bg-slate-50 border rounded-2xl text-center font-bold">
+                </div>
+                <div class="flex space-x-3 pt-1">
+                    <button type="button" onclick="closeModal()" class="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-2xl text-xs transition cursor-pointer">Batal</button>
+                    <button type="button" onclick="confirmBulkReopenEvaluasi()" class="flex-1 py-2.5 bg-sky-600 hover:bg-sky-700 text-white font-semibold rounded-2xl text-xs shadow transition cursor-pointer">Buka Kembali</button>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+async function confirmBulkReopenEvaluasi() {
+    const ids = evaluasiGetSelectedIds();
+    const examId = appState.evaluasiSelectedExamId;
+    if (!examId || ids.length === 0) return;
+    const input = document.getElementById('bulk-reopen-added-minutes');
+    const addedMinutes = Math.min(240, Math.max(1, parseInt(input ? input.value : '30', 10) || 30));
+    closeModal();
+    showToast(`Membuka kembali ujian ${ids.length} siswa (+${addedMinutes} menit)...`, 'info');
+    const results = await evaluasiRunConcurrent(ids, async id => {
+        const response = await fetch('/api/reopen-student-exam', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ studentId: id, examId, addedMinutes })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (response.status === 404) return { id, ok: true, skipped: true };
+        if (!response.ok || !data.success) return { id, ok: false, message: data.message || `HTTP ${response.status}` };
+        const key = String(id) + '_' + String(examId);
+        if (appState.completedExams) delete appState.completedExams[key];
+        if (appState.forceFinishedExams) delete appState.forceFinishedExams[key];
+        if (appState.studentExamGrades) delete appState.studentExamGrades[key];
+        if (appState.blockedStudents) delete appState.blockedStudents[key];
+        return { id, ok: true };
+    }, 4);
+    const ok = results.filter(r => r && r.ok && !r.skipped).length;
+    const skipped = results.filter(r => r && r.skipped).length;
+    const fail = results.length - ok - skipped;
+    await evaluasiFinishBulkRefresh(`Buka kembali selesai: ${ok} berhasil (+${addedMinutes} menit)${skipped ? `, ${skipped} dilewati (belum pernah ujian)` : ''}${fail ? `, ${fail} gagal` : ''}.`, fail ? 'warning' : 'success');
+}
+
 function bulkKoreksiEvaluasiSelected(method = 'ai') {
     const ids = evaluasiGetSelectedIds();
     const classId = appState.evaluasiSelectedClassId;
@@ -10427,6 +10489,8 @@ window.evaluasiToggleSelectAll = evaluasiToggleSelectAll;
 window.evaluasiClearSelection = evaluasiClearSelection;
 window.bulkResetEvaluasiSelected = bulkResetEvaluasiSelected;
 window.bulkForceFinishEvaluasiSelected = bulkForceFinishEvaluasiSelected;
+window.bulkReopenEvaluasiSelected = bulkReopenEvaluasiSelected;
+window.confirmBulkReopenEvaluasi = confirmBulkReopenEvaluasi;
 window.bulkKoreksiEvaluasiSelected = bulkKoreksiEvaluasiSelected;
 window.openPreviewJawabanEvaluasi = openPreviewJawabanEvaluasi;
 window.downloadSelectedEvaluasiAnswers = downloadSelectedEvaluasiAnswers;
