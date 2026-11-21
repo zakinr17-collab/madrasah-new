@@ -3007,11 +3007,15 @@ function getNavigationHistory() {
 function updateGlobalBackBar() {
     const bar = document.getElementById('global-back-bar');
     if (!bar) return;
+    // CBT_FOCUS_CHROME_V1: never show the back bar over an active exam screen.
+    if (document.getElementById('cbt-active-exam-screen')) { bar.classList.add('hidden'); return; }
     const hasHistory = getNavigationHistory().length > 0;
     bar.classList.toggle('hidden', !hasHistory);
 }
 
 function navigateBack(fallbackRoute = null) {
+    // CBT_FOCUS_CHROME_V1: the question page cannot be left via back navigation.
+    if (document.getElementById('cbt-active-exam-screen')) return;
     const history = getNavigationHistory();
     let target = '';
     while (history.length > 0 && !target) {
