@@ -205,6 +205,8 @@ function exitCbtFullscreen() {
     cbtFullscreenGeneration++;
     if (!cbtFullscreenOwned) return;
     cbtFullscreenOwned = false;
+    // CBT_ENTRY_FIXES_V1: release the portrait pin together with the fullscreen.
+    try { if (screen.orientation && typeof screen.orientation.unlock === 'function') screen.orientation.unlock(); } catch (_) {}
     if (document.fullscreenElement === document.documentElement &&
         typeof document.exitFullscreen === 'function') {
         try { Promise.resolve(document.exitFullscreen()).catch(() => {}); } catch (_) {}
@@ -220,6 +222,13 @@ function requestCbtFullscreen() {
         Promise.resolve(root.requestFullscreen()).then(() => {
             if (document.fullscreenElement !== root) return;
             cbtFullscreenOwned = true;
+            // CBT_ENTRY_FIXES_V1: pin portrait while the exam is fullscreen so
+            // entering fullscreen cannot flip the phone to landscape.
+            try {
+                if (screen.orientation && typeof screen.orientation.lock === 'function') {
+                    Promise.resolve(screen.orientation.lock('portrait')).catch(() => {});
+                }
+            } catch (_) {}
             // The player could have been closed while the browser was granting permission.
             if (generation !== cbtFullscreenGeneration || !activeExamSession ||
                 !document.getElementById('cbt-active-exam-screen')) exitCbtFullscreen();
@@ -4607,6 +4616,36 @@ function showExamMessageModal(title, message, examId = '', studentId = '', isBro
     `;
 }
 
+// CBT_ENTRY_FIXES_V1: attempt-start preflight with a realistic timeout and one
+// automatic retry. A busy server (many students starting at once) regularly
+// needs more than the old 4s, which surfaced as a bogus "check connection".
+async function cbtStartAttemptWithRetry(st, ex) {
+    let lastError = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) await new Promise(resolve => setTimeout(resolve, 800));
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        try {
+            const res = await fetch('/api/exam/attempt/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ studentId: st.id, examId: ex.id, deviceSessionId: getCbtDeviceSessionId() }),
+                signal: controller.signal
+            });
+            const data = await res.json().catch(() => ({ success: false }));
+            if (!data.success) {
+                return { ok: false, rejected: true, message: data.message || 'Ujian tidak dapat dimulai atau dilanjutkan.' };
+            }
+            return { ok: true, session: data.session && typeof data.session === 'object' ? data.session : null };
+        } catch (err) {
+            lastError = err;
+        } finally {
+            clearTimeout(timeout);
+        }
+    }
+    return { ok: false, rejected: false, error: lastError };
+}
+
 async function startStudentExam(examId) {
     const ex = appState.exams.find(e => String(e.id) === String(examId));
     if (!ex) {
@@ -4658,35 +4697,20 @@ async function startStudentExam(examId) {
     // The server intentionally refuses /start-questions until an active attempt exists.
     let serverAttemptReady = false;
     let preflightSession = null;
-    try {
-        const preflightController = new AbortController();
-        const preflightTimeout = setTimeout(() => preflightController.abort(), 4000);
-        let preflightRes;
-        try {
-            preflightRes = await fetch('/api/exam/attempt/start', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ studentId: st.id, examId: ex.id, deviceSessionId: getCbtDeviceSessionId() }),
-                signal: preflightController.signal
-            });
-        } finally {
-            clearTimeout(preflightTimeout);
-        }
-        const preflightData = await preflightRes.json().catch(() => ({ success: false }));
-        if (!preflightData.success) {
-            showToast(preflightData.message || 'Ujian tidak dapat dimulai atau dilanjutkan.', 'error');
-            return;
-        }
+    const preflight = await cbtStartAttemptWithRetry(st, ex);
+    if (preflight.ok) {
         serverAttemptReady = true;
-        preflightSession = preflightData.session && typeof preflightData.session === 'object' ? preflightData.session : null;
-    } catch (err) {
+        preflightSession = preflight.session;
+    } else if (preflight.rejected) {
+        showToast(preflight.message, 'error');
+        return;
+    } else if (!hasActiveSession) {
         // Preserve offline-first continuation only for an already-active local attempt.
-        if (!hasActiveSession) {
-            console.warn('Gagal mengaktifkan attempt CBT di server:', err);
-            showToast('Gagal memulai ujian. Periksa koneksi lalu coba lagi.', 'error');
-            return;
-        }
-        console.warn('Server attempt sementara tidak terjangkau; mencoba cache CBT yang sudah disanitasi.', err);
+        console.warn('Gagal mengaktifkan attempt CBT di server:', preflight.error);
+        showToast('Gagal memulai ujian. Periksa koneksi lalu coba lagi.', 'error');
+        return;
+    } else {
+        console.warn('Server attempt sementara tidak terjangkau; mencoba cache CBT yang sudah disanitasi.', preflight.error);
     }
 
     // 1. Fetch server-generated, server-shuffled, and sanitized questions.
@@ -4946,6 +4970,9 @@ async function startStudentExam(examId) {
     window.triggerExamViolation = function(reason) {
         if (!activeExamSession) return;
         const now = Date.now();
+        // CBT_ENTRY_FIXES_V1: entry grace — the camera permission prompt and the
+        // fullscreen transition fire blur/visibility events that are not cheating.
+        if (window._cbtExamStartedAt && (now - window._cbtExamStartedAt) < 10000) return;
         if (window._lastViolationTime && (now - window._lastViolationTime < 3500)) return;
         window._lastViolationTime = now;
 
@@ -5324,6 +5351,8 @@ async function startStudentExam(examId) {
         window.initStudentExamCamera();
     }
 
+    // CBT_ENTRY_FIXES_V1: start of the entry grace window (see triggerExamViolation).
+    window._cbtExamStartedAt = Date.now();
     renderActiveExamScreen();
     requestCbtFullscreen();
 }
@@ -11631,6 +11660,11 @@ Object.assign(window, {
   renderStudentCBTList,
   startStudentExam,
   renderActiveExamScreen,
+  adjustCbtFontSize,
+  toggleCbtFlag,
+  toggleCbtNavSheet,
+  openCbtImageZoom,
+  closeCbtImageZoom,
   saveExamAnswer,
   selectExamOption,
   nextExamQuestion,
