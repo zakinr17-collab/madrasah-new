@@ -3451,7 +3451,10 @@ async function saveExam(e) {
             Object.keys(appState.activeExamSessions).forEach(sessKey => {
                 const sess = appState.activeExamSessions[sessKey];
                 if (!sess) return;
-                const isMatch = String(sess.examId) === String(editId) || sessKey.endsWith('_' + editId) || (sess.exam && String(sess.exam.id) === String(editId));
+                // CBT_SERVER_TIME_EXTENSION_V3: session keys may be namespaced
+                // (v2::tenant::student::exam) or legacy (student_exam); match both.
+                const keyExamId = sessKey.includes('::') ? sessKey.split('::').pop() : sessKey.split('_').pop();
+                const isMatch = String(sess.examId) === String(editId) || String(keyExamId) === String(editId) || (sess.exam && String(sess.exam.id) === String(editId));
                 if (isMatch) {
                     if (durationDiffSec > 0) {
                         sess.timeLeft = Math.max(10, (sess.timeLeft || 0) + durationDiffSec);
