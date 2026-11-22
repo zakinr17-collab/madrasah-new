@@ -5241,9 +5241,38 @@ async function backupSystemData() {
     }
 }
 
+// RESTORE_PROGRESS_V1: full-screen progress overlay for restore. The restore
+// pipeline (file parse, per-photo compression, chunked upload, server
+// processing) can take minutes on large backups; without feedback users
+// reasonably assume it failed and interrupt it.
+function showRestoreProgress(text) {
+    let el = document.getElementById('restore-progress-overlay');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'restore-progress-overlay';
+        el.className = 'fixed inset-0 z-[9999] bg-slate-900/60 flex items-center justify-center p-4';
+        el.innerHTML = `<div class="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full text-center space-y-3">
+            <i class="fa-solid fa-spinner fa-spin text-3xl text-blue-600"></i>
+            <p id="restore-progress-text" class="text-sm font-semibold text-slate-700">Memproses...</p>
+            <p class="text-xs text-slate-400">Jangan tutup atau refresh halaman ini.</p>
+        </div>`;
+        document.body.appendChild(el);
+    }
+    const label = document.getElementById('restore-progress-text');
+    if (label) label.textContent = text;
+    el.classList.remove('hidden');
+}
+
+function hideRestoreProgress() {
+    const el = document.getElementById('restore-progress-overlay');
+    if (el) el.classList.add('hidden');
+}
+
 async function restoreSystemData(event) {
     const file = event.target.files && event.target.files[0];
     if (!file) return;
+
+    showRestoreProgress('Membaca file backup...');
 
     try {
         const text = await file.text();
@@ -5378,8 +5407,10 @@ async function restoreSystemData(event) {
             </div>
         `;
 
+        hideRestoreProgress();
         showConfirmModal(messageHtml, async () => {
             try {
+                showRestoreProgress('Menyiapkan data restore...');
                 const preservePhoto = (newItem, oldList) => {
                     if (incPhotos) return newItem.photo || '';
                     const oldItem = oldList.find(i => String(i.id) === String(newItem.id));
@@ -5389,7 +5420,10 @@ async function restoreSystemData(event) {
                 const optimizeAttendanceList = async (list, oldList) => {
                     if (!Array.isArray(list)) return list;
                     const optimized = [];
+                    let optIndex = 0;
                     for (const item of list) {
+                        optIndex++;
+                        if (optIndex % 25 === 1) showRestoreProgress(`Memproses foto absensi ${optIndex}/${list.length}...`);
                         const originalPhoto = preservePhoto(item, oldList);
                         if (incPhotos && originalPhoto && typeof originalPhoto === 'string' && originalPhoto.startsWith('data:image')) {
                             const compressedPhoto = await window.compressBase64Image(originalPhoto);
@@ -5407,7 +5441,10 @@ async function restoreSystemData(event) {
                 const processPersonList = async (list, oldList) => {
                     if (!Array.isArray(list)) return list;
                     const processed = [];
+                    let personIndex = 0;
                     for (const item of list) {
+                        personIndex++;
+                        if (personIndex % 25 === 1) showRestoreProgress(`Memproses foto akun ${personIndex}/${list.length}...`);
                         const originalPhoto = preservePhoto(item, oldList);
                         if (incPhotos && originalPhoto && typeof originalPhoto === 'string' && originalPhoto.startsWith('data:image')) {
                             const compressedPhoto = await window.compressBase64Image(originalPhoto);
@@ -5521,6 +5558,7 @@ async function restoreSystemData(event) {
                     const uploadId = `restore_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
                     const totalChunks = Math.ceil(payloadString.length / chunkSize);
                     for (let i = 0; i < totalChunks; i++) {
+                        showRestoreProgress(`Mengunggah bagian ${i + 1}/${totalChunks}...`);
                         const chunkData = payloadString.slice(i * chunkSize, (i + 1) * chunkSize);
                         const response = await fetch('/api/system/restore/chunk', {
                             method: 'POST',
@@ -5538,6 +5576,7 @@ async function restoreSystemData(event) {
                     if (payloadString.length > 500000) {
                         await uploadRestoreChunks(payloadString);
                     } else {
+                        showRestoreProgress('Mengirim data ke server...');
                         const response = await fetch('/api/system/restore', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -5565,6 +5604,7 @@ async function restoreSystemData(event) {
                     // aborts the restore instead of reporting success with partial data.
                     for (const [key, lsKey, val] of componentsToSync) {
                         if (val === undefined || val === null) continue;
+                        showRestoreProgress(`Menyimpan komponen ${key}...`);
                         const response = await fetch('/api/sync-state', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -5611,6 +5651,7 @@ async function restoreSystemData(event) {
                         try { localStorage.removeItem('madrasah_question_groups'); } catch (_) {}
                     }
 
+                    showRestoreProgress('Memuat ulang data dari server...');
                     if (typeof window.loadDataFromServer === 'function') {
                         await window.loadDataFromServer();
                     } else if (mergedServerData) {
@@ -5624,6 +5665,7 @@ async function restoreSystemData(event) {
                     }
                 }
 
+                hideRestoreProgress();
                 if (window.showToast) {
                     const skippedRestoreImages = Number(mergedServerData?.restoreImageSummary?.skippedInvalid || 0);
                     const offlineMessage = skippedRestoreImages > 0
@@ -5635,10 +5677,12 @@ async function restoreSystemData(event) {
                     window.location.reload();
                 }, 1200);
             } catch (err) {
+                hideRestoreProgress();
                 if (window.showToast) window.showToast('Gagal memulihkan: ' + err.message, 'error');
             }
         });
     } catch (err) {
+        hideRestoreProgress();
         if (window.showToast) window.showToast('Gagal membaca file: ' + err.message, 'error');
     } finally {
         event.target.value = '';
