@@ -24373,6 +24373,13 @@ app.get("/api/system/backup-credentials", requireAuth, requireRole(['admin', 'ad
   });
 });
 
+// BACKUP_CLONE_V1: portable (decrypted) AI credentials for admin backup.
+// The downloaded backup file therefore contains real API keys.
+app.get("/api/system/backup-ai-credentials", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), (req: any, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.json({ success: true, ...buildAiCredentialBackup() });
+});
+
 // Efficient tenant-safe bulk reset for controlled account recovery.
 app.post("/api/admin/reset-student-passwords-bulk", requireAuth, requireRole(['admin', 'administrator', 'bos', 'superadmin']), async (req: any, res) => {
   const ids = Array.isArray(req.body?.ids) ? Array.from(new Set(req.body.ids.map((id: any) => String(id).trim()).filter(Boolean))) : [];
@@ -24445,7 +24452,14 @@ app.get("/api/system/backup", requireAuth, requireRole(['admin', 'administrator'
     grades: filterByMadrasah(grades, req),
     settings: sanitizeSettingsForClient(appSettings),
     schoolLocationSettings: tenantConfigValue(schoolLocationSettings, req, { schoolLatitude: -6.2000, schoolLongitude: 106.8166, geofenceRadius: 100 }, 'schoolLocationSettings'),
-    customGradeColumns: tenantConfigValue(customGradeColumns, req, {}, 'customGradeColumns')
+    customGradeColumns: tenantConfigValue(customGradeColumns, req, {}, 'customGradeColumns'),
+    lkpdList: filterByMadrasah(lkpdList, req),
+    calendarEvents: filterByMadrasah(calendarEvents, req),
+    ...Object.fromEntries(RESTORE_CBT_MAP_STORES.map(([storeName, getMap]) => [
+      storeName,
+      Object.fromEntries(Object.entries(getMap() || {}).filter(([key]) => restoreMapKeyBelongsToTenant(key, req)))
+    ])),
+    aiCredentials: buildAiCredentialBackup()
   };
   res.setHeader("Content-Disposition", `attachment; filename=Backup_Data_${new Date().toISOString().slice(0, 10)}.json`);
   res.setHeader("Content-Type", "application/json");
@@ -24470,7 +24484,12 @@ const ONLINE_SAFE_RESTORE_SPECS: Array<[string, string[], string, () => any[]]> 
   // outside the generic id-based add-only restore planner.
   ['generatedExams', ['madrasah_generated_exams', 'madrasah_generatedExams'], 'generic', () => generatedExams || []],
   ['lessonPlans', ['madrasah_lessonPlans', 'madrasah_lesson_plans'], 'generic', () => lessonPlans || []],
-  ['grades', ['madrasah_grades'], 'generic', () => grades || []]
+  ['grades', ['madrasah_grades'], 'generic', () => grades || []],
+  // BACKUP_CLONE_V1: stores that were missing from backup/restore coverage.
+  ['savedRosters', ['madrasah_savedRosters', 'madrasah_saved_rosters'], 'generic', () => savedRosters || []],
+  ['timeSlots', ['madrasah_timeSlots', 'madrasah_time_slots'], 'generic', () => timeSlots || []],
+  ['lkpdList', ['madrasah_lkpdList', 'madrasah_lkpd_list'], 'generic', () => lkpdList || []],
+  ['calendarEvents', ['madrasah_calendarEvents', 'madrasah_calendar_events'], 'generic', () => calendarEvents || []]
 ];
 
 function getOnlineRestoreArray(backup: any, key: string, legacyKeys: string[]): any[] | null {
@@ -24593,8 +24612,302 @@ async function processOnlineSafeRestore(backup: any, req: any) {
   };
 }
 
+// BACKUP_CLONE_V1: full-clone backup support — portable AI credentials,
+// config objects (settings/theme included), CBT result maps, and an
+// explicit replace (clone) restore mode next to the safe merge mode.
+
+function buildAiCredentialBackup(): any {
+  const dec = (enc: any) => decryptSecret(String(enc || ''), AI_PROVIDER_CREDENTIAL_KEY);
+  const cfg = getAiProviderConfig();
+  const userKeys: Record<string, any> = {};
+  for (const [uid, v] of Object.entries(getAllUserAiCredentials())) {
+    const apiKey = dec((v as any)?.apiKeyEnc);
+    if (!apiKey) continue;
+    userKeys[String(uid)] = { apiKey, baseUrl: String((v as any)?.baseUrl || ''), model: String((v as any)?.model || '') };
+  }
+  return {
+    version: 'ai-credential-backup-v1',
+    aiProviderConfig: cfg ? {
+      provider: cfg.provider || 'custom',
+      order: cfg.order || '',
+      customBaseUrl: cfg.customBaseUrl || '',
+      customModel: cfg.customModel || 'auto',
+      customApiKey: dec(cfg.customApiKeyEnc),
+      fallbackEnabled: Boolean((cfg as any).fallbackEnabled),
+      fallbackOrder: Array.isArray((cfg as any).fallbackOrder) ? (cfg as any).fallbackOrder : []
+    } : null,
+    aiProviderProfiles: getAiProviderProfiles(appSettings).map((prof: any) => ({
+      id: prof.id,
+      label: prof.label,
+      customBaseUrl: prof.customBaseUrl || '',
+      customModel: prof.customModel || 'auto',
+      customApiKey: dec(prof.customApiKeyEnc)
+    })),
+    activeAiProfileId: (appSettings as any).activeAiProfileId || null,
+    aiUserKeys: userKeys
+  };
+}
+
+async function applyRestoredAiCredentials(aiCreds: any, mode: string): Promise<void> {
+  if (!aiCreds || typeof aiCreds !== 'object' || Array.isArray(aiCreds)) return;
+  let changed = false;
+  if (aiCreds.aiProviderConfig && typeof aiCreds.aiProviderConfig === 'object' && !Array.isArray(aiCreds.aiProviderConfig)) {
+    const c = aiCreds.aiProviderConfig;
+    const cfg = sanitizeAiProviderInput(
+      { ...c, customApiKey: String(c.customApiKey || ''), clearApiKey: !String(c.customApiKey || '').trim() },
+      AI_PROVIDER_CREDENTIAL_KEY,
+      null
+    );
+    if (cfg) {
+      appSettings = { ...appSettings, aiProviderConfig: cfg } as any;
+      changed = true;
+    }
+  }
+  if (Array.isArray(aiCreds.aiProviderProfiles)) {
+    const incoming = aiCreds.aiProviderProfiles
+      .map((prof: any) => sanitizeProfileInput(
+        { ...prof, customApiKey: String(prof?.customApiKey || ''), clearApiKey: !String(prof?.customApiKey || '').trim() },
+        AI_PROVIDER_CREDENTIAL_KEY,
+        null
+      ))
+      .filter(Boolean) as any[];
+    if (mode === 'replace') {
+      appSettings = { ...appSettings, aiProviderProfiles: incoming } as any;
+    } else {
+      const byId = new Map(getAiProviderProfiles(appSettings).map((prof: any) => [String(prof.id), prof]));
+      for (const prof of incoming) byId.set(String(prof.id), prof);
+      appSettings = { ...appSettings, aiProviderProfiles: Array.from(byId.values()) } as any;
+    }
+    changed = true;
+  }
+  if (aiCreds.activeAiProfileId) {
+    appSettings = { ...appSettings, activeAiProfileId: String(aiCreds.activeAiProfileId) } as any;
+    changed = true;
+  }
+  if (aiCreds.aiUserKeys && typeof aiCreds.aiUserKeys === 'object' && !Array.isArray(aiCreds.aiUserKeys)) {
+    const all = { ...getAllUserAiCredentials() };
+    for (const [uid, v] of Object.entries(aiCreds.aiUserKeys)) {
+      const apiKey = String((v as any)?.apiKey || '').trim();
+      if (!apiKey) continue;
+      all[String(uid)] = {
+        apiKeyEnc: encryptSecret(apiKey, AI_PROVIDER_CREDENTIAL_KEY),
+        baseUrl: String((v as any)?.baseUrl || ''),
+        model: String((v as any)?.model || '')
+      };
+    }
+    (appSettings as any).aiUserKeys = all;
+    changed = true;
+  }
+  if (changed) {
+    await saveData('settings', appSettings);
+    applyAiProviderRuntime();
+  }
+}
+
+const RESTORE_CBT_MAP_STORES: Array<[string, () => Record<string, any>, (v: Record<string, any>) => void]> = [
+  ['studentExamGrades', () => studentExamGrades, v => { studentExamGrades = v; }],
+  ['completedExams', () => completedExams, v => { completedExams = v; }],
+  ['studentExamAnswers', () => studentExamAnswers, v => { studentExamAnswers = v; }],
+  ['studentExamQuestions', () => studentExamQuestions, v => { studentExamQuestions = v; }],
+  ['forceFinishedExams', () => forceFinishedExams, v => { forceFinishedExams = v; }],
+  ['blockedStudents', () => blockedStudents, v => { blockedStudents = v; }],
+  ['studentOutOfTab', () => studentOutOfTab, v => { studentOutOfTab = v; }],
+  ['studentTabSwitches', () => studentTabSwitches, v => { studentTabSwitches = v; }]
+];
+
+function restoreMapKeyBelongsToTenant(key: string, req: any): boolean {
+  const parsed = parseNamespacedExamStateKey(key);
+  const tenant = canonicalRealtimeTenant(getRequestMadrasahId(req) || (req as any)?.user?.madrasahId || (req as any)?.user?.madrasahSlug || 'default');
+  if (parsed) return canonicalRealtimeTenant(parsed.tenant) === tenant;
+  const studentId = String(key).split('_')[0];
+  const student = (students || []).find((s: any) => String(s.id) === studentId);
+  return student ? isItemForCurrentMadrasah(student, req) : false;
+}
+
+async function applyRestoredCbtMaps(backup: any, req: any, mode: string): Promise<void> {
+  for (const [storeName, getMap, setMap] of RESTORE_CBT_MAP_STORES) {
+    const incoming = backup?.[storeName];
+    if (!incoming || typeof incoming !== 'object' || Array.isArray(incoming)) continue;
+    const current: Record<string, any> = { ...(getMap() || {}) };
+    const writes: DeltaBatchWrite[] = [];
+    if (mode === 'replace') {
+      for (const key of Object.keys(current)) {
+        if (!(key in incoming) && restoreMapKeyBelongsToTenant(key, req)) {
+          delete current[key];
+          writes.push({ storeName, itemKey: key, value: null });
+        }
+      }
+    }
+    for (const [rawKey, value] of Object.entries(incoming)) {
+      // Normalize namespaced keys to this deployment's tenant so a backup
+      // cloned onto a new install stays readable; legacy keys pass through.
+      const parsed = parseNamespacedExamStateKey(rawKey);
+      const key = parsed ? examStateKey(req, parsed.studentId, parsed.examId) : rawKey;
+      current[key] = value;
+      writes.push({ storeName, itemKey: key, value });
+    }
+    setMap(current);
+    if (isOnlineMode) {
+      for (let i = 0; i < writes.length; i += 200) {
+        await saveDeltaBatchDb(writes.slice(i, i + 200));
+      }
+    } else {
+      await saveData(storeName, current);
+    }
+  }
+}
+
+async function applyRestoredConfigObjects(backup: any, req: any, mode: string): Promise<void> {
+  const batch: { key: string; value: any }[] = [];
+  const getObj = (key: string) => {
+    const v = backup?.[key];
+    if (v && typeof v === 'object' && !Array.isArray(v)) return v;
+    if (typeof v === 'string') {
+      try { const parsed = JSON.parse(v); if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed; } catch (_) {}
+    }
+    return null;
+  };
+  const getArr = (key: string) => {
+    const v = backup?.[key];
+    if (Array.isArray(v)) return v;
+    if (typeof v === 'string') {
+      try { const parsed = JSON.parse(v); if (Array.isArray(parsed)) return parsed; } catch (_) {}
+    }
+    return null;
+  };
+  const rSettings = getObj('settings');
+  if (rSettings) {
+    if (isOnlineMode) {
+      const safe = sanitizeSettingsMutation(rSettings, true);
+      const currentScoped = tenantConfigValue(appSettings?.__tenantScopedSettingsV1, req, {}, 'settings');
+      const nextScoped = mode === 'replace'
+        ? safe
+        : { ...safe, ...(currentScoped && typeof currentScoped === 'object' && !Array.isArray(currentScoped) ? currentScoped : {}) };
+      appSettings = {
+        ...appSettings,
+        __tenantScopedSettingsV1: setTenantConfigValue(appSettings?.__tenantScopedSettingsV1, req, nextScoped, {}, 'settings')
+      } as any;
+    } else {
+      const safe = sanitizeSettingsMutation(rSettings, false);
+      appSettings = (mode === 'replace' ? { ...appSettings, ...safe } : { ...safe, ...appSettings }) as any;
+    }
+    batch.push({ key: 'settings', value: appSettings });
+  }
+  const rLoc = getObj('schoolLocationSettings');
+  if (rLoc) {
+    const current = tenantConfigValue(schoolLocationSettings, req, {}, 'schoolLocationSettings');
+    const next = mode === 'replace' ? rLoc : { ...rLoc, ...(current && typeof current === 'object' && !Array.isArray(current) ? current : {}) };
+    schoolLocationSettings = setTenantConfigValue(schoolLocationSettings, req, next, {}, 'schoolLocationSettings');
+    batch.push({ key: 'schoolLocationSettings', value: schoolLocationSettings });
+  }
+  const rCols = getObj('customGradeColumns');
+  if (rCols) {
+    const current = tenantConfigValue(customGradeColumns, req, {}, 'customGradeColumns');
+    const next = mode === 'replace' ? rCols : { ...rCols, ...(current && typeof current === 'object' && !Array.isArray(current) ? current : {}) };
+    customGradeColumns = setTenantConfigValue(customGradeColumns, req, next, {}, 'customGradeColumns');
+    batch.push({ key: 'customGradeColumns', value: customGradeColumns });
+  }
+  const rCats = getArr('gradeCategories');
+  if (rCats) {
+    const clean = Array.from(new Set(rCats.map((c: any) => String(c).trim()).filter(Boolean)));
+    const current = tenantConfigValue(gradeCategories, req, [], 'gradeCategories');
+    const next = mode === 'replace' ? clean : Array.from(new Set([...(Array.isArray(current) ? current : []), ...clean]));
+    gradeCategories = setTenantConfigValue(gradeCategories, req, next, [], 'gradeCategories');
+    batch.push({ key: 'gradeCategories', value: gradeCategories });
+  }
+  if (backup?.kbmDuration !== undefined && backup?.kbmDuration !== null && backup?.kbmDuration !== '') {
+    const parsed = Number(backup.kbmDuration);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      kbmDuration = setTenantConfigValue(kbmDuration, req, parsed, 40, 'kbmDuration');
+      batch.push({ key: 'kbmDuration', value: kbmDuration });
+    }
+  }
+  if (batch.length) await saveDataBatch(batch, true);
+}
+
+const REPLACE_RESTORE_SPECS: Array<[string, string[], string, () => any[], (v: any[]) => void]> = [
+  ['students', ['madrasah_students'], 'students', () => students || [], v => { students = v; }],
+  ['teachers', ['madrasah_teachers'], 'teachers', () => teachers || [], v => { teachers = v; }],
+  ['classes', ['madrasah_classes'], 'generic', () => classes || [], v => { classes = v; }],
+  ['subjects', ['madrasah_subjects'], 'generic', () => subjects || [], v => { subjects = v; }],
+  ['schedules', ['madrasah_schedules'], 'generic', () => schedules || [], v => { schedules = v; }],
+  ['savedRosters', ['madrasah_savedRosters', 'madrasah_saved_rosters'], 'generic', () => savedRosters || [], v => { savedRosters = v; }],
+  ['timeSlots', ['madrasah_timeSlots', 'madrasah_time_slots'], 'generic', () => timeSlots || [], v => { timeSlots = v; }],
+  ['attendance', ['madrasah_attendance'], 'generic', () => attendance || [], v => { attendance = v; }],
+  ['teacherAttendance', ['madrasah_teacher_attendance', 'madrasah_teacherAttendance'], 'generic', () => teacherAttendance || [], v => { teacherAttendance = v; }],
+  ['questionBankGroups', ['madrasah_questionBankGroups', 'madrasah_question_groups'], 'generic', () => questionBankGroups || [], v => { questionBankGroups = v; }],
+  ['questions', ['madrasah_questions', 'questionBank', 'madrasah_questionBank'], 'generic', () => questions || [], v => { questions = v; }],
+  ['exams', ['madrasah_exams'], 'generic', () => exams || [], v => { exams = v; }],
+  ['rooms', ['madrasah_rooms'], 'generic', () => rooms || [], v => { rooms = v; }],
+  ['journals', ['madrasah_journals'], 'generic', () => journals || [], v => { journals = v; }],
+  ['generatedExams', ['madrasah_generated_exams', 'madrasah_generatedExams'], 'generic', () => generatedExams || [], v => { generatedExams = v; }],
+  ['lessonPlans', ['madrasah_lessonPlans', 'madrasah_lesson_plans'], 'generic', () => lessonPlans || [], v => { lessonPlans = v; }],
+  ['grades', ['madrasah_grades'], 'generic', () => grades || [], v => { grades = v; }],
+  ['lkpdList', ['madrasah_lkpdList', 'madrasah_lkpd_list'], 'generic', () => lkpdList || [], v => { lkpdList = v; }],
+  ['calendarEvents', ['madrasah_calendarEvents', 'madrasah_calendar_events'], 'generic', () => calendarEvents || [], v => { calendarEvents = v; }]
+];
+
+async function processReplaceRestore(backup: any, req: any) {
+  isRestoring = true;
+  try {
+    const batch: { key: string; value: any }[] = [];
+    const replaced: Record<string, number> = {};
+    for (const [key, legacyKeys, kind, getCurrent, setCurrent] of REPLACE_RESTORE_SPECS) {
+      const incoming = getOnlineRestoreArray(backup, key, legacyKeys);
+      if (!incoming) continue;
+      if (incoming.length > 20000) throw new Error('RESTORE_TOO_LARGE:' + key);
+      for (const raw of incoming) {
+        if (raw && typeof raw === 'object' && !Array.isArray(raw) &&
+            (raw.madrasahId || raw.madrasahSlug) && !isItemForCurrentMadrasah(raw, req)) {
+          throw new Error('RESTORE_TENANT_CONFLICT:' + key);
+        }
+      }
+      const persisted = await persistRestoredImageData(incoming, { skipInvalid: true });
+      if (kind === 'students' || kind === 'teachers') {
+        for (const item of persisted) {
+          const password = String(item?.password || '');
+          if (password && !password.startsWith('scrypt$') && !password.startsWith('sha256$')) item.password = hashPassword(password);
+          if (item && typeof item === 'object') delete item.passwordRaw;
+        }
+      }
+      const others = (getCurrent() || []).filter((item: any) => !isItemForCurrentMadrasah(item, req));
+      const tagged = persisted
+        .filter((item: any) => item && typeof item === 'object' && !Array.isArray(item))
+        .map((item: any) => {
+          const clean = { ...item };
+          delete clean.madrasahId;
+          delete clean.madrasahSlug;
+          delete clean.passwordRaw;
+          return tagNewRecord(clean, req);
+        });
+      const next = [...others, ...tagged];
+      setCurrent(next);
+      batch.push({ key, value: next });
+      replaced[key] = tagged.length;
+    }
+    if (batch.length) await saveDataBatch(batch, true);
+    await applyRestoredConfigObjects(backup, req, 'replace');
+    return { mode: 'replace-v1', nonDestructive: false, replaced };
+  } finally {
+    isRestoring = false;
+  }
+}
+
 async function executeSystemRestore(backup: any, req: any) {
-  if (isOnlineMode) return processOnlineSafeRestore(backup, req);
+  const restoreMode = String(backup?.restoreMode || 'merge') === 'replace' ? 'replace' : 'merge';
+  if (restoreMode === 'replace') {
+    const replacedResult = await processReplaceRestore(backup, req);
+    await applyRestoredCbtMaps(backup, req, 'replace');
+    await applyRestoredAiCredentials(backup?.aiCredentials, 'replace');
+    return replacedResult;
+  }
+  if (isOnlineMode) {
+    const safeResult = await processOnlineSafeRestore(backup, req);
+    await applyRestoredConfigObjects(backup, req, 'merge');
+    await applyRestoredCbtMaps(backup, req, 'merge');
+    await applyRestoredAiCredentials(backup?.aiCredentials, 'merge');
+    return safeResult;
+  }
 
   // OFFLINE_RESTORE_MEDIA_TOLERANCE_V1:
   // Backup online lama dapat berisi placeholder SVG/data:image lain yang bukan
@@ -24605,6 +24918,8 @@ async function executeSystemRestore(backup: any, req: any) {
     stats: restoreImageStats
   });
   const merged = await processSystemRestore(normalizedBackup);
+  await applyRestoredCbtMaps(normalizedBackup, req, 'merge');
+  await applyRestoredAiCredentials(normalizedBackup?.aiCredentials, 'merge');
   if (restoreImageStats.skippedInvalid > 0) {
     console.warn(
       `[Restore Image] Restore selesai dengan ${restoreImageStats.skippedInvalid} gambar invalid/tidak didukung dilewati.`

@@ -1570,11 +1570,19 @@ function renderSettingModule(container) {
                                     <input type="checkbox" id="backup-cb-lessonPlans" checked class="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4">
                                     <span>Modul Ajar & Jurnal</span>
                                 </label>
-                                <label class="flex items-center gap-2 cursor-pointer select-none sm:col-span-2">
+                                <label class="flex items-center gap-2 cursor-pointer select-none">
                                     <input type="checkbox" id="backup-cb-settings" checked class="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4">
                                     <span>Pengaturan Sistem & Konfigurasi</span>
                                 </label>
+                                <label class="flex items-center gap-2 cursor-pointer select-none">
+                                    <input type="checkbox" id="backup-cb-ai" checked class="rounded text-emerald-600 focus:ring-emerald-500 w-4 h-4">
+                                    <span>Pengaturan AI & API Key</span>
+                                </label>
                             </div>
+                            <p class="text-[11px] text-amber-800 bg-amber-50 p-2.5 rounded-xl border border-amber-200 flex items-start gap-2">
+                                <i class="fa-solid fa-triangle-exclamation text-amber-600 mt-0.5"></i>
+                                <span>Backup kini mencakup seluruh data (termasuk hasil CBT & pengaturan AI). Jika komponen AI dicentang, file backup berisi <strong>API key AI asli</strong> — jaga file ini baik-baik.</span>
+                            </p>
                         </div>
 
                         <div class="pt-1">
@@ -1628,6 +1636,21 @@ function renderSettingModule(container) {
                                 <label class="flex items-center gap-2 cursor-pointer select-none">
                                     <input type="checkbox" id="restore-cb-settings" checked class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4">
                                     <span>Pengaturan Sistem & Konfigurasi</span>
+                                </label>
+                                <label class="flex items-center gap-2 cursor-pointer select-none">
+                                    <input type="checkbox" id="restore-cb-ai" checked class="rounded text-blue-600 focus:ring-blue-500 w-4 h-4">
+                                    <span>Pengaturan AI & API Key</span>
+                                </label>
+                            </div>
+                            <div class="pt-2 space-y-1.5">
+                                <span class="text-[11px] font-bold text-blue-900 uppercase tracking-wider">Mode Restore:</span>
+                                <label class="flex items-start gap-2 cursor-pointer select-none">
+                                    <input type="radio" name="restore-mode" value="merge" checked class="mt-0.5 text-blue-600 focus:ring-blue-500 w-4 h-4">
+                                    <span><strong>Gabung Aman</strong> — hanya menambahkan data yang belum ada; data lama tidak ditimpa.</span>
+                                </label>
+                                <label class="flex items-start gap-2 cursor-pointer select-none">
+                                    <input type="radio" name="restore-mode" value="replace" class="mt-0.5 text-blue-600 focus:ring-blue-500 w-4 h-4">
+                                    <span><strong>Ganti Total (Kloning)</strong> — data madrasah ini diganti persis isi backup, termasuk tema & pengaturan AI.</span>
                                 </label>
                             </div>
                         </div>
@@ -4934,6 +4957,7 @@ async function backupSystemData() {
         const cbCbt = document.getElementById('backup-cb-cbt');
         const cbLessonPlans = document.getElementById('backup-cb-lessonPlans');
         const cbSettings = document.getElementById('backup-cb-settings');
+        const cbAi = document.getElementById('backup-cb-ai');
 
         const incStudents = cbStudents ? cbStudents.checked : true;
         const incAttendance = cbAttendance ? cbAttendance.checked : true;
@@ -4942,6 +4966,7 @@ async function backupSystemData() {
         const incCbt = cbCbt ? cbCbt.checked : true;
         const incLessonPlans = cbLessonPlans ? cbLessonPlans.checked : true;
         const incSettings = cbSettings ? cbSettings.checked : true;
+        const incAi = cbAi ? cbAi.checked : true;
 
         // BACKUP_SAFE_RASTER_V1:
         // Only embed image formats that the restore/photo pipeline can safely persist.
@@ -5065,7 +5090,7 @@ async function backupSystemData() {
         // Build backup payload with selected components
         const isOfflineBackupMode = (window.isOfflineMode === true || appState.isOfflineMode === true);
         const backupData = {
-            version: '2.2',
+            version: '2.3',
             timestamp: new Date().toISOString(),
             schoolName: schoolName,
             students: studentsList,
@@ -5086,6 +5111,21 @@ async function backupSystemData() {
             grades: incCbt ? (appState.grades || []) : [],
             settings: incSettings ? (appState.settings || {}) : {},
             schoolLocationSettings: incSettings ? (appState.schoolLocationSettings || {}) : {},
+            // BACKUP_CLONE_V1: stores that were missing from backup coverage.
+            savedRosters: incAcademics ? (appState.savedRosters || []) : [],
+            timeSlots: incAcademics ? (appState.timeSlots || []) : [],
+            kbmDuration: incAcademics ? (appState.kbmDuration || 40) : 40,
+            calendarEvents: incAcademics ? (appState.calendarEvents || []) : [],
+            customGradeColumns: incCbt ? (appState.customGradeColumns || {}) : {},
+            lkpdList: incLessonPlans ? (appState.lkpdList || []) : [],
+            studentExamGrades: incCbt ? (appState.studentExamGrades || {}) : {},
+            completedExams: incCbt ? (appState.completedExams || {}) : {},
+            studentExamAnswers: incCbt ? (appState.studentExamAnswers || {}) : {},
+            studentExamQuestions: incCbt ? (appState.studentExamQuestions || {}) : {},
+            forceFinishedExams: incCbt ? (appState.forceFinishedExams || {}) : {},
+            blockedStudents: incCbt ? (appState.blockedStudents || {}) : {},
+            studentOutOfTab: incCbt ? (appState.studentOutOfTab || {}) : {},
+            studentTabSwitches: incCbt ? (appState.studentTabSwitches || {}) : {},
             ...(isOfflineBackupMode ? { localStorageDump: {} } : {})
         };
 
@@ -5123,6 +5163,30 @@ async function backupSystemData() {
                 teacherCount: Array.isArray(credentialData.teachers) ? credentialData.teachers.length : 0,
                 missingStudents: Number(credentialData.missingStudents || 0),
                 missingTeachers: Number(credentialData.missingTeachers || 0)
+            };
+        }
+
+        // BACKUP_CLONE_V1: portable AI credentials (decrypted by server for
+        // admin backup; the file therefore contains real API keys).
+        if (incAi) {
+            if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> <span>Mengamankan credential AI...</span>`;
+            const aiResponse = await fetch('/api/system/backup-ai-credentials', {
+                method: 'GET',
+                headers: { 'Accept': 'application/json' },
+                cache: 'no-store'
+            });
+            let aiData = null;
+            try { aiData = await aiResponse.json(); } catch (_) {}
+            if (!aiResponse.ok || !aiData || aiData.success === false) {
+                const detail = aiData && aiData.message ? aiData.message : `HTTP ${aiResponse.status}`;
+                throw new Error('Gagal mengambil credential AI: ' + detail);
+            }
+            const { success: _aiOk, ...aiCredentials } = aiData;
+            backupData.aiCredentials = aiCredentials;
+            backupData.aiCredentialBackup = {
+                version: aiData.version || 'ai-credential-backup-v1',
+                profileCount: Array.isArray(aiData.aiProviderProfiles) ? aiData.aiProviderProfiles.length : 0,
+                userKeyCount: aiData.aiUserKeys && typeof aiData.aiUserKeys === 'object' ? Object.keys(aiData.aiUserKeys).length : 0
             };
         }
 
@@ -5253,7 +5317,21 @@ async function restoreSystemData(event) {
             lessonPlans: getArray('lessonPlans', ['madrasah_lessonPlans', 'madrasah_lesson_plans']),
             grades: getArray('grades', ['madrasah_grades']),
             settings: getObject('settings', ['madrasah_settings']),
-            schoolLocationSettings: getObject('schoolLocationSettings', ['madrasah_schoolLocationSettings'])
+            schoolLocationSettings: getObject('schoolLocationSettings', ['madrasah_schoolLocationSettings']),
+            // BACKUP_CLONE_V1: stores that were missing from backup coverage.
+            savedRosters: getArray('savedRosters', ['madrasah_savedRosters', 'madrasah_saved_rosters']),
+            timeSlots: getArray('timeSlots', ['madrasah_timeSlots', 'madrasah_time_slots']),
+            lkpdList: getArray('lkpdList', ['madrasah_lkpdList', 'madrasah_lkpd_list']),
+            calendarEvents: getArray('calendarEvents', ['madrasah_calendarEvents', 'madrasah_calendar_events']),
+            customGradeColumns: getObject('customGradeColumns', ['madrasah_customGradeColumns']),
+            studentExamGrades: getObject('studentExamGrades', ['madrasah_student_exam_grades']),
+            completedExams: getObject('completedExams', ['madrasah_completed_exams']),
+            studentExamAnswers: getObject('studentExamAnswers', ['madrasah_student_exam_answers']),
+            studentExamQuestions: getObject('studentExamQuestions', ['madrasah_student_exam_questions']),
+            forceFinishedExams: getObject('forceFinishedExams', ['madrasah_force_finished_exams']),
+            blockedStudents: getObject('blockedStudents', ['madrasah_blocked_students']),
+            studentOutOfTab: getObject('studentOutOfTab', ['madrasah_student_out_of_tab']),
+            studentTabSwitches: getObject('studentTabSwitches', ['madrasah_student_tab_switches'])
         };
 
         let studentCount = restored.students ? restored.students.length : 0;
@@ -5271,6 +5349,9 @@ async function restoreSystemData(event) {
         const cbCbt = document.getElementById('restore-cb-cbt');
         const cbLessonPlans = document.getElementById('restore-cb-lessonPlans');
         const cbSettings = document.getElementById('restore-cb-settings');
+        const cbAi = document.getElementById('restore-cb-ai');
+        const restoreModeEl = document.querySelector('input[name="restore-mode"]:checked');
+        const restoreMode = restoreModeEl && restoreModeEl.value === 'replace' ? 'replace' : 'merge';
 
         const incStudents = cbStudents ? cbStudents.checked : true;
         const incAttendance = cbAttendance ? cbAttendance.checked : true;
@@ -5279,6 +5360,7 @@ async function restoreSystemData(event) {
         const incCbt = cbCbt ? cbCbt.checked : true;
         const incLessonPlans = cbLessonPlans ? cbLessonPlans.checked : true;
         const incSettings = cbSettings ? cbSettings.checked : true;
+        const incAi = cbAi ? cbAi.checked : true;
         const isOfflineRestoreMode = (window.isOfflineMode === true || appState.isOfflineMode === true);
 
         const messageHtml = `
@@ -5290,6 +5372,8 @@ async function restoreSystemData(event) {
                     ${data.timestamp ? `<p>• Waktu Backup: <strong>${new Date(data.timestamp).toLocaleString('id-ID')}</strong></p>` : ''}
                 </div>
                 ${incStudents && missingCredentialCount > 0 ? `<p class="text-xs text-amber-700 font-semibold bg-amber-50 border border-amber-200 rounded-xl p-2.5">⚠ Backup ini tidak memiliki credential untuk <strong>${missingCredentialCount}</strong> akun. Data tetap dapat dipulihkan, tetapi akun baru tersebut perlu di-reset password oleh admin.</p>` : ''}
+                <p class="text-xs text-slate-600">Mode restore: <strong>${restoreMode === 'replace' ? 'Ganti Total (Kloning)' : 'Gabung Aman'}</strong></p>
+                ${restoreMode === 'replace' ? '<p class="text-xs text-rose-700 font-semibold bg-rose-50 border border-rose-200 rounded-xl p-2.5">⚠ Mode Ganti Total akan MENGGANTI data madrasah ini dengan isi backup persis (termasuk tema & pengaturan AI). Data lama yang tidak ada di backup akan hilang.</p>' : ''}
                 <p class="text-xs text-rose-600 font-semibold">Tindakan ini akan memulihkan data ke server dan memperbarui aplikasi.</p>
             </div>
         `;
@@ -5339,6 +5423,10 @@ async function restoreSystemData(event) {
                 const restorePayload = {};
                 if (data.timestamp) restorePayload.timestamp = data.timestamp;
                 if (data.version) restorePayload.version = data.version;
+                restorePayload.restoreMode = restoreMode;
+                if (incAi && data.aiCredentials && typeof data.aiCredentials === 'object') {
+                    restorePayload.aiCredentials = data.aiCredentials;
+                }
 
                 if (incStudents) {
                     restorePayload.students = await processPersonList(restored.students || data.students, appState.students || []);
@@ -5349,6 +5437,10 @@ async function restoreSystemData(event) {
                     restorePayload.subjects = restored.subjects || data.subjects;
                     restorePayload.schedules = restored.schedules || data.schedules;
                     restorePayload.rooms = restored.rooms || data.rooms;
+                    restorePayload.savedRosters = restored.savedRosters || data.savedRosters;
+                    restorePayload.timeSlots = restored.timeSlots || data.timeSlots;
+                    restorePayload.calendarEvents = restored.calendarEvents || data.calendarEvents;
+                    if (data.kbmDuration !== undefined) restorePayload.kbmDuration = data.kbmDuration;
                 }
                 if (incAttendance) {
                     restorePayload.attendance = optimizedAttendance;
@@ -5361,10 +5453,20 @@ async function restoreSystemData(event) {
                     restorePayload.gradeCategories = restored.gradeCategories || data.gradeCategories;
                     restorePayload.generatedExams = restored.generatedExams || data.generatedExams;
                     restorePayload.grades = restored.grades || data.grades;
+                    restorePayload.customGradeColumns = restored.customGradeColumns || data.customGradeColumns;
+                    restorePayload.studentExamGrades = restored.studentExamGrades || data.studentExamGrades;
+                    restorePayload.completedExams = restored.completedExams || data.completedExams;
+                    restorePayload.studentExamAnswers = restored.studentExamAnswers || data.studentExamAnswers;
+                    restorePayload.studentExamQuestions = restored.studentExamQuestions || data.studentExamQuestions;
+                    restorePayload.forceFinishedExams = restored.forceFinishedExams || data.forceFinishedExams;
+                    restorePayload.blockedStudents = restored.blockedStudents || data.blockedStudents;
+                    restorePayload.studentOutOfTab = restored.studentOutOfTab || data.studentOutOfTab;
+                    restorePayload.studentTabSwitches = restored.studentTabSwitches || data.studentTabSwitches;
                 }
                 if (incLessonPlans) {
                     restorePayload.journals = restored.journals || data.journals;
                     restorePayload.lessonPlans = restored.lessonPlans || data.lessonPlans;
+                    restorePayload.lkpdList = restored.lkpdList || data.lkpdList;
                 }
                 if (incSettings) {
                     restorePayload.settings = restored.settings || data.settings;
@@ -5389,7 +5491,13 @@ async function restoreSystemData(event) {
                     incLessonPlans ? ['lessonPlans', 'madrasah_lessonPlans', restorePayload.lessonPlans] : null,
                     incCbt ? ['grades', 'madrasah_grades', restorePayload.grades] : null,
                     incSettings ? ['settings', 'madrasah_settings', restorePayload.settings] : null,
-                    incSettings ? ['schoolLocationSettings', 'madrasah_schoolLocationSettings', restorePayload.schoolLocationSettings] : null
+                    incSettings ? ['schoolLocationSettings', 'madrasah_schoolLocationSettings', restorePayload.schoolLocationSettings] : null,
+                    incAcademics ? ['savedRosters', 'madrasah_savedRosters', restorePayload.savedRosters] : null,
+                    incAcademics ? ['timeSlots', 'madrasah_timeSlots', restorePayload.timeSlots] : null,
+                    incAcademics ? ['kbmDuration', 'madrasah_kbmDuration', restorePayload.kbmDuration] : null,
+                    incAcademics ? ['calendarEvents', 'madrasah_calendarEvents', restorePayload.calendarEvents] : null,
+                    incCbt ? ['customGradeColumns', 'madrasah_customGradeColumns', restorePayload.customGradeColumns] : null,
+                    incLessonPlans ? ['lkpdList', 'madrasah_lkpdList', restorePayload.lkpdList] : null
                 ].filter(Boolean);
 
                 // Restore through the dedicated server API. Online/Cloud Run must fail closed:
