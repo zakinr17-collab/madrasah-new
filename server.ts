@@ -16818,6 +16818,18 @@ app.post("/api/reset-student-exam", requireAuth, requireRole(['teacher', 'guru',
   res.json({ success: true, message: "Sesi ujian siswa berhasil direset!" });
 });
 
+// CBT_SERVER_TIME_EXTENSION_V3: seconds to add to a live session when the
+// schedule duration grows. Derived from the session's own recorded duration
+// so repeated saves (or a client batch that already extended it) cannot
+// double-extend.
+function computeSessionDurationExtensionSec(session: any, newDurationMin: number): number {
+  if (!session || typeof session !== 'object') return 0;
+  const currentMin = Number(session.duration) > 0 ? Number(session.duration)
+    : (Number(session.durationSec) > 0 ? Number(session.durationSec) / 60 : 0);
+  if (!currentMin || !newDurationMin) return 0;
+  return Math.max(0, Math.round((newDurationMin - currentMin) * 60));
+}
+
 // CBT_REOPEN_EXAM_V1: build the restored session for a reopened attempt.
 // Answers and assigned questions are preserved; only the deadline is new.
 function buildReopenedSession(previousSession: any, answers: any, exam: any, addedMinutes: number, now: number, totalQuestions: number): any {
@@ -22824,6 +22836,7 @@ app.delete("/api/lkpds/:id", requireAuth, requireRole(['teacher', 'guru', 'admin
 });
 app.post("/api/exams", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
   const mId = getRequestMadrasahId(req);
+  const previousDurations = new Map<string, number>((exams || []).map((item: any) => [String(item?.id || ''), Number(item?.duration) || 0]));
   if (Array.isArray(req.body)) {
     if (isTeacherRequest(req)) {
       const tenantExisting = filterByMadrasah(exams || [], req);
@@ -22872,6 +22885,41 @@ app.post("/api/exams", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bo
     } else {
       exams.push(tagged);
     }
+  }
+  // CBT_SERVER_TIME_EXTENSION_V3: a duration increase extends every
+  // still-active session server-side, regardless of the editing browser's
+  // local state. Students pick the new deadline up on their next heartbeat.
+  try {
+    const extensionPromises: Promise<any>[] = [];
+    for (const exam of (exams || [])) {
+      const examId = String(exam?.id || '');
+      const newDurationMin = Number(exam?.duration) || 0;
+      const oldDurationMin = previousDurations.get(examId) || 0;
+      if (!examId || !newDurationMin || newDurationMin <= oldDurationMin) continue;
+      for (const key of Object.keys(activeExamSessions || {})) {
+        const parsed = parseExamStateKeyForRequest(req, key) || parseNamespacedExamStateKey(key);
+        if (!parsed || String(parsed.examId) !== examId) continue;
+        if (completedExams[key] || forceFinishedExams[key]) continue;
+        const session = activeExamSessions[key];
+        const extensionSec = computeSessionDurationExtensionSec(session, newDurationMin);
+        if (!extensionSec) continue;
+        const endsAt = Number(session.endsAt);
+        if (Number.isFinite(endsAt) && endsAt > 0) {
+          session.endsAt = endsAt + (extensionSec * 1000);
+          session.timeLeft = Math.max(0, Math.floor((session.endsAt - Date.now()) / 1000));
+        }
+        session.duration = newDurationMin;
+        session.durationSec = newDurationMin * 60;
+        session.extraTimeAdded = Math.max(0, Number(session.extraTimeAdded) || 0) + extensionSec;
+        extensionPromises.push(saveDeltaDb('activeExamSessions', key, session));
+      }
+    }
+    if (extensionPromises.length) {
+      await Promise.all(extensionPromises);
+      broadcastStateUpdate('activeExamSessions');
+    }
+  } catch (extensionError) {
+    console.warn('Duration extension sync failed:', extensionError);
   }
   await saveData('exams', exams);
   res.json({ success: true, exams: isTeacherRequest(req) ? examsForRequest(req) : filterByMadrasah(exams, req) });
