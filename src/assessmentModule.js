@@ -5930,9 +5930,9 @@ function renderActiveExamScreen() {
                     </div>
                 </div>
                 <div class="flex items-center gap-2 sm:gap-3 shrink-0">
-                    <div id="cbt-sync-status-badge" class="px-2.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-2xl text-[10px] font-bold hidden sm:flex items-center space-x-1.5 border border-emerald-200">
-                        <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                        <span id="cbt-sync-status-text">${(window._pendingOfflineAnswers && window._pendingOfflineAnswers.length > 0) ? `Offline (${window._pendingOfflineAnswers.length})` : 'Tersinkron'}</span>
+                    <div id="cbt-sync-status-badge" class="px-2.5 py-1.5 rounded-2xl text-[10px] font-bold flex items-center space-x-1.5 border ${(window._pendingOfflineAnswers && window._pendingOfflineAnswers.length > 0) ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'}">
+                        <span class="w-1.5 h-1.5 rounded-full ${(window._pendingOfflineAnswers && window._pendingOfflineAnswers.length > 0) ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}"></span>
+                        <span id="cbt-sync-status-text">${(window._pendingOfflineAnswers && window._pendingOfflineAnswers.length > 0) ? `Menunggu server (${window._pendingOfflineAnswers.length})...` : 'Tersinkron'}</span>
                     </div>
                     <div id="exam-timer-wrap" class="relative w-[72px] h-[72px] shrink-0" title="Sisa waktu">
                         <svg width="72" height="72" class="-rotate-90">
@@ -6173,8 +6173,15 @@ window.updateCbtSyncBadge = function(status) {
         badge.className = 'px-2.5 py-1.5 bg-amber-50 text-amber-700 rounded-2xl text-[10px] font-bold flex items-center space-x-1.5 border border-amber-200';
         badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span><span id="cbt-sync-status-text">Menyinkron (${queueLen})...</span>`;
     } else if (status === 'offline' || queueLen > 0) {
-        badge.className = 'px-2.5 py-1.5 bg-rose-50 text-rose-700 rounded-2xl text-[10px] font-bold flex items-center space-x-1.5 border border-rose-200';
-        badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span><span id="cbt-sync-status-text">Offline (Tersimpan Lokal ${queueLen})</span>`;
+        // CBT_SYNC_BADGE_V2: "Offline" only when the device really lost its
+        // connection; online-but-unconfirmed (server/DB busy) is amber.
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+            badge.className = 'px-2.5 py-1.5 bg-rose-50 text-rose-700 rounded-2xl text-[10px] font-bold flex items-center space-x-1.5 border border-rose-200';
+            badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-rose-500"></span><span id="cbt-sync-status-text">Offline (Tersimpan Lokal ${queueLen})</span>`;
+        } else {
+            badge.className = 'px-2.5 py-1.5 bg-amber-50 text-amber-700 rounded-2xl text-[10px] font-bold flex items-center space-x-1.5 border border-amber-200';
+            badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span><span id="cbt-sync-status-text">Menunggu server (${queueLen})...</span>`;
+        }
     } else {
         badge.className = 'px-2.5 py-1.5 bg-emerald-50 text-emerald-700 rounded-2xl text-[10px] font-bold flex items-center space-x-1.5 border border-emerald-200';
         badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span id="cbt-sync-status-text">Tersinkron</span>`;
