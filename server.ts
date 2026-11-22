@@ -4294,6 +4294,7 @@ app.use((req: any, res, next) => {
     (method === 'POST' && p === '/api/register-madrasah') ||
     (method === 'GET' && p === '/api/settings') ||
     (method === 'GET' && p === '/api/health') ||
+    (method === 'GET' && p === '/api/ping-db') ||
     (method === 'GET' && p === '/api/registration-policy') ||
     (method === 'GET' && p.startsWith('/api/madrasah-by-slug/')) ||
     (method === 'GET' && p.startsWith('/api/photos/')) ||
@@ -5469,7 +5470,8 @@ app.use(async (req, res, next) => {
     req.path === "/health" ||
     req.path === "/healthz" ||
     req.path === "/readyz" ||
-    req.path === "/api/health";
+    req.path === "/api/health" ||
+    req.path === "/api/ping-db";
 
   // Liveness/diagnostics and static assets must never await database hydration.
   if (readinessExemptPath || !req.path.startsWith("/api/")) return next();
@@ -5535,6 +5537,32 @@ app.get("/api/health", (req, res) => {
     reason,
     readyAt: onlineRuntimeReadyAt
   });
+});
+
+// DB_KEEPALIVE_PING_V1: lightweight public endpoint for UptimeRobot.
+// Unlike /api/health (in-memory flags only), this runs a real SELECT 1 so
+// Cloud SQL counts activity and does not auto-pause while idle. It touches
+// no student/exam path; one trivial query per ping, cached for 5 seconds.
+let lastDbPingAt = 0;
+let lastDbPingOk = false;
+app.get("/api/ping-db", async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  if (!isOnlineMode || !pool) {
+    return res.status(200).json({ success: true, db: 'offline', ts: new Date().toISOString() });
+  }
+  const now = Date.now();
+  if (lastDbPingOk && now - lastDbPingAt < 5000) {
+    return res.status(200).json({ success: true, db: 'ok', cached: true, ts: new Date().toISOString() });
+  }
+  try {
+    await pool.query('SELECT 1');
+    lastDbPingAt = now;
+    lastDbPingOk = true;
+    return res.status(200).json({ success: true, db: 'ok', ts: new Date().toISOString() });
+  } catch (e) {
+    lastDbPingOk = false;
+    return res.status(503).json({ success: false, db: 'error', message: 'Database tidak merespons.' });
+  }
 });
 
 app.get("/api/check-connection", async (req, res) => {
