@@ -16830,6 +16830,47 @@ function computeSessionDurationExtensionSec(session: any, newDurationMin: number
   return Math.max(0, Math.round((newDurationMin - currentMin) * 60));
 }
 
+// CBT_SERVER_TIME_EXTENSION_V3: extend every still-active session whose
+// recorded duration is below its exam's current duration. Purely derived
+// from session state, so it is safe to run after any exams save (both
+// /api/exams and /api/sync-state) and can never double-extend.
+async function extendActiveSessionsToExamDurations(req: any): Promise<void> {
+  const durationByExamId = new Map<string, number>();
+  for (const exam of (exams || [])) {
+    const examId = String(exam?.id || '');
+    const durationMin = Number(exam?.duration) || 0;
+    if (examId && durationMin > 0) durationByExamId.set(examId, durationMin);
+  }
+  if (!durationByExamId.size) return;
+  const authUser = (req as any)?.user || getAuthUser(req);
+  const role = String(authUser?.role || '').toLowerCase();
+  const isBos = role === 'bos' || role === 'superadmin';
+  const promises: Promise<any>[] = [];
+  for (const key of Object.keys(activeExamSessions || {})) {
+    if (completedExams[key] || forceFinishedExams[key]) continue;
+    const parsed = parseExamStateKeyForRequest(req, key) || (isBos ? parseNamespacedExamStateKey(key) : null);
+    if (!parsed) continue;
+    const newDurationMin = durationByExamId.get(String(parsed.examId)) || 0;
+    if (!newDurationMin) continue;
+    const session = activeExamSessions[key];
+    const extensionSec = computeSessionDurationExtensionSec(session, newDurationMin);
+    if (!extensionSec) continue;
+    const endsAt = Number(session.endsAt);
+    if (Number.isFinite(endsAt) && endsAt > 0) {
+      session.endsAt = endsAt + (extensionSec * 1000);
+      session.timeLeft = Math.max(0, Math.floor((session.endsAt - Date.now()) / 1000));
+    }
+    session.duration = newDurationMin;
+    session.durationSec = newDurationMin * 60;
+    session.extraTimeAdded = Math.max(0, Number(session.extraTimeAdded) || 0) + extensionSec;
+    promises.push(saveDeltaDb('activeExamSessions', key, session));
+  }
+  if (promises.length) {
+    await Promise.all(promises);
+    broadcastStateUpdate('activeExamSessions');
+  }
+}
+
 // CBT_REOPEN_EXAM_V1: build the restored session for a reopened attempt.
 // Answers and assigned questions are preserved; only the deadline is new.
 function buildReopenedSession(previousSession: any, answers: any, exam: any, addedMinutes: number, now: number, totalQuestions: number): any {
@@ -22836,7 +22877,6 @@ app.delete("/api/lkpds/:id", requireAuth, requireRole(['teacher', 'guru', 'admin
 });
 app.post("/api/exams", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
   const mId = getRequestMadrasahId(req);
-  const previousDurations = new Map<string, number>((exams || []).map((item: any) => [String(item?.id || ''), Number(item?.duration) || 0]));
   if (Array.isArray(req.body)) {
     if (isTeacherRequest(req)) {
       const tenantExisting = filterByMadrasah(exams || [], req);
@@ -22886,38 +22926,11 @@ app.post("/api/exams", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bo
       exams.push(tagged);
     }
   }
-  // CBT_SERVER_TIME_EXTENSION_V3: a duration increase extends every
-  // still-active session server-side, regardless of the editing browser's
-  // local state. Students pick the new deadline up on their next heartbeat.
+  // CBT_SERVER_TIME_EXTENSION_V3: extend still-active sessions to the
+  // (possibly increased) exam durations; students pick the new deadline
+  // up on their next heartbeat.
   try {
-    const extensionPromises: Promise<any>[] = [];
-    for (const exam of (exams || [])) {
-      const examId = String(exam?.id || '');
-      const newDurationMin = Number(exam?.duration) || 0;
-      const oldDurationMin = previousDurations.get(examId) || 0;
-      if (!examId || !newDurationMin || newDurationMin <= oldDurationMin) continue;
-      for (const key of Object.keys(activeExamSessions || {})) {
-        const parsed = parseExamStateKeyForRequest(req, key) || parseNamespacedExamStateKey(key);
-        if (!parsed || String(parsed.examId) !== examId) continue;
-        if (completedExams[key] || forceFinishedExams[key]) continue;
-        const session = activeExamSessions[key];
-        const extensionSec = computeSessionDurationExtensionSec(session, newDurationMin);
-        if (!extensionSec) continue;
-        const endsAt = Number(session.endsAt);
-        if (Number.isFinite(endsAt) && endsAt > 0) {
-          session.endsAt = endsAt + (extensionSec * 1000);
-          session.timeLeft = Math.max(0, Math.floor((session.endsAt - Date.now()) / 1000));
-        }
-        session.duration = newDurationMin;
-        session.durationSec = newDurationMin * 60;
-        session.extraTimeAdded = Math.max(0, Number(session.extraTimeAdded) || 0) + extensionSec;
-        extensionPromises.push(saveDeltaDb('activeExamSessions', key, session));
-      }
-    }
-    if (extensionPromises.length) {
-      await Promise.all(extensionPromises);
-      broadcastStateUpdate('activeExamSessions');
-    }
+    await extendActiveSessionsToExamDurations(req);
   } catch (extensionError) {
     console.warn('Duration extension sync failed:', extensionError);
   }
@@ -25685,6 +25698,13 @@ app.post("/api/sync-state", requireAuth, async (req, res) => {
     else if (key === 'exams') {
       exams = isTeacherSyncRole ? mergeTenantScopedSyncRecords(exams, data, req, (item: any) => String(item?.id || '').trim()) : mergeTenantCrudSyncData(exams, data, req);
       await saveData('exams', exams);
+      // CBT_SERVER_TIME_EXTENSION_V3: saveState('exams') lands here before
+      // POST /api/exams, so the extension must run on this path too.
+      try {
+        await extendActiveSessionsToExamDurations(req);
+      } catch (extensionError) {
+        console.warn('Duration extension sync failed:', extensionError);
+      }
     }
     else if (key === 'lkpdList') { lkpdList = mergeLkpdListDataSmart(lkpdList, data, req); await saveData('lkpdList', lkpdList); }
     else if (key === 'rooms') { rooms = mergeTenantCrudSyncData(rooms, data, req); await saveData('rooms', rooms); }
