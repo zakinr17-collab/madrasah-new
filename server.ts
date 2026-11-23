@@ -2735,7 +2735,7 @@ const examAttemptMutationQueue = new KeyedSerialQueue();
 const persistedMemorySnapshots = new Map<string, any>();
 const persistedSnapshotKeys = [
   'schoolLocationSettings', 'classes', 'subjects', 'teachers', 'students',
-  'attendance', 'teacherAttendance', 'questionBankGroups', 'questions', 'grades',
+  'attendance', 'teacherAttendance', 'questionBankGroups', 'questionBankCollections', 'questions', 'grades',
   'chats', 'exams', 'lkpdList', 'rooms', 'schedules', 'savedRosters', 'timeSlots',
   'kbmDuration', 'journals', 'gradeCategories', 'customGradeColumns',
   'calendarEvents', 'generatedExams', 'lessonPlans', 'activeExamSessions',
@@ -3311,6 +3311,7 @@ function updateMemoryKey(key: string, value: any) {
   else if (key === 'childguardLocations') childguardLocations = value;
   else if (key === 'childguardStatus') childguardStatus = value;
   else if (key === 'importGroups') importGroups = value;
+  else if (key === 'questionBankCollections') questionBankCollections = value; // QB_COLLECTIONS_V1
   else if (key === 'photoCloudinaryMap') photoCloudinaryMap = value;
   else if (key === 'eduGames') eduGames = value;
   else if (key === 'gameAttempts') gameAttempts = value;
@@ -3373,6 +3374,7 @@ function getMemoryKeyValue(key: string) {
   if (key === 'childguardLocations') return childguardLocations;
   if (key === 'childguardStatus') return childguardStatus;
   if (key === 'importGroups') return importGroups;
+  if (key === 'questionBankCollections') return questionBankCollections; // QB_COLLECTIONS_V1
   if (key === 'photoCloudinaryMap') return photoCloudinaryMap;
   if (key === 'eduGames') return eduGames;
   if (key === 'gameAttempts') return gameAttempts;
@@ -4635,6 +4637,7 @@ let studentExamGrades = bootStore['studentExamGrades'] || {};
 let examMessages = bootStore['examMessages'] || {};
 let examViolationLogs: Record<string, any[]> = bootStore['examViolationLogs'] || {};
 let importGroups: any[] = bootStore['importGroups'] || [];
+let questionBankCollections: any[] = bootStore['questionBankCollections'] || []; // QB_COLLECTIONS_V1: grup di atas bank soal (kode)
 let eduGames: any[] = bootStore['eduGames'] || [];
 let gameAttempts: any[] = bootStore['gameAttempts'] || [];
 let gameArenaConfigs: Record<string, any> = bootStore['gameArenaConfigs'] || {};
@@ -4986,6 +4989,7 @@ function applyExtendedDbState(dbData: Record<string, any>) {
   if (dbData['examMessages'] !== undefined) examMessages = dbData['examMessages'];
   if (dbData['examViolationLogs'] !== undefined) examViolationLogs = dbData['examViolationLogs'];
   if (dbData['importGroups'] !== undefined) importGroups = dbData['importGroups'];
+  if (dbData['questionBankCollections'] !== undefined) questionBankCollections = dbData['questionBankCollections']; // QB_COLLECTIONS_V1
   if (dbData['eduGames'] !== undefined) eduGames = dbData['eduGames'];
   if (dbData['gameAttempts'] !== undefined) gameAttempts = dbData['gameAttempts'];
   if (dbData['photoCloudinaryMap'] !== undefined) photoCloudinaryMap = dbData['photoCloudinaryMap'] || {};
@@ -5052,6 +5056,7 @@ async function hydrate() {
   if (store['students'] !== undefined) students = store['students'];
   if (store['attendance'] !== undefined) attendance = store['attendance'];
   if (store['questionBankGroups'] !== undefined) questionBankGroups = store['questionBankGroups'];
+  if (store['questionBankCollections'] !== undefined) questionBankCollections = store['questionBankCollections']; // QB_COLLECTIONS_V1
   if (store['questions'] !== undefined) questions = store['questions'];
   if (store['grades'] !== undefined) grades = store['grades'];
   if (store['chats'] !== undefined) chats = store['chats'];
@@ -5174,6 +5179,7 @@ async function hydrate() {
     }
 
     if (dbData['questionBankGroups'] !== undefined) questionBankGroups = dbData['questionBankGroups'];
+    if (dbData['questionBankCollections'] !== undefined) questionBankCollections = dbData['questionBankCollections']; // QB_COLLECTIONS_V1
     if (dbData['questions'] !== undefined) questions = dbData['questions'];
     if (dbData['grades'] !== undefined) grades = dbData['grades'];
 
@@ -5388,6 +5394,7 @@ async function refreshInmemoryState(force = false) {
           attendance = mergeArrays(dbData['attendance'] || [], archives, 'attendance');
         }
         if (dbData['questionBankGroups'] !== undefined) questionBankGroups = dbData['questionBankGroups'];
+        if (dbData['questionBankCollections'] !== undefined) questionBankCollections = dbData['questionBankCollections']; // QB_COLLECTIONS_V1
         if (dbData['questions'] !== undefined) questions = dbData['questions'];
         if (dbData['grades'] !== undefined) grades = dbData['grades'];
         if (dbData['chats'] !== undefined) {
@@ -6835,6 +6842,7 @@ app.get("/api/all-data", requireAuth, (req, res) => {
   let filteredLessonPlans = lessonPlans;
   let filteredGeneratedExams = generatedExams;
   let filteredImportGroups = importGroups || [];
+  let filteredQCollections = questionBankCollections || []; // QB_COLLECTIONS_V1
   let filteredLearningProgress = learningProgress || [];
 
   if (mId && mId !== 'default' && mId !== 'BOSS') {
@@ -6867,6 +6875,7 @@ app.get("/api/all-data", requireAuth, (req, res) => {
     filteredLessonPlans = lessonPlans.filter(matchesFilter);
     filteredGeneratedExams = generatedExams.filter(matchesFilter);
     filteredImportGroups = (importGroups || []).filter(matchesFilter);
+    filteredQCollections = (questionBankCollections || []).filter(matchesFilter); // QB_COLLECTIONS_V1
     filteredLearningProgress = (learningProgress || []).filter(matchesFilter);
   } else {
     const defaultM = madrasahs.find(m => m.id === 'default' || m.slug === 'default') || madrasahs[0];
@@ -6895,6 +6904,7 @@ app.get("/api/all-data", requireAuth, (req, res) => {
     filteredLessonPlans = lessonPlans.filter(defaultFilter);
     filteredGeneratedExams = generatedExams.filter(defaultFilter);
     filteredImportGroups = (importGroups || []).filter(defaultFilter);
+    filteredQCollections = (questionBankCollections || []).filter(defaultFilter); // QB_COLLECTIONS_V1
     filteredLearningProgress = (learningProgress || []).filter(defaultFilter);
   }
 
@@ -7037,6 +7047,7 @@ app.get("/api/all-data", requireAuth, (req, res) => {
     lessonPlans: filteredLessonPlans,
     learningProgress: filteredLearningProgress,
     importGroups: isStudent ? [] : filteredImportGroups,
+    questionBankCollections: isStudent ? [] : filteredQCollections, // QB_COLLECTIONS_V1
     grades: filteredGrades,
     teacherAttendance: isStudent ? [] : filterByMadrasah(teacherAttendance || [], req),
     customGradeColumns: isStudent ? {} : tenantConfigValue(customGradeColumns, req, {}, 'customGradeColumns'),
@@ -7714,6 +7725,7 @@ app.post("/api/db-pull-cloud", async (req, res) => {
             }
             if (backupData['attendance'] !== undefined) attendance = backupData['attendance'];
             if (backupData['questionBankGroups'] !== undefined) questionBankGroups = backupData['questionBankGroups'];
+            if (backupData['questionBankCollections'] !== undefined) questionBankCollections = backupData['questionBankCollections']; // QB_COLLECTIONS_V1
             if (backupData['questions'] !== undefined) questions = backupData['questions'];
             if (backupData['grades'] !== undefined) grades = backupData['grades'];
             if (backupData['chats'] !== undefined) chats = backupData['chats'];
@@ -7881,6 +7893,7 @@ app.post("/api/db-pull-cloud", async (req, res) => {
     }
     if (dbData['attendance'] !== undefined) attendance = dbData['attendance'];
     if (dbData['questionBankGroups'] !== undefined) questionBankGroups = dbData['questionBankGroups'];
+    if (dbData['questionBankCollections'] !== undefined) questionBankCollections = dbData['questionBankCollections']; // QB_COLLECTIONS_V1
     if (dbData['questions'] !== undefined) questions = dbData['questions'];
     if (dbData['grades'] !== undefined) grades = dbData['grades'];
     if (dbData['chats'] !== undefined) chats = dbData['chats'];
@@ -10371,7 +10384,8 @@ function enforceTenantMutationOwnership(req: any, res: any, authUser: any): bool
     ['/api/calendar-events', () => calendarEvents || []],
     ['/api/generated-exams', () => generatedExams || []],
     ['/api/lesson-plans', () => lessonPlans || []],
-    ['/api/import-groups', () => importGroups || []]
+    ['/api/import-groups', () => importGroups || []],
+    ['/api/question-bank-collections', () => questionBankCollections || []] // QB_COLLECTIONS_V1
   ];
   for (const [collectionPath, getList] of collectionResources) {
     if (p !== collectionPath) continue;
@@ -10401,7 +10415,8 @@ function enforceTenantMutationOwnership(req: any, res: any, authUser: any): bool
     [/^\/api\/generated-exams\/([^/]+)$/, () => generatedExams || []],
     [/^\/api\/lesson-plans\/([^/]+)$/, () => lessonPlans || []],
     [/^\/api\/chats\/([^/]+)$/, () => chats || []],
-    [/^\/api\/import-groups\/([^/]+)$/, () => importGroups || []]
+    [/^\/api\/import-groups\/([^/]+)$/, () => importGroups || []],
+    [/^\/api\/question-bank-collections\/([^/]+)$/, () => questionBankCollections || []] // QB_COLLECTIONS_V1
   ];
   for (const [re, getList] of resources) {
     const m = p.match(re);
@@ -13212,7 +13227,7 @@ app.get("/api/question-bank-groups", requireAuth, requireRole(['teacher', 'guru'
 });
 
 app.post("/api/question-bank-groups", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
-  const { code, subjectId, classId } = req.body;
+  const { code, subjectId, classId, collectionId } = req.body;
   if (!code) {
     return res.status(400).json({ success: false, message: "Kode bank soal wajib diisi." });
   }
@@ -13223,7 +13238,8 @@ app.post("/api/question-bank-groups", requireAuth, requireRole(['teacher', 'guru
     id: req.body.id || ("BG_" + Date.now()),
     code,
     subjectId: subjectId || "",
-    classId: classId || ""
+    classId: classId || "",
+    collectionId: collectionId || "" // QB_COLLECTIONS_V1
   }, req);
   questionBankGroups.push(newGrp);
   await saveData('questionBankGroups', questionBankGroups);
@@ -13238,12 +13254,13 @@ app.put("/api/question-bank-groups/:id", requireAuth, requireRole(['teacher', 'g
   if (isTeacherRequest(req) && !questionBankGroupAllowedForTeacher(req, resolved.item)) {
     return res.status(403).json({ success: false, message: "Guru hanya dapat mengubah bank soal mata pelajaran yang diampu." });
   }
-  const { code, subjectId, classId } = req.body || {};
+  const { code, subjectId, classId, collectionId } = req.body || {};
   if (!code) return res.status(400).json({ success: false, message: "Kode bank soal wajib diisi." });
   const oldCode = resolved.item.code;
   resolved.item.code = code;
   if (subjectId !== undefined) resolved.item.subjectId = subjectId;
   if (classId !== undefined) resolved.item.classId = classId;
+  if (collectionId !== undefined) resolved.item.collectionId = collectionId; // QB_COLLECTIONS_V1
   await saveData('questionBankGroups', questionBankGroups);
   res.json({ success: true, group: resolved.item, oldCode });
 });
@@ -21218,6 +21235,46 @@ app.delete("/api/import-groups/:id", async (req, res) => {
   res.json({ success: true, message: "Kelompok berhasil dihapus" });
 });
 
+// QB_COLLECTIONS_V1: grup di atas bank soal (kode). Bank soal menunjuk grup lewat collectionId.
+app.get("/api/question-bank-collections", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), (req, res) => {
+  res.json({ success: true, collections: filterByMadrasah(questionBankCollections || [], req) });
+});
+
+app.post("/api/question-bank-collections", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
+  const raw = req.body && typeof req.body === 'object' ? { ...req.body } : {};
+  delete raw.madrasahId;
+  delete raw.madrasahSlug;
+  const name = String(raw.name || '').trim();
+  if (!name) return res.status(400).json({ success: false, message: "Nama grup bank soal wajib diisi." });
+  if (!raw.id) raw.id = "QBC_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6);
+  const col = tagNewRecord({ id: raw.id, name }, req);
+  const idx = questionBankCollections.findIndex((c: any) => String(c.id) === String(col.id) && isItemForCurrentMadrasah(c, req));
+  if (idx !== -1) questionBankCollections[idx] = { ...questionBankCollections[idx], ...col };
+  else questionBankCollections.push(col);
+  await saveData('questionBankCollections', questionBankCollections);
+  res.json({ success: true, collection: col, message: "Grup bank soal berhasil disimpan" });
+});
+
+app.delete("/api/question-bank-collections/:id", requireAuth, requireRole(['teacher', 'guru', 'admin', 'bos', 'superadmin']), async (req, res) => {
+  const { id } = req.params;
+  const before = questionBankCollections.length;
+  questionBankCollections = questionBankCollections.filter((c: any) => !(String(c.id) === String(id) && isItemForCurrentMadrasah(c, req)));
+  if (questionBankCollections.length === before) {
+    return res.status(404).json({ success: false, message: "Grup bank soal tidak ditemukan pada madrasah ini." });
+  }
+  await saveData('questionBankCollections', questionBankCollections);
+  // Bank soal di dalam grup TIDAK ikut terhapus; hanya dilepas dari grup.
+  let detached = 0;
+  for (const g of questionBankGroups) {
+    if (String(g.collectionId || '') === String(id) && isItemForCurrentMadrasah(g, req)) {
+      g.collectionId = "";
+      detached++;
+    }
+  }
+  if (detached > 0) await saveData('questionBankGroups', questionBankGroups);
+  res.json({ success: true, message: "Grup bank soal berhasil dihapus", detached });
+});
+
 function detectSubjectCategoryServer(subjectName = '', topic = '', materiDetail = '') {
   const raw = `${subjectName} ${topic} ${materiDetail}`.toLowerCase();
   
@@ -24470,6 +24527,7 @@ app.get("/api/system/backup", requireAuth, requireRole(['admin', 'administrator'
     attendance: filterByMadrasah(attendance, req),
     teacherAttendance: filterByMadrasah(teacherAttendance, req),
     questionBankGroups: filterByMadrasah(questionBankGroups, req),
+    questionBankCollections: filterByMadrasah(questionBankCollections || [], req), // QB_COLLECTIONS_V1
     questions: filterByMadrasah(questions, req),
     exams: filterByMadrasah(exams, req),
     rooms: filterByMadrasah(rooms, req),
@@ -24504,6 +24562,7 @@ const ONLINE_SAFE_RESTORE_SPECS: Array<[string, string[], string, () => any[]]> 
   ['attendance', ['madrasah_attendance'], 'generic', () => attendance || []],
   ['teacherAttendance', ['madrasah_teacher_attendance', 'madrasah_teacherAttendance'], 'generic', () => teacherAttendance || []],
   ['questionBankGroups', ['madrasah_questionBankGroups', 'madrasah_question_groups'], 'generic', () => questionBankGroups || []],
+  ['questionBankCollections', ['madrasah_questionBankCollections'], 'generic', () => questionBankCollections || []], // QB_COLLECTIONS_V1
   ['questions', ['madrasah_questions', 'questionBank', 'madrasah_questionBank'], 'generic', () => questions || []],
   ['exams', ['madrasah_exams'], 'generic', () => exams || []],
   ['rooms', ['madrasah_rooms'], 'generic', () => rooms || []],
@@ -24864,6 +24923,7 @@ const REPLACE_RESTORE_SPECS: Array<[string, string[], string, () => any[], (v: a
   ['attendance', ['madrasah_attendance'], 'generic', () => attendance || [], v => { attendance = v; }],
   ['teacherAttendance', ['madrasah_teacher_attendance', 'madrasah_teacherAttendance'], 'generic', () => teacherAttendance || [], v => { teacherAttendance = v; }],
   ['questionBankGroups', ['madrasah_questionBankGroups', 'madrasah_question_groups'], 'generic', () => questionBankGroups || [], v => { questionBankGroups = v; }],
+  ['questionBankCollections', ['madrasah_questionBankCollections'], 'generic', () => questionBankCollections || [], v => { questionBankCollections = v; }], // QB_COLLECTIONS_V1
   ['questions', ['madrasah_questions', 'questionBank', 'madrasah_questionBank'], 'generic', () => questions || [], v => { questions = v; }],
   ['exams', ['madrasah_exams'], 'generic', () => exams || [], v => { exams = v; }],
   ['rooms', ['madrasah_rooms'], 'generic', () => rooms || [], v => { rooms = v; }],
@@ -25385,6 +25445,23 @@ async function processSystemRestore(backup: any) {
       await saveData('questionBankGroups', questionBankGroups);
     }
 
+    // QB_COLLECTIONS_V1
+    const rQuestionBankCollections = getArr('questionBankCollections', ['madrasah_questionBankCollections']);
+    if (rQuestionBankCollections) {
+      const mergedQuestionBankCollections = [...questionBankCollections];
+      for (const b of rQuestionBankCollections) {
+        const bId = String(b.id || '').trim();
+        const existingIndex = mergedQuestionBankCollections.findIndex(g => bId && String(g.id || '').trim() === bId);
+        if (existingIndex >= 0) {
+          mergedQuestionBankCollections[existingIndex] = { ...mergedQuestionBankCollections[existingIndex], ...b };
+        } else {
+          mergedQuestionBankCollections.push(b);
+        }
+      }
+      questionBankCollections = mergedQuestionBankCollections;
+      await saveData('questionBankCollections', questionBankCollections);
+    }
+
     const rQuestions = getArr('questions', ['madrasah_questions', 'questionBank', 'madrasah_questionBank']);
     if (rQuestions) {
       const mergedQuestions = [...questions];
@@ -25627,6 +25704,7 @@ async function processSystemRestore(backup: any) {
     if (hasKey('attendance', ['madrasah_attendance'])) batchToSave.push({ key: 'attendance', value: attendance });
     if (hasKey('teacherAttendance', ['madrasah_teacher_attendance', 'madrasah_teacherAttendance'])) batchToSave.push({ key: 'teacherAttendance', value: teacherAttendance });
     if (hasKey('questionBankGroups', ['madrasah_questionBankGroups', 'madrasah_question_groups'])) batchToSave.push({ key: 'questionBankGroups', value: questionBankGroups });
+    if (hasKey('questionBankCollections', ['madrasah_questionBankCollections'])) batchToSave.push({ key: 'questionBankCollections', value: questionBankCollections }); // QB_COLLECTIONS_V1
     if (hasKey('questions', ['madrasah_questions', 'questionBank', 'madrasah_questionBank'])) batchToSave.push({ key: 'questions', value: questions });
     if (hasKey('exams', ['madrasah_exams'])) batchToSave.push({ key: 'exams', value: exams });
     if (hasKey('rooms', ['madrasah_rooms'])) batchToSave.push({ key: 'rooms', value: rooms });
@@ -25660,6 +25738,7 @@ async function processSystemRestore(backup: any) {
       attendance,
       teacherAttendance,
       questionBankGroups,
+      questionBankCollections,
       questions,
       exams,
       rooms,
@@ -25786,7 +25865,7 @@ app.post("/api/sync-state", requireAuth, async (req, res) => {
     const studentSyncKeys = new Set(['attendance', 'lkpdList']);
     const staffSyncKeys = new Set([
       'teachers', 'students', 'classes', 'subjects', 'attendance', 'teacherAttendance',
-      'schedules', 'savedRosters', 'timeSlots', 'kbmDuration', 'questionBankGroups',
+      'schedules', 'savedRosters', 'timeSlots', 'kbmDuration', 'questionBankGroups', 'questionBankCollections',
       'questionBank', 'questions', 'exams', 'lkpdList', 'rooms', 'journals',
       'gradeCategories', 'customGradeColumns', 'calendarEvents', 'generatedExams',
       'lessonPlans', 'grades', 'gameModes', 'classGrades',

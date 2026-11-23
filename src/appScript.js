@@ -315,6 +315,7 @@ var appState = {
     },
     questionBank: [],
     questionBankGroups: [],
+    questionBankCollections: [], // QB_COLLECTIONS_V1
     exams: JSON.parse(localStorage.getItem('madrasah_exams')) || [],
     rooms: JSON.parse(localStorage.getItem('madrasah_rooms')) || [],
     classes: JSON.parse(localStorage.getItem('madrasah_classes')) || [],
@@ -356,6 +357,7 @@ var appState = {
     blockedStudents: JSON.parse(localStorage.getItem('madrasah_blocked_students')) || {},
     journals: JSON.parse(localStorage.getItem('madrasah_journals')) || [],
     questionBankGroups: JSON.parse(localStorage.getItem('madrasah_questionBankGroups') || localStorage.getItem('madrasah_question_groups')) || [],
+    questionBankCollections: JSON.parse(localStorage.getItem('madrasah_questionBankCollections')) || [], // QB_COLLECTIONS_V1
     activeBankGroupCode: null,
     activeBank: { subjectId: '', classId: '' },
     activeJournalSubjectId: '',
@@ -376,6 +378,7 @@ function resetAccountScopedRuntimeState() {
         cbtTokenPrice: 5000,
         questionBank: [],
         questionBankGroups: [],
+        questionBankCollections: [], // QB_COLLECTIONS_V1
         exams: [],
         rooms: [],
         classes: [],
@@ -700,6 +703,7 @@ const ONLINE_SERVER_AUTH_STORAGE_KEYS = new Set([
     'madrasah_questionBank',
     'madrasah_questionBankGroups',
     'madrasah_question_groups',
+    'madrasah_questionBankCollections', // QB_COLLECTIONS_V1
     'madrasah_questionBank_photos',
     'madrasah_schedules',
     'madrasah_savedRosters',
@@ -940,6 +944,7 @@ async function syncKeyFromServer(key) {
     else if (key === 'teacherAttendance') endpoint = '/api/teacher-attendance';
     else if (key === 'schedules') endpoint = '/api/schedules';
     else if (key === 'questionBankGroups') endpoint = '/api/question-bank-groups';
+    else if (key === 'questionBankCollections') endpoint = '/api/question-bank-collections'; // QB_COLLECTIONS_V1
     else if (key === 'questionBank' || key === 'questions') { endpoint = '/api/questions'; stateField = 'questionBank'; }
     else if (key === 'exams') endpoint = '/api/exams';
     else if (key === 'rooms') endpoint = '/api/rooms';
@@ -995,6 +1000,7 @@ async function syncKeyFromServer(key) {
                 }
             }
             else if (key === 'questionBankGroups') newData = resData.groups;
+            else if (key === 'questionBankCollections') newData = resData.collections; // QB_COLLECTIONS_V1
             else if (key === 'questionBank' || key === 'questions') newData = resData.questions;
             else if (key === 'exams') newData = resData.exams;
             else if (key === 'rooms') newData = resData.rooms;

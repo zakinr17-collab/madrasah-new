@@ -148,13 +148,18 @@ async function loadQuestionBankFromServer(force = false) {
     const task = (async () => {
         let ok = false;
         try {
-            const [grpRes, qRes] = await Promise.all([
+            const [grpRes, qRes, colRes] = await Promise.all([
                 fetch('/api/question-bank-groups').then(r => r.ok ? r.json() : ({ success: false })).catch(() => ({ success: false })),
-                fetch('/api/questions').then(r => r.ok ? r.json() : ({ success: false })).catch(() => ({ success: false }))
+                fetch('/api/questions').then(r => r.ok ? r.json() : ({ success: false })).catch(() => ({ success: false })),
+                fetch('/api/question-bank-collections').then(r => r.ok ? r.json() : ({ success: false })).catch(() => ({ success: false }))
             ]);
             if (grpRes && grpRes.success && Array.isArray(grpRes.groups)) {
                 appState.questionBankGroups = grpRes.groups;
                 ok = true;
+            }
+            // QB_COLLECTIONS_V1
+            if (colRes && colRes.success && Array.isArray(colRes.collections)) {
+                appState.questionBankCollections = colRes.collections;
             }
             if (qRes && qRes.success && Array.isArray(qRes.questions)) {
                 appState.questionBank = qRes.questions;
@@ -293,12 +298,90 @@ function renderQuestionBankModule(container) {
     // Soal yatim: kodenya tidak cocok dengan bank soal mana pun yang tampil.
     const orphanCount = (questionBank || []).filter(q => !(questionBankGroups || []).some(bg => String(bg.code || '').trim().toLowerCase() === String(q.code || '').trim().toLowerCase())).length;
 
+    // QB_COLLECTIONS_V1: tingkat grup di atas bank soal (kode).
+    const bankCollections = Array.isArray(appState.questionBankCollections) ? appState.questionBankCollections : [];
+    const activeCollectionId = appState.activeBankCollectionId || null;
+    const activeCollection = activeCollectionId && activeCollectionId !== 'NONE'
+        ? bankCollections.find(c => String(c.id) === String(activeCollectionId))
+        : null;
+
+    if (!activeCode && bankCollections.length > 0 && !activeCollectionId) {
+        const countByCode = {};
+        (questionBank || []).forEach(q => {
+            const k = String(q.code || '').trim().toLowerCase();
+            countByCode[k] = (countByCode[k] || 0) + 1;
+        });
+        const banksIn = (colId) => (questionBankGroups || []).filter(bg => colId === 'NONE'
+            ? !String(bg.collectionId || '').trim()
+            : String(bg.collectionId || '') === String(colId));
+        const questionsIn = (colId) => banksIn(colId).reduce((sum, bg) => sum + (countByCode[String(bg.code || '').trim().toLowerCase()] || 0), 0);
+        const unassignedCount = banksIn('NONE').length;
+        container.innerHTML = `
+            <div class="space-y-6 pb-8">
+                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                    <div>
+                        <h1 class="text-xl sm:text-2xl font-bold text-slate-800">Grup Bank Soal</h1>
+                        <p class="text-xs text-slate-400 mt-0.5">Pilih grup untuk melihat bank soal di dalamnya (${bankCollections.length} grup, ${questionBankGroups.length} bank soal)</p>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button type="button" onclick="openConvertQuestionModal()" class="px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-2xl text-xs shadow flex items-center space-x-2 transition cursor-pointer">
+                            <i class="fa-solid fa-arrows-rotate"></i><span>Convert Soal</span>
+                        </button>
+                        <button type="button" onclick="openBankCollectionModal()" class="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-2xl text-xs shadow flex items-center space-x-2 transition cursor-pointer">
+                            <i class="fa-solid fa-plus"></i><span>Tambah Grup</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    ${bankCollections.map(col => `
+                        <div class="bg-white p-6 rounded-3xl border shadow-sm space-y-4 flex flex-col justify-between hover:border-emerald-500 transition">
+                            <div>
+                                <div class="flex justify-between items-start">
+                                    <h3 class="font-black text-slate-900 text-xl sm:text-2xl tracking-tight break-all leading-tight">${qbEscapeHtml(col.name || 'Grup')}</h3>
+                                    <div class="flex items-center space-x-1 shrink-0">
+                                        <button type="button" onclick="openBankCollectionModal(${qbInlineArg(col.id)})" class="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl transition cursor-pointer" title="Edit Grup"><i class="fa-solid fa-pen-to-square text-xs"></i></button>
+                                        <button type="button" onclick="deleteBankCollection(${qbInlineArg(col.id)})" class="text-rose-400 hover:text-rose-600 p-1 cursor-pointer" title="Hapus Grup (bank soal tidak ikut terhapus)"><i class="fa-solid fa-trash"></i></button>
+                                    </div>
+                                </div>
+                                <p class="text-[11px] text-slate-500 mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                                    <span><i class="fa-solid fa-layer-group mr-1 text-emerald-600"></i>${banksIn(col.id).length} Bank Soal</span>
+                                    <span><i class="fa-solid fa-list-check mr-1 text-emerald-600"></i>${questionsIn(col.id)} Butir Soal</span>
+                                </p>
+                            </div>
+                            <button type="button" onclick="selectBankCollection(${qbInlineArg(col.id)})" class="py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-2xl text-xs shadow transition cursor-pointer">Buka Grup</button>
+                        </div>
+                    `).join('')}
+                    ${unassignedCount > 0 ? `
+                        <div class="bg-white p-6 rounded-3xl border border-dashed shadow-sm space-y-4 flex flex-col justify-between hover:border-slate-400 transition">
+                            <div>
+                                <h3 class="font-black text-slate-500 text-xl sm:text-2xl tracking-tight leading-tight">Tanpa Grup</h3>
+                                <p class="text-[11px] text-slate-500 mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                                    <span><i class="fa-solid fa-layer-group mr-1 text-slate-400"></i>${unassignedCount} Bank Soal</span>
+                                    <span><i class="fa-solid fa-list-check mr-1 text-slate-400"></i>${questionsIn('NONE')} Butir Soal</span>
+                                </p>
+                            </div>
+                            <button type="button" onclick="selectBankCollection('NONE')" class="py-2.5 bg-slate-600 hover:bg-slate-700 text-white font-semibold rounded-2xl text-xs shadow transition cursor-pointer">Buka</button>
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+        return;
+    }
+
+    if (!activeCode && activeCollectionId) {
+        questionBankGroups = questionBankGroups.filter(bg => activeCollectionId === 'NONE'
+            ? !String(bg.collectionId || '').trim()
+            : String(bg.collectionId || '') === String(activeCollectionId));
+    }
+
     if (!activeCode) {
         container.innerHTML = `
             <div class="space-y-6 pb-8">
                 <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
                     <div>
-                        <h1 class="text-xl sm:text-2xl font-bold text-slate-800">Bank Soal Madrasah</h1>
+                        ${activeCollectionId ? `<button type="button" onclick="selectBankCollection(null)" class="mb-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-[11px] transition cursor-pointer"><i class="fa-solid fa-arrow-left mr-1"></i>Semua Grup</button>` : ''}
+                        <h1 class="text-xl sm:text-2xl font-bold text-slate-800">${activeCollectionId ? qbEscapeHtml(activeCollectionId === 'NONE' ? 'Tanpa Grup' : (activeCollection ? activeCollection.name : 'Grup')) : 'Bank Soal Madrasah'}</h1>
                         <p class="text-xs text-slate-400 mt-0.5">
                             ${isTeacher 
                                 ? `Bank Soal Mapel Anda: <span class="font-semibold text-emerald-700">${allowedSubjectNames}</span> (${questionBankGroups.length} Bank Soal)` 
@@ -309,6 +392,9 @@ function renderQuestionBankModule(container) {
                     <div class="flex items-center space-x-2">
                         <button type="button" onclick="openConvertQuestionModal()" class="px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-2xl text-xs shadow flex items-center space-x-2 transition cursor-pointer">
                             <i class="fa-solid fa-arrows-rotate"></i><span>Convert Soal</span>
+                        </button>
+                        <button type="button" onclick="openBankCollectionModal()" class="px-4 py-3 bg-slate-700 hover:bg-slate-800 text-white font-semibold rounded-2xl text-xs shadow flex items-center space-x-2 transition cursor-pointer">
+                            <i class="fa-solid fa-layer-group"></i><span>Tambah Grup</span>
                         </button>
                         <button type="button" onclick="openQuestionBankGroupModal()" class="px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-2xl text-xs shadow flex items-center space-x-2 transition cursor-pointer">
                             <i class="fa-solid fa-plus"></i><span>Tambah Soal</span>
@@ -474,6 +560,92 @@ function selectQuestionBankGroup(code) {
     renderQuestionBankModule(document.getElementById('view-container'));
 }
 
+// QB_COLLECTIONS_V1: grup di atas bank soal (kode).
+function selectBankCollection(id) {
+    appState.activeBankCollectionId = id || null;
+    appState.activeBankGroupCode = null;
+    renderQuestionBankModule(document.getElementById('view-container'));
+}
+
+function openBankCollectionModal(editId = null) {
+    const editing = editId ? (appState.questionBankCollections || []).find(c => String(c.id) === String(editId)) : null;
+    const modal = document.getElementById('modal-container');
+    modal.innerHTML = `
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+            <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl p-6 space-y-4">
+                <div class="flex justify-between items-center"><h3 class="font-bold text-slate-800">${editing ? 'Edit Grup Bank Soal' : 'Tambah Grup Bank Soal'}</h3><button type="button" onclick="closeModal()"><i class="fa-solid fa-xmark text-lg"></i></button></div>
+                <form onsubmit="saveBankCollection(event)" class="space-y-3 text-xs sm:text-sm">
+                    <div>
+                        <label class="block text-xs uppercase text-slate-500 mb-1">Nama Grup</label>
+                        <input type="text" id="qbc-name" value="${qbEscapeAttr(editing ? editing.name : '')}" required placeholder="misal: Kelas VI, Kelas X, PAS 2026" class="w-full px-4 py-2.5 bg-slate-50 border rounded-2xl">
+                        ${editing ? `<input type="hidden" id="qbc-edit-id" value="${qbEscapeAttr(editing.id)}">` : ''}
+                    </div>
+                    <p class="text-[11px] text-slate-400">Grup mengelompokkan beberapa bank soal (kode). Bank soal dimasukkan ke grup lewat pilihan "Grup Bank Soal" saat membuat/mengedit bank soal.</p>
+                    <div class="flex justify-end space-x-2 pt-2">
+                        <button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-100 rounded-xl">Batal</button>
+                        <button type="submit" class="px-4 py-2 bg-emerald-600 text-white rounded-xl font-semibold">Simpan</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
+}
+
+async function saveBankCollection(e) {
+    e.preventDefault();
+    const name = document.getElementById('qbc-name').value.trim();
+    const editId = document.getElementById('qbc-edit-id')?.value || null;
+    if (!name) { showToast('Nama grup wajib diisi.', 'error'); return; }
+    if (!Array.isArray(appState.questionBankCollections)) appState.questionBankCollections = [];
+    let col;
+    if (editId) {
+        col = appState.questionBankCollections.find(c => String(c.id) === String(editId));
+        if (!col) { showToast('Grup tidak ditemukan.', 'error'); return; }
+        col.name = name;
+    } else {
+        col = { id: 'QBC' + Date.now(), name, createdAt: new Date().toISOString() };
+        appState.questionBankCollections.push(col);
+    }
+    try {
+        await fetch('/api/question-bank-collections', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: col.id, name })
+        });
+    } catch (err) {}
+    saveState('questionBankCollections');
+    closeModal();
+    showToast('Grup bank soal berhasil disimpan!', 'success');
+    renderQuestionBankModule(document.getElementById('view-container'));
+}
+
+async function deleteBankCollection(id) {
+    showConfirmModal('Hapus grup ini? Bank soal di dalamnya TIDAK ikut terhapus, hanya dilepas dari grup.', async () => {
+        appState.questionBankCollections = (appState.questionBankCollections || []).filter(c => String(c.id) !== String(id));
+        (appState.questionBankGroups || []).forEach(bg => {
+            if (String(bg.collectionId || '') === String(id)) bg.collectionId = '';
+        });
+        if (String(appState.activeBankCollectionId || '') === String(id)) appState.activeBankCollectionId = null;
+        saveState('questionBankCollections');
+        saveState('questionBankGroups');
+        try {
+            const res = await fetch(`/api/question-bank-collections/${encodeURIComponent(id)}`, { method: 'DELETE' });
+            if (!res.ok) {
+                const payload = await res.json().catch(() => null);
+                throw new Error((payload && payload.message) || 'Gagal menghapus grup di server.');
+            }
+            showToast('Grup berhasil dihapus. Bank soal di dalamnya tetap ada.', 'success');
+        } catch (err) {
+            showToast((err && err.message) || 'Gagal menghapus grup di server.', 'error');
+            if (typeof syncKeyFromServer === 'function') {
+                await syncKeyFromServer('questionBankCollections');
+                await syncKeyFromServer('questionBankGroups');
+            }
+        }
+        renderQuestionBankModule(document.getElementById('view-container'));
+    });
+}
+
 function openQuestionBankGroupModal(editId = null) {
     const allowedSubjects = getTeacherAllowedSubjects();
     const editing = editId ? (appState.questionBankGroups || []).find(bg => String(bg.id) === String(editId)) : null;
@@ -500,6 +672,13 @@ function openQuestionBankGroupModal(editId = null) {
                             ${(appState.classes || []).map(c => `<option value="${qbEscapeAttr(c.id)}" ${editing && String(editing.classId) === String(c.id) ? 'selected' : ''}>${qbEscapeHtml(c.name)}</option>`).join('')}
                         </select>
                     </div>
+                    <div>
+                        <label class="block text-xs uppercase text-slate-500 mb-1">Grup Bank Soal</label>
+                        <select id="gb-collection" class="w-full px-4 py-2.5 bg-slate-50 border rounded-2xl">
+                            <option value="">(Tanpa Grup)</option>
+                            ${(appState.questionBankCollections || []).map(c => `<option value="${qbEscapeAttr(c.id)}" ${(editing ? String(editing.collectionId || '') : String(appState.activeBankCollectionId && appState.activeBankCollectionId !== 'NONE' ? appState.activeBankCollectionId : '')) === String(c.id) ? 'selected' : ''}>${qbEscapeHtml(c.name)}</option>`).join('')}
+                        </select>
+                    </div>
                     <div class="flex justify-end space-x-2 pt-2">
                         <button type="button" onclick="closeModal()" class="px-4 py-2 bg-slate-100 rounded-xl">Batal</button>
                         <button type="submit" class="px-4 py-2 bg-emerald-600 text-white rounded-xl font-semibold">Simpan</button>
@@ -515,6 +694,7 @@ async function saveQuestionBankGroup(e) {
     const code = document.getElementById('gb-code').value.trim();
     const subjectId = document.getElementById('gb-mapel').value;
     const classId = document.getElementById('gb-kelas').value;
+    const collectionId = document.getElementById('gb-collection')?.value || ''; // QB_COLLECTIONS_V1
     const editId = document.getElementById('gb-edit-id')?.value || null;
 
     if (!code) { showToast('Kode wajib diisi.', 'error'); return; }
@@ -526,6 +706,7 @@ async function saveQuestionBankGroup(e) {
         grp.code = code;
         grp.subjectId = subjectId;
         grp.classId = classId;
+        grp.collectionId = collectionId; // QB_COLLECTIONS_V1
         // Jika kode berubah, ikutkan semua soal lama ke kode baru agar butir tidak terpisah
         if (oldCode !== code) {
             (appState.questionBank || []).forEach(q => {
@@ -537,7 +718,7 @@ async function saveQuestionBankGroup(e) {
             await fetch(`/api/question-bank-groups/${encodeURIComponent(editId)}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ code, subjectId, classId })
+                body: JSON.stringify({ code, subjectId, classId, collectionId })
             });
         } catch (err) {}
         saveState('questionBankGroups');
@@ -547,7 +728,7 @@ async function saveQuestionBankGroup(e) {
         return;
     }
 
-    const newGroup = { id: 'BG' + Date.now(), code, subjectId, classId, createdAt: new Date().toISOString() };
+    const newGroup = { id: 'BG' + Date.now(), code, subjectId, classId, collectionId, createdAt: new Date().toISOString() }; // QB_COLLECTIONS_V1
     appState.questionBankGroups.push(newGroup);
 
     try {
@@ -4482,6 +4663,7 @@ function downloadConvertedWordDoc() {
 }
 
 function openImportConvertedToBankModal() {
+    window._importBankCodeOptions = null; // QB_COLLECTIONS_V1: reset cache saringan grup
     if (!currentConvertedData || !currentConvertedData.parsedQuestions || currentConvertedData.parsedQuestions.length === 0) {
         showToast('Belum ada hasil konversi soal. Silakan konversi soal terlebih dahulu.', 'error');
         return;
@@ -4540,6 +4722,13 @@ function openImportConvertedToBankModal() {
 
                     <!-- Option 1: Existing Group -->
                     <div id="section-import-existing" class="space-y-2">
+                        ${(appState.questionBankCollections || []).length > 0 ? `
+                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-600">Grup Bank Soal</label>
+                        <select id="import-bank-collection-filter" onchange="filterImportBankCodesByCollection()" class="w-full px-4 py-3 bg-slate-50 border border-slate-300 rounded-2xl font-bold text-xs focus:ring-2 focus:ring-indigo-500 focus:bg-white transition">
+                            <option value="">Semua Grup</option>
+                            ${(appState.questionBankCollections || []).map(c => `<option value="${qbEscapeAttr(c.id)}">${qbEscapeHtml(c.name)}</option>`).join('')}
+                            <option value="NONE">(Tanpa Grup)</option>
+                        </select>` : ''}
                         <label class="block text-xs font-bold uppercase tracking-wider text-slate-600">Pilih Bank Soal / Kode Soal <span class="text-rose-500">*</span></label>
                         ${existingGroups.length === 0 ? `
                             <div class="p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-800">
@@ -4550,7 +4739,7 @@ function openImportConvertedToBankModal() {
                                 ${existingGroups.map(bg => {
                                     const subj = subjects.find(s => String(s.id) === String(bg.subjectId));
                                     const cls = classes.find(c => String(c.id) === String(bg.classId));
-                                    return `<option value="${qbEscapeAttr(bg.code)}">${qbEscapeHtml(bg.code)} - ${qbEscapeHtml(subj?.name || 'Umum')} (Kelas ${qbEscapeHtml(cls?.name || 'Semua')})</option>`;
+                                    return `<option value="${qbEscapeAttr(bg.code)}" data-collection="${qbEscapeAttr(bg.collectionId || '')}">${qbEscapeHtml(bg.code)} - ${qbEscapeHtml(subj?.name || 'Umum')} (Kelas ${qbEscapeHtml(cls?.name || 'Semua')})</option>`;
                                 }).join('')}
                             </select>
                         `}
@@ -4574,6 +4763,13 @@ function openImportConvertedToBankModal() {
                                 ${(appState.classes || []).map(c => `<option value="${qbEscapeAttr(c.id)}">${qbEscapeHtml(c.name)}</option>`).join('')}
                             </select>
                         </div>
+                        <div>
+                            <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1">Grup Bank Soal</label>
+                            <select id="import-bank-collection-new" class="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-indigo-500">
+                                <option value="">(Tanpa Grup)</option>
+                                ${(appState.questionBankCollections || []).map(c => `<option value="${qbEscapeAttr(c.id)}">${qbEscapeHtml(c.name)}</option>`).join('')}
+                            </select>
+                        </div>
                     </div>
 
                     <!-- Action Buttons -->
@@ -4590,6 +4786,29 @@ function openImportConvertedToBankModal() {
             </div>
         </div>
     `;
+}
+
+// QB_COLLECTIONS_V1: saring dropdown kode soal convert berdasarkan grup terpilih.
+function filterImportBankCodesByCollection() {
+    const filterSel = document.getElementById('import-bank-collection-filter');
+    const codeSel = document.getElementById('import-bank-code-existing');
+    if (!filterSel || !codeSel) return;
+    if (!window._importBankCodeOptions) {
+        window._importBankCodeOptions = Array.from(codeSel.options).map(o => ({
+            value: o.value,
+            text: o.textContent,
+            collection: o.getAttribute('data-collection') || ''
+        }));
+    }
+    const wanted = filterSel.value || '';
+    const filtered = window._importBankCodeOptions.filter(o => {
+        if (!wanted) return true;
+        if (wanted === 'NONE') return !o.collection;
+        return String(o.collection) === String(wanted);
+    });
+    codeSel.innerHTML = filtered.length > 0
+        ? filtered.map(o => `<option value="${qbEscapeAttr(o.value)}" data-collection="${qbEscapeAttr(o.collection)}">${qbEscapeHtml(o.text)}</option>`).join('')
+        : '<option value="">Tidak ada bank soal di grup ini</option>';
 }
 
 function toggleImportBankMode(mode) {
@@ -4667,7 +4886,7 @@ async function executeImportConvertedToBank(e) {
         // Create new bank group if not existing
         let group = (appState.questionBankGroups || []).find(bg => String(bg.code) === String(targetCode));
         if (!group) {
-            group = { id: 'BG' + Date.now(), code: targetCode, subjectId: targetSubjectId, classId: targetClassId };
+            group = { id: 'BG' + Date.now(), code: targetCode, subjectId: targetSubjectId, classId: targetClassId, collectionId: document.getElementById('import-bank-collection-new')?.value || '' }; // QB_COLLECTIONS_V1
             appState.questionBankGroups.push(group);
 
             try {
@@ -6394,6 +6613,11 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
 // Exports
 window.renderQuestionBankModule = renderQuestionBankModule;
 window.selectQuestionBankGroup = selectQuestionBankGroup;
+window.selectBankCollection = selectBankCollection; // QB_COLLECTIONS_V1
+window.openBankCollectionModal = openBankCollectionModal;
+window.saveBankCollection = saveBankCollection;
+window.deleteBankCollection = deleteBankCollection;
+window.filterImportBankCodesByCollection = filterImportBankCodesByCollection;
 window.openQuestionBankGroupModal = openQuestionBankGroupModal;
 window.saveQuestionBankGroup = saveQuestionBankGroup;
 window.deleteQuestionBankGroup = deleteQuestionBankGroup;
@@ -6491,6 +6715,10 @@ Object.assign(window, {
   getTeacherAllowedSubjects,
   renderQuestionBankModule,
   selectQuestionBankGroup,
+  selectBankCollection,
+  openBankCollectionModal,
+  saveBankCollection,
+  deleteBankCollection,
   openQuestionBankGroupModal,
   saveQuestionBankGroup,
   deleteQuestionBankGroup,
