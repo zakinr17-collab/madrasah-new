@@ -902,6 +902,7 @@ function startEvaluasiPolling() {
     // Realtime exam events are the primary update path. This full tenant snapshot is
     // deliberately a slower fallback so an open Evaluasi tab cannot create a request storm.
     window.__evaluasiPollInterval = setInterval(async () => {
+        if (appState.evaluasiPollPaused) return; // PAUSE_UPDATE_V1
         if (document.visibilityState !== 'visible') return;
         if (appState.lastAssessmentSubTab !== 'evaluasi') {
             stopEvaluasiPolling();
@@ -967,7 +968,91 @@ async function refreshAssessmentStudentsFromServer() {
     }
 }
 
+// EVALUASI_EXAM_FILTER_V1: saringan daftar jadwal ujian di Evaluasi (waktu + pencarian).
+function evaluasiExamDateMs(exam) {
+    const raw = String((exam && exam.date) || '').trim();
+    const parts = raw.includes('-') ? raw.split('-') : (raw.includes('/') ? raw.split('/') : []);
+    if (parts.length === 3) {
+        let year = 0, month = 0, day = 0;
+        if (parts[0].length === 4) { year = Number(parts[0]); month = Number(parts[1]); day = Number(parts[2]); }
+        else { day = Number(parts[0]); month = Number(parts[1]); year = Number(parts[2]); }
+        if (Number.isInteger(year) && Number.isInteger(month) && Number.isInteger(day) && year >= 2000 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+            return new Date(year, month - 1, day).getTime();
+        }
+    }
+    const created = exam && exam.createdAt ? new Date(exam.createdAt).getTime() : NaN;
+    return Number.isFinite(created) ? created : null;
+}
+
+function evaluasiExamMatchesDateFilter(exam, filter, nowMs) {
+    if (!filter || filter === 'all') return true;
+    const ms = evaluasiExamDateMs(exam);
+    if (ms === null) return true; // tanpa tanggal: selalu tampil
+    const now = new Date(nowMs || Date.now());
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    if (filter === 'today') return ms >= startOfToday && ms < startOfToday + 86400000;
+    if (filter === '7d') return ms >= startOfToday - 6 * 86400000;
+    if (filter === '30d') return ms >= startOfToday - 29 * 86400000;
+    if (filter === 'semester') {
+        const semStart = now.getMonth() >= 6
+            ? new Date(now.getFullYear(), 6, 1).getTime()
+            : new Date(now.getFullYear(), 0, 1).getTime();
+        return ms >= semStart;
+    }
+    return true;
+}
+
+function getEvaluasiFilteredExams(exams) {
+    const filter = appState.evaluasiExamDateFilter || '30d';
+    const search = String(appState.evaluasiExamSearch || '').trim().toLowerCase();
+    const selectedId = String(appState.evaluasiSelectedExamId || '');
+    return (exams || []).filter(e => {
+        if (!e || e.recordType === 'EVENT') return false;
+        if (selectedId && String(e.id) === selectedId) return true; // pilihan aktif tidak boleh hilang
+        if (!evaluasiExamMatchesDateFilter(e, filter)) return false;
+        if (search && !((e.title || '') + ' ' + (e.subject || '')).toLowerCase().includes(search)) return false;
+        return true;
+    });
+}
+
+// Saring ulang dropdown jadwal tanpa menggambar ulang halaman (fokus ketik aman).
+function applyEvaluasiExamFilter() {
+    const sel = document.getElementById('eval-exam-select');
+    if (!sel) return;
+    if (!window._evaluasiExamOptions || window._evaluasiExamOptionsFor !== sel) {
+        window._evaluasiExamOptionsFor = sel;
+        window._evaluasiExamOptions = Array.from(sel.options)
+            .filter(o => o.value)
+            .map(o => ({
+                value: o.value,
+                text: o.textContent,
+                date: o.getAttribute('data-date') || '',
+                search: o.getAttribute('data-search') || '',
+                selected: o.selected
+            }));
+    }
+    const filter = appState.evaluasiExamDateFilter || '30d';
+    const search = String(appState.evaluasiExamSearch || '').trim().toLowerCase();
+    const selectedId = String(appState.evaluasiSelectedExamId || '');
+    const filtered = window._evaluasiExamOptions.filter(o => {
+        if (selectedId && String(o.value) === selectedId) return true;
+        if (!evaluasiExamMatchesDateFilter({ date: o.date }, filter)) return false;
+        if (search && !o.search.includes(search)) return false;
+        return true;
+    });
+    const escA = typeof window.escapeHtmlAttr === 'function' ? window.escapeHtmlAttr : (s) => String(s);
+    const escH = typeof window.escapeHtml === 'function' ? window.escapeHtml : (s) => String(s);
+    sel.innerHTML = '<option value="">-- Pilih Jadwal Ujian --</option>' + filtered.map(o =>
+        `<option value="${escA(o.value)}" data-date="${escA(o.date)}" data-search="${escA(o.search)}" ${String(o.value) === selectedId ? 'selected' : ''}>${escH(o.text)}</option>`
+    ).join('');
+}
+window.applyEvaluasiExamFilter = applyEvaluasiExamFilter;
+
 function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = null) {
+    // SCROLL_PRESERVE_V1: ingat posisi scroll agar update otomatis tidak melempar tampilan ke atas.
+    const _prevSubTab = appState.lastAssessmentSubTab;
+    const _prevScrollY = typeof window !== 'undefined' ? (window.scrollY || 0) : 0;
+    const _prevContainerScroll = container ? (container.scrollTop || 0) : 0;
     appState.lastAssessmentSubTab = activeSubTab;
 
     // Selalu ambil roster terbaru dari server untuk Monitoring/Evaluasi.
@@ -1109,6 +1194,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
             return (appState.exams.indexOf(b) - appState.exams.indexOf(a));
         });
 
+    const evaluasiExamOptions = getEvaluasiFilteredExams(displayExams); // EVALUASI_EXAM_FILTER_V1
     const activeExam = displayExams.find(e => e.id === appState.activeMonitoringExamId);
     const activeEvalExam = displayExams.find(e => e.id === appState.activeEvaluationExamId);
 
@@ -1917,6 +2003,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
 
                         // Attach event listener for real-time surgical updates from SSE/WS
                         window.__onExamMonitoringEvent = function(event) {
+                            if (appState.evaluasiPollPaused) return; // PAUSE_UPDATE_V1
                             if (!event || !event.studentId) return;
                             if (appState.lastAssessmentSubTab !== 'monitoring') return;
                             if (event.examId && appState.activeMonitoringExamId && String(event.examId) !== String(appState.activeMonitoringExamId)) {
@@ -2048,6 +2135,10 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                         <button type="button" onclick="event.stopPropagation(); window.refreshMonitoringState('${activeExam.id}', this)" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 active:scale-95 text-white rounded-2xl text-[10px] font-bold shadow-md flex items-center space-x-1.5 transition whitespace-nowrap cursor-pointer">
                                             <i class="fa-solid fa-arrows-rotate"></i>
                                             <span>Refresh Data</span>
+                                        </button>
+                                        <button type="button" onclick="event.stopPropagation(); appState.evaluasiPollPaused = !appState.evaluasiPollPaused; renderAssessmentModule(document.getElementById('view-container'), 'monitoring', appState.activeMonitoringExamId || null);" class="px-4 py-2.5 ${appState.evaluasiPollPaused ? 'bg-amber-500 hover:bg-amber-600' : 'bg-white hover:bg-slate-100'} active:scale-95 ${appState.evaluasiPollPaused ? 'text-white' : 'text-slate-700'} border border-slate-200 rounded-2xl text-[10px] font-bold shadow-md flex items-center space-x-1.5 transition whitespace-nowrap cursor-pointer" title="Jeda/lanjutkan pembaruan otomatis">
+                                            <i class="fa-solid ${appState.evaluasiPollPaused ? 'fa-play' : 'fa-pause'}"></i>
+                                            <span>${appState.evaluasiPollPaused ? 'Lanjut Update' : 'Jeda Update'}</span>
                                         </button>
                                         <button type="button" onclick="event.stopPropagation(); triggerAdminCameraPermissionBypass()" id="admin-bypass-btn" class="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-2xl text-[10px] font-bold shadow-md flex items-center space-x-1.5 transition whitespace-nowrap cursor-pointer">
                                             <i class="fa-solid fa-key"></i>
@@ -2270,6 +2361,9 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                             <p class="text-xs text-slate-400 mt-0.5">Koreksi lembar jawaban siswa, input nilai, dan cetak laporan hasil.</p>
                         </div>
                         <div class="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl">
+                            <button type="button" onclick="appState.evaluasiPollPaused = !appState.evaluasiPollPaused; renderAssessmentModule(document.getElementById('view-container'), 'evaluasi', appState.evaluasiSelectedExamId || null);" class="px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${appState.evaluasiPollPaused ? 'bg-amber-500 text-white shadow-sm' : 'bg-white text-slate-900 shadow-sm'}" title="Jeda/lanjutkan pembaruan otomatis">
+                                <i class="fa-solid ${appState.evaluasiPollPaused ? 'fa-play' : 'fa-pause'}"></i> <span>${appState.evaluasiPollPaused ? 'Lanjut Update' : 'Jeda Update'}</span>
+                            </button>
                             <button type="button" onclick="appState.evaluasiMode = 'cbt'; renderAssessmentModule(document.getElementById('view-container'), 'evaluasi', appState.evaluasiSelectedExamId || null);" class="px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${(!appState.evaluasiMode || appState.evaluasiMode === 'cbt') ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}">
                                 <i class="fa-solid fa-laptop text-indigo-600"></i> <span>Ujian CBT</span>
                             </button>
@@ -2284,6 +2378,25 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                     ` : `
                         <!-- Filter Toolbar -->
                         <div class="bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm space-y-4 max-w-4xl mx-auto">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Saringan Waktu Jadwal</label>
+                                <select id="eval-exam-date-filter" onchange="appState.evaluasiExamDateFilter = this.value; applyEvaluasiExamFilter()" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-700">
+                                    <option value="today" ${(appState.evaluasiExamDateFilter || '30d') === 'today' ? 'selected' : ''}>Hari Ini</option>
+                                    <option value="7d" ${(appState.evaluasiExamDateFilter || '30d') === '7d' ? 'selected' : ''}>7 Hari Terakhir</option>
+                                    <option value="30d" ${(appState.evaluasiExamDateFilter || '30d') === '30d' ? 'selected' : ''}>30 Hari Terakhir</option>
+                                    <option value="semester" ${(appState.evaluasiExamDateFilter || '30d') === 'semester' ? 'selected' : ''}>Semester Ini</option>
+                                    <option value="all" ${(appState.evaluasiExamDateFilter || '30d') === 'all' ? 'selected' : ''}>Semua Jadwal</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Cari Jadwal Ujian</label>
+                                <div class="relative">
+                                    <input type="text" id="eval-exam-search-input" oninput="appState.evaluasiExamSearch = this.value; applyEvaluasiExamFilter()" value="${assessmentEscapeAttr(appState.evaluasiExamSearch || '')}" placeholder="Ketik nama ujian / mapel..." class="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-700">
+                                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-400 text-xs"></i>
+                                </div>
+                            </div>
+                        </div>
                         <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div>
                                 <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">1. Pilih Rombel / Kelas</label>
@@ -2296,7 +2409,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                 <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">2. Pilih Jadwal Ujian CBT</label>
                                 <select id="eval-exam-select" onchange="onEvaluasiFilterChange()" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-700">
                                     <option value="">-- Pilih Jadwal Ujian --</option>
-                                    ${displayExams.filter(e => e.recordType !== 'EVENT').map(e => `<option value="${assessmentEscapeAttr(e.id)}" ${String(appState.evaluasiSelectedExamId) === String(e.id) ? 'selected' : ''}>${assessmentEscapeHtml(e.title)}</option>`).join('')}
+                                    ${evaluasiExamOptions.map(e => `<option value="${assessmentEscapeAttr(e.id)}" data-date="${assessmentEscapeAttr(e.date || '')}" data-search="${assessmentEscapeAttr(((e.title || '') + ' ' + (e.subject || '')).toLowerCase())}" ${String(appState.evaluasiSelectedExamId) === String(e.id) ? 'selected' : ''}>${assessmentEscapeHtml(e.title)}</option>`).join('')}
                                 </select>
                             </div>
                             <div>
@@ -2934,12 +3047,22 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
         }
     }
 
-    if (currentTab === 'monitoring' && appState.activeMonitoringExamId) {
+    if (currentTab === 'monitoring' && appState.activeMonitoringExamId && !appState.evaluasiPollPaused) {
         setTimeout(() => {
             if (typeof window.refreshMonitoringState === 'function') {
                 window.refreshMonitoringState(appState.activeMonitoringExamId).catch(err => console.warn("Auto-monitoring state sync failed:", err));
             }
         }, 50);
+    }
+
+    // SCROLL_PRESERVE_V1: pulihkan scroll bila tab yang sama digambar ulang (update otomatis).
+    if (_prevSubTab === activeSubTab && (_prevScrollY > 0 || _prevContainerScroll > 0)) {
+        requestAnimationFrame(() => {
+            try {
+                if (container) container.scrollTop = _prevContainerScroll;
+                window.scrollTo(0, _prevScrollY);
+            } catch (_) {}
+        });
     }
 }
 
@@ -3061,6 +3184,10 @@ function renderExamModalForm(editId = null, eventId = null) {
     }
     
     tempExamClasses = ex ? [...(ex.classes || [])] : [];
+    window._examBankCodeOptions = null; // QB_COLLECTIONS_V1
+    const bankCollections = Array.isArray(appState.questionBankCollections) ? appState.questionBankCollections : [];
+    const examBankGroup = ex ? questionBankGroups.find(bg => String(bg.code) === String(ex.bankCode || '')) : null;
+    const preselectedCollectionId = examBankGroup ? String(examBankGroup.collectionId || '') : '';
     
     const defaultDate = new Date().toISOString().split('T')[0];
 
@@ -3102,6 +3229,15 @@ function renderExamModalForm(editId = null, eventId = null) {
                         </div>
                     </div>
 
+                    ${bankCollections.length > 0 ? `
+                    <div>
+                        <label class="block text-xs uppercase text-slate-500 mb-1">Grup Bank Soal</label>
+                        <select id="ex-bank-collection" onchange="filterExamBankCodesByCollection()" class="w-full px-4 py-2.5 bg-slate-50 border rounded-2xl">
+                            <option value="">Semua Grup</option>
+                            ${bankCollections.map(c => `<option value="${assessmentEscapeAttr(c.id)}" ${preselectedCollectionId === String(c.id) ? 'selected' : ''}>${assessmentEscapeHtml(c.name)}</option>`).join('')}
+                            <option value="NONE" ${ex && examBankGroup && !preselectedCollectionId ? 'selected' : ''}>(Tanpa Grup)</option>
+                        </select>
+                    </div>` : ''}
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label class="block text-xs uppercase text-slate-500 mb-1">Kode Bank Soal</label>
@@ -3111,7 +3247,8 @@ function renderExamModalForm(editId = null, eventId = null) {
                                     const label = subObj ? `${bg.code} (${subObj.name})` : bg.code;
                                     const safeValue = typeof window.escapeHtmlAttr === 'function' ? window.escapeHtmlAttr(String(bg.code || '')) : String(bg.code || '');
                                     const safeLabel = typeof window.escapeHtml === 'function' ? window.escapeHtml(String(label || '')) : String(label || '');
-                                    return `<option value="${safeValue}" ${ex && ex.bankCode === bg.code ? 'selected' : ''}>${safeLabel}</option>`;
+                                    const safeCollection = typeof window.escapeHtmlAttr === 'function' ? window.escapeHtmlAttr(String(bg.collectionId || '')) : String(bg.collectionId || '');
+                                    return `<option value="${safeValue}" data-collection="${safeCollection}" ${ex && ex.bankCode === bg.code ? 'selected' : ''}>${safeLabel}</option>`;
                                 }).join('')}
                             </select>
                         </div>
@@ -3208,7 +3345,36 @@ function renderExamModalForm(editId = null, eventId = null) {
     `;
 
     renderExamClassChips();
+    // QB_COLLECTIONS_V1: terapkan saringan grup awal (mis. saat edit jadwal).
+    if (document.getElementById('ex-bank-collection')) filterExamBankCodesByCollection();
 }
+
+// QB_COLLECTIONS_V1: saring dropdown kode bank soal pada form jadwal berdasarkan grup terpilih.
+function filterExamBankCodesByCollection() {
+    const filterSel = document.getElementById('ex-bank-collection');
+    const codeSel = document.getElementById('ex-bank-code');
+    if (!filterSel || !codeSel) return;
+    if (!window._examBankCodeOptions) {
+        window._examBankCodeOptions = Array.from(codeSel.options).map(o => ({
+            value: o.value,
+            text: o.textContent,
+            collection: o.getAttribute('data-collection') || '',
+            selected: o.selected
+        }));
+    }
+    const wanted = filterSel.value || '';
+    const filtered = window._examBankCodeOptions.filter(o => {
+        if (!wanted) return true;
+        if (wanted === 'NONE') return !o.collection;
+        return String(o.collection) === String(wanted);
+    });
+    const escA = typeof window.escapeHtmlAttr === 'function' ? window.escapeHtmlAttr : (s) => String(s);
+    const escH = typeof window.escapeHtml === 'function' ? window.escapeHtml : (s) => String(s);
+    codeSel.innerHTML = filtered.length > 0
+        ? filtered.map(o => `<option value="${escA(o.value)}" data-collection="${escA(o.collection)}" ${o.selected ? 'selected' : ''}>${escH(o.text)}</option>`).join('')
+        : '<option value="">Tidak ada kode bank soal di grup ini</option>';
+}
+window.filterExamBankCodesByCollection = filterExamBankCodesByCollection;
 
 function buildGradeClassOptions(classes) {
     const grades = typeof window.getClassGrades === 'function' ? window.getClassGrades() : [];

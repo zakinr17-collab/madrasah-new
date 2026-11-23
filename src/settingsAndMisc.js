@@ -4262,6 +4262,7 @@ async function loadDataFromServer() {
                 safeSetLocalStorage('madrasah_attendance', appState.attendance);
             }
             if (res.questionBankGroups) appState.questionBankGroups = res.questionBankGroups;
+            if (res.questionBankCollections) appState.questionBankCollections = res.questionBankCollections; // QB_COLLECTIONS_V1
             if (res.questions) appState.questionBank = res.questions;
             if (res.schedules) {
                 appState.schedules = res.schedules;
@@ -5101,6 +5102,7 @@ async function backupSystemData() {
             attendance: attendanceList,
             teacherAttendance: teacherAttendanceList,
             questionBankGroups: incCbt ? (appState.questionBankGroups || []) : [],
+            questionBankCollections: incCbt ? (appState.questionBankCollections || []) : [], // QB_COLLECTIONS_V1
             questions: questionsList,
             exams: incCbt ? (appState.exams || []) : [],
             rooms: incAcademics ? (appState.rooms || []) : [],
@@ -5339,6 +5341,7 @@ async function restoreSystemData(event) {
             teacherAttendance: getArray('teacherAttendance', ['madrasah_teacher_attendance', 'madrasah_teacherAttendance']),
             questions: getArray('questions', ['madrasah_questions', 'questionBank', 'madrasah_questionBank']),
             questionBankGroups: getArray('questionBankGroups', ['madrasah_questionBankGroups', 'madrasah_question_groups']),
+            questionBankCollections: getArray('questionBankCollections', ['madrasah_questionBankCollections']), // QB_COLLECTIONS_V1
             rooms: getArray('rooms', ['madrasah_rooms']),
             journals: getArray('journals', ['madrasah_journals']),
             gradeCategories: getArray('gradeCategories', ['madrasah_grade_categories', 'madrasah_gradeCategories']),
@@ -5486,6 +5489,7 @@ async function restoreSystemData(event) {
                 if (incCbt) {
                     restorePayload.questions = restored.questions || data.questions;
                     restorePayload.questionBankGroups = restored.questionBankGroups || data.questionBankGroups;
+                    restorePayload.questionBankCollections = restored.questionBankCollections || data.questionBankCollections; // QB_COLLECTIONS_V1
                     restorePayload.exams = restored.exams || data.exams;
                     restorePayload.gradeCategories = restored.gradeCategories || data.gradeCategories;
                     restorePayload.generatedExams = restored.generatedExams || data.generatedExams;
@@ -5521,6 +5525,7 @@ async function restoreSystemData(event) {
                     incAttendance ? ['teacherAttendance', 'madrasah_teacher_attendance', restorePayload.teacherAttendance] : null,
                     incCbt ? ['questions', 'madrasah_questions', restorePayload.questions] : null,
                     incCbt ? ['questionBankGroups', 'madrasah_questionBankGroups', restorePayload.questionBankGroups] : null,
+                    incCbt ? ['questionBankCollections', 'madrasah_questionBankCollections', restorePayload.questionBankCollections] : null, // QB_COLLECTIONS_V1
                     incAcademics ? ['rooms', 'madrasah_rooms', restorePayload.rooms] : null,
                     incLessonPlans ? ['journals', 'madrasah_journals', restorePayload.journals] : null,
                     incCbt ? ['gradeCategories', 'madrasah_grade_categories', restorePayload.gradeCategories] : null,
