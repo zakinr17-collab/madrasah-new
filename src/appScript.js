@@ -1180,6 +1180,12 @@ function initRealtimeSync() {
     let connectedAuthToken = '';
     let rejectedAuthToken = '';
     let reconnectFailures = 0;
+    // REALTIME_CONNECT_GUARD_V1: satu percobaan sambung dalam satu waktu.
+    // Tanpa ini, interval 2 detik di bawah memulai connect() baru selagi fetch
+    // tiket sebelumnya masih menggantung — percobaan menumpuk, soket Chrome
+    // habis, semua fetch baru gagal ERR_INSUFFICIENT_RESOURCES dan console
+    // kebanjiran ribuan error (soak test 24 Nov 2026).
+    let connectInFlight = false;
 
     const browserOffline = () => typeof navigator !== 'undefined' && navigator.onLine === false;
 
@@ -1200,7 +1206,7 @@ function initRealtimeSync() {
         clearReconnectTimer();
         if (browserOffline()) return;
         const wait = withBackoff
-            ? Math.min(30000, Math.max(delay, 1500 * Math.pow(2, Math.min(reconnectFailures, 4))))
+            ? Math.min(60000, Math.max(delay, 1500 * Math.pow(2, Math.min(reconnectFailures, 5))))
             : Math.max(0, delay);
         reconnectTimeout = setTimeout(() => {
             reconnectTimeout = null;
@@ -1209,6 +1215,16 @@ function initRealtimeSync() {
     };
 
     async function connect() {
+        if (connectInFlight) return;
+        connectInFlight = true;
+        try {
+            await connectInner();
+        } finally {
+            connectInFlight = false;
+        }
+    }
+
+    async function connectInner() {
         closeSource();
         if (browserOffline()) return;
 
@@ -1234,8 +1250,12 @@ function initRealtimeSync() {
         console.log('Connecting to authenticated real-time event stream...');
         let realtimeTicket = '';
         let requestFailed = false;
+        // Batas 10 detik: fetch tanpa timeout bisa menggantung selamanya dan
+        // menahan satu soket; abort membebaskannya untuk percobaan berikut.
+        const ticketController = new AbortController();
+        const ticketTimeout = setTimeout(() => ticketController.abort(), 10000);
         try {
-            const ticketResponse = await fetch('/api/realtime-token', { cache: 'no-store' });
+            const ticketResponse = await fetch('/api/realtime-token', { cache: 'no-store', signal: ticketController.signal });
             if (ticketResponse.status === 401 || ticketResponse.status === 403) {
                 rejectedAuthToken = authToken;
                 return;
@@ -1247,7 +1267,13 @@ function initRealtimeSync() {
         } catch (err) {
             requestFailed = true;
             reconnectFailures += 1;
-            if (!browserOffline()) console.warn('Unable to obtain realtime access ticket:', err);
+            // Jangan banjiri console saat server lama mati: 3 kegagalan pertama
+            // dicatat semua, setelah itu satu peringatan tiap 10 kegagalan.
+            if (!browserOffline() && (reconnectFailures <= 3 || reconnectFailures % 10 === 0)) {
+                console.warn('Unable to obtain realtime access ticket (attempt ' + reconnectFailures + '):', err);
+            }
+        } finally {
+            clearTimeout(ticketTimeout);
         }
 
         if (!realtimeTicket) {
@@ -1321,7 +1347,7 @@ function initRealtimeSync() {
             rejectedAuthToken = '';
             reconnectFailures = 0;
             scheduleReconnect(0);
-        } else if (!sseSource && currentToken !== rejectedAuthToken && !reconnectTimeout) {
+        } else if (!sseSource && currentToken !== rejectedAuthToken && !reconnectTimeout && !connectInFlight) {
             scheduleReconnect(0);
         }
     }, 2000);
