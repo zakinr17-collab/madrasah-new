@@ -6837,8 +6837,8 @@ function openManageRoomModal(roomId) {
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-2xl border">
                     <div class="space-y-2">
                         <label class="block text-xs uppercase font-bold text-slate-600">Tambah Anggota Manual (Centang Siswa)</label>
-                        <div class="flex gap-2 items-center">
-                            <select id="room-filter-class" onchange="filterRoomCandidateList(${assessmentInlineArg(room.id)})" class="flex-1 px-3 py-2 bg-white border rounded-xl text-xs">
+                        <div class="flex flex-wrap gap-2 items-center">
+                            <select id="room-filter-class" onchange="filterRoomCandidateList(${assessmentInlineArg(room.id)})" class="flex-1 min-w-0 px-3 py-2 bg-white border rounded-xl text-xs">
                                 <option value="">-- Semua Kelas --</option>
                                 ${(appState.classes || []).map(c => `<option value="${assessmentEscapeAttr(c.id)}">${assessmentEscapeHtml(c.name)}</option>`).join('')}
                             </select>
@@ -6858,11 +6858,11 @@ function openManageRoomModal(roomId) {
                     </div>
                     <div class="space-y-2">
                         <label class="block text-xs uppercase font-bold text-slate-600">Import Anggota (Excel / Template)</label>
-                        <div class="flex items-center gap-2">
+                        <div class="flex flex-wrap items-center gap-2">
                             <button type="button" onclick="downloadRoomTemplate()" class="px-3 py-2 bg-white hover:bg-slate-100 border rounded-xl text-xs font-semibold text-slate-700 flex items-center space-x-1">
                                 <i class="fa-solid fa-download text-emerald-600"></i><span>Template</span>
                             </button>
-                            <input type="file" id="room-excel-file" accept=".csv, .xlsx, .xls" onchange="handleRoomExcelImport(event, '${room.id}')" class="text-xs text-slate-500 file:mr-2 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"/>
+                            <input type="file" id="room-excel-file" accept=".csv, .xlsx, .xls" onchange="handleRoomExcelImport(event, '${room.id}')" class="min-w-0 max-w-full text-xs text-slate-500 file:mr-2 file:py-2 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100"/>
                         </div>
                     </div>
                 </div>
