@@ -26091,6 +26091,15 @@ app.post("/api/sync-state", requireAuth, async (req, res) => {
       questionBankGroups = isTeacherSyncRole ? mergeTenantScopedSyncRecords(questionBankGroups, data, req, (item: any) => String(item?.id || '').trim()) : mergeTenantCrudSyncData(questionBankGroups, data, req);
       await saveData('questionBankGroups', questionBankGroups);
     }
+    else if (key === 'questionBankCollections') {
+      // QB_COLLECTIONS_TENANT_V1: koleksi wajib di-merge per tenant seperti
+      // questionBankGroups. Sebelumnya kunci ini jatuh ke generic else
+      // (saveData mentah) sehingga sync dari satu madrasah menimpa koleksi
+      // semua madrasah lain - grup bernama sama di madrasah lain ikut
+      // tertimpa, dan grup baru bisa terlihat "sudah ada isinya".
+      questionBankCollections = mergeTenantCrudSyncData(questionBankCollections, data, req);
+      await saveData('questionBankCollections', questionBankCollections);
+    }
     else if (key === 'questionBank' || key === 'questions') {
       const previousTenantQuestions = new Map(
         filterByMadrasah(questions, req)
