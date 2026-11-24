@@ -18,6 +18,10 @@ function qbInlineArg(value) {
 // Baris tabel dari converter ("• sel1 | sel2") ditampilkan kembali sebagai
 // tabel HTML; baris pertama dianggap baris judul. Tanpa baris tabel, tampil
 // persis seperti sebelumnya (teks biasa) — soal lain tidak berubah.
+// Q_TEXT_LINEBREAK_V1: Enter di isi soal dipertahankan — baris baru (\n) jadi
+// <br> setelah di-escape, supaya "opsi soal" (1). 2). 3). ...) tampil per
+// baris, bukan merapat jadi satu baris. Dulu tanpa tabel, \n dikembalikan
+// apa adanya dan HTML merapatkannya jadi spasi.
 function qbRenderQuestionText(text) {
     const raw = String(text || '');
     const lines = raw.split('\n');
@@ -29,7 +33,7 @@ function qbRenderQuestionText(text) {
     for (let i = 0; i + 1 < lines.length; i++) {
         if (isRow(lines[i]) && isRow(lines[i + 1])) { hasTable = true; break; }
     }
-    if (!hasTable) return qbEscapeHtml(raw);
+    if (!hasTable) return qbEscapeHtml(raw).replace(/\r\n|\r|\n/g, '<br>');
     const out = [];
     let i = 0;
     while (i < lines.length) {
@@ -3942,7 +3946,8 @@ function renderCbtTableCell(text) {
     const previewHtml = qbRenderLatexPreviewHtml(sourceText);
 
     if (!previewHtml) {
-        return `<span class="leading-relaxed">${escaped}</span>`;
+        // Q_TEXT_LINEBREAK_V1: Enter dipertahankan sebagai <br> (dulu merapat).
+        return `<span class="leading-relaxed">${escaped.replace(/\r\n|\r|\n/g, '<br>')}</span>`;
     }
 
     return `
