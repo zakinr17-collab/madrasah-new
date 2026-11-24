@@ -13,6 +13,9 @@ function assessmentEscapeHtml(value) {
 // tabel HTML; baris pertama dianggap baris judul. Tanpa baris tabel, tampil
 // persis seperti sebelumnya (teks biasa) — soal lain tidak berubah.
 // esc: escaper modul pemanggil (default assessmentEscapeHtml).
+// Q_TEXT_LINEBREAK_V1: sama seperti qbRenderQuestionText — Enter di isi soal
+// dipertahankan sebagai <br> (dulu \n merapat jadi spasi di layar ujian,
+// review, dan evaluasi).
 function assessmentRenderQuestionText(text, esc) {
     const escFn = esc || assessmentEscapeHtml;
     const raw = String(text || '');
@@ -25,7 +28,7 @@ function assessmentRenderQuestionText(text, esc) {
     for (let i = 0; i + 1 < lines.length; i++) {
         if (isRow(lines[i]) && isRow(lines[i + 1])) { hasTable = true; break; }
     }
-    if (!hasTable) return escFn(raw);
+    if (!hasTable) return escFn(raw).replace(/\r\n|\r|\n/g, '<br>');
     const out = [];
     let i = 0;
     while (i < lines.length) {
