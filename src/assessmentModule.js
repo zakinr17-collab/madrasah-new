@@ -1687,8 +1687,6 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                             <div class="space-y-4">
                                 <div class="space-y-3.5">
                                     <div>
-                                        <div class="flex justify-between text-[11px] font-bold uppercase text-slate-500 mb-1">
-                                            <div>
                                         <label class="block text-[11px] font-bold uppercase text-slate-500 mb-1">Layout Cetak PDF (Kolom &times; Baris)</label>
                                         <div class="flex items-center gap-2">
                                             <input type="number" id="cfg-printCols" min="1" max="10" value="${window.kartuPesertaConfig.printCols ?? 2}" onchange="updateKartuConfig('printCols', Math.max(1, Math.min(10, parseInt(this.value)||2)))" class="w-16 px-2 py-1.5 bg-white border border-slate-300 rounded-xl text-xs font-bold text-center focus:ring-2 focus:ring-emerald-500" title="Jumlah kolom"/>
@@ -1702,8 +1700,6 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                         </label>
                                         <p class="text-[10px] text-slate-400 mt-1">Bila Auto dimatikan, kartu otomatis diskalakan mengisi penuh halaman A4 sesuai kolom &times; baris di atas — tidak ada sisa kertas terbuang.</p>
                                     </div>
-                                        <p class="text-[10px] text-slate-400 mt-1">Kartu otomatis diskalakan mengisi penuh halaman A4 sesuai pilihan — tidak ada sisa kertas terbuang.</p>
-                                    </div>
 
                                     <hr class="border-slate-100">
 
@@ -1713,7 +1709,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <span id="cfg-cardWidth-val" class="text-emerald-600 font-bold">${window.kartuPesertaConfig.cardWidth}px</span>
                                         </div>
                                         <input type="range" id="cfg-cardWidth" min="280" max="600" value="${window.kartuPesertaConfig.cardWidth}" 
-                                            oninput="updateKartuConfig('cardWidth', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                            oninput="kartuSizeSliderInput('cardWidth', parseInt(this.value))" onchange="updateKartuConfig('cardWidth', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
                                     <div>
                                         <div class="flex justify-between text-[11px] font-bold uppercase text-slate-500 mb-1">
@@ -1721,7 +1717,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <span id="cfg-cardHeight-val" class="text-emerald-600 font-bold">${window.kartuPesertaConfig.cardHeight}px</span>
                                         </div>
                                         <input type="range" id="cfg-cardHeight" min="180" max="450" value="${window.kartuPesertaConfig.cardHeight}" 
-                                            oninput="updateKartuConfig('cardHeight', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                            oninput="kartuSizeSliderInput('cardHeight', parseInt(this.value))" onchange="updateKartuConfig('cardHeight', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
                                     
                                     <hr class="border-slate-100">
@@ -1732,7 +1728,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <span class="text-emerald-600 font-bold">${window.kartuPesertaConfig.logoSize}px</span>
                                         </div>
                                         <input type="range" id="cfg-logoSize" min="30" max="80" value="${window.kartuPesertaConfig.logoSize}" 
-                                            oninput="updateKartuConfig('logoSize', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                            oninput="kartuSizeSliderInput('logoSize', parseInt(this.value))" onchange="updateKartuConfig('logoSize', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
                                     
                                     <hr class="border-slate-100">
@@ -1743,7 +1739,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <span class="text-emerald-600 font-bold">${window.kartuPesertaConfig.stempelSize}px</span>
                                         </div>
                                         <input type="range" id="cfg-stempelSize" min="40" max="140" value="${window.kartuPesertaConfig.stempelSize}" 
-                                            oninput="updateKartuConfig('stempelSize', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                            oninput="kartuSizeSliderInput('stempelSize', parseInt(this.value))" onchange="updateKartuConfig('stempelSize', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
                                     <div>
                                         <div class="flex justify-between text-[11px] font-bold uppercase text-slate-500 mb-1">
@@ -1751,7 +1747,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <span class="text-emerald-600 font-bold">${window.kartuPesertaConfig.stempelOffsetLeft}px</span>
                                         </div>
                                         <input type="range" id="cfg-stempelOffsetLeft" min="-80" max="40" value="${window.kartuPesertaConfig.stempelOffsetLeft}" 
-                                            oninput="updateKartuConfig('stempelOffsetLeft', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                            oninput="kartuSizeSliderInput('stempelOffsetLeft', parseInt(this.value))" onchange="updateKartuConfig('stempelOffsetLeft', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
                                     <div>
                                         <div class="flex justify-between text-[11px] font-bold uppercase text-slate-500 mb-1">
@@ -1759,7 +1755,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <span class="text-emerald-600 font-bold">${window.kartuPesertaConfig.stempelOffsetTop}px</span>
                                         </div>
                                         <input type="range" id="cfg-stempelOffsetTop" min="-60" max="40" value="${window.kartuPesertaConfig.stempelOffsetTop}" 
-                                            oninput="updateKartuConfig('stempelOffsetTop', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                            oninput="kartuSizeSliderInput('stempelOffsetTop', parseInt(this.value))" onchange="updateKartuConfig('stempelOffsetTop', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
 
                                     <hr class="border-slate-100">
@@ -1770,7 +1766,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <span class="text-emerald-600 font-bold">${window.kartuPesertaConfig.ttdSize}px</span>
                                         </div>
                                         <input type="range" id="cfg-ttdSize" min="30" max="120" value="${window.kartuPesertaConfig.ttdSize}" 
-                                            oninput="updateKartuConfig('ttdSize', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                            oninput="kartuSizeSliderInput('ttdSize', parseInt(this.value))" onchange="updateKartuConfig('ttdSize', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
                                     <div>
                                         <div class="flex justify-between text-[11px] font-bold uppercase text-slate-500 mb-1">
@@ -1778,7 +1774,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <span class="text-emerald-600 font-bold">${window.kartuPesertaConfig.ttdOffsetLeft}px</span>
                                         </div>
                                         <input type="range" id="cfg-ttdOffsetLeft" min="-40" max="60" value="${window.kartuPesertaConfig.ttdOffsetLeft}" 
-                                            oninput="updateKartuConfig('ttdOffsetLeft', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                            oninput="kartuSizeSliderInput('ttdOffsetLeft', parseInt(this.value))" onchange="updateKartuConfig('ttdOffsetLeft', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
                                     <div>
                                         <div class="flex justify-between text-[11px] font-bold uppercase text-slate-500 mb-1">
@@ -1786,7 +1782,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <span class="text-emerald-600 font-bold">${window.kartuPesertaConfig.ttdOffsetTop}px</span>
                                         </div>
                                         <input type="range" id="cfg-ttdOffsetTop" min="-40" max="40" value="${window.kartuPesertaConfig.ttdOffsetTop}" 
-                                            oninput="updateKartuConfig('ttdOffsetTop', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                            oninput="kartuSizeSliderInput('ttdOffsetTop', parseInt(this.value))" onchange="updateKartuConfig('ttdOffsetTop', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
                                     
                                     <hr class="border-slate-100">
@@ -1797,7 +1793,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <span class="text-emerald-600 font-bold">${window.kartuPesertaConfig.signatureGroupOffsetLeft}px</span>
                                         </div>
                                         <input type="range" id="cfg-signatureGroupOffsetLeft" min="-60" max="60" value="${window.kartuPesertaConfig.signatureGroupOffsetLeft}" 
-                                            oninput="updateKartuConfig('signatureGroupOffsetLeft', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                            oninput="kartuSizeSliderInput('signatureGroupOffsetLeft', parseInt(this.value))" onchange="updateKartuConfig('signatureGroupOffsetLeft', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
                                     <div>
                                         <div class="flex justify-between text-[11px] font-bold uppercase text-slate-500 mb-1">
@@ -1805,7 +1801,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <span class="text-emerald-600 font-bold">${window.kartuPesertaConfig.signatureGroupOffsetTop}px</span>
                                         </div>
                                         <input type="range" id="cfg-signatureGroupOffsetTop" min="-60" max="60" value="${window.kartuPesertaConfig.signatureGroupOffsetTop}" 
-                                            oninput="updateKartuConfig('signatureGroupOffsetTop', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                            oninput="kartuSizeSliderInput('signatureGroupOffsetTop', parseInt(this.value))" onchange="updateKartuConfig('signatureGroupOffsetTop', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
                                     
                                     <hr class="border-slate-100">
@@ -1816,7 +1812,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <span class="text-emerald-600 font-bold">${window.kartuPesertaConfig.paddingTop}px</span>
                                         </div>
                                         <input type="range" id="cfg-paddingTop" min="0" max="24" value="${window.kartuPesertaConfig.paddingTop}" 
-                                            oninput="updateKartuConfig('paddingTop', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                            oninput="kartuSizeSliderInput('paddingTop', parseInt(this.value))" onchange="updateKartuConfig('paddingTop', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
                                     <div>
                                         <div class="flex justify-between text-[11px] font-bold uppercase text-slate-500 mb-1">
@@ -1824,7 +1820,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <span class="text-emerald-600 font-bold">${window.kartuPesertaConfig.paddingBottom}px</span>
                                         </div>
                                         <input type="range" id="cfg-paddingBottom" min="0" max="24" value="${window.kartuPesertaConfig.paddingBottom}" 
-                                            oninput="updateKartuConfig('paddingBottom', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                            oninput="kartuSizeSliderInput('paddingBottom', parseInt(this.value))" onchange="updateKartuConfig('paddingBottom', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
 
                                     <hr class="border-slate-100">
@@ -1846,7 +1842,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                              <span class="text-emerald-600 font-bold">${window.kartuPesertaConfig.studentPhotoWidth}px</span>
                                          </div>
                                          <input type="range" id="cfg-studentPhotoWidth" min="20" max="100" value="${window.kartuPesertaConfig.studentPhotoWidth}" 
-                                             oninput="updateKartuConfig('studentPhotoWidth', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                             oninput="kartuSizeSliderInput('studentPhotoWidth', parseInt(this.value))" onchange="updateKartuConfig('studentPhotoWidth', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
                                     <div>
                                          <div class="flex justify-between text-[11px] font-bold uppercase text-slate-500 mb-1">
@@ -1854,7 +1850,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                              <span class="text-emerald-600 font-bold">${window.kartuPesertaConfig.studentPhotoHeight}px</span>
                                          </div>
                                          <input type="range" id="cfg-studentPhotoHeight" min="30" max="120" value="${window.kartuPesertaConfig.studentPhotoHeight}" 
-                                             oninput="updateKartuConfig('studentPhotoHeight', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                             oninput="kartuSizeSliderInput('studentPhotoHeight', parseInt(this.value))" onchange="updateKartuConfig('studentPhotoHeight', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
                                     <div>
                                          <div class="flex justify-between text-[11px] font-bold uppercase text-slate-500 mb-1">
@@ -1862,7 +1858,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                              <span class="text-emerald-600 font-bold">${window.kartuPesertaConfig.studentPhotoOffsetLeft}px</span>
                                          </div>
                                          <input type="range" id="cfg-studentPhotoOffsetLeft" min="-180" max="60" value="${window.kartuPesertaConfig.studentPhotoOffsetLeft}" 
-                                             oninput="updateKartuConfig('studentPhotoOffsetLeft', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                             oninput="kartuSizeSliderInput('studentPhotoOffsetLeft', parseInt(this.value))" onchange="updateKartuConfig('studentPhotoOffsetLeft', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
                                     <div>
                                          <div class="flex justify-between text-[11px] font-bold uppercase text-slate-500 mb-1">
@@ -1870,7 +1866,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                              <span class="text-emerald-600 font-bold">${window.kartuPesertaConfig.studentPhotoOffsetTop}px</span>
                                          </div>
                                          <input type="range" id="cfg-studentPhotoOffsetTop" min="-80" max="80" value="${window.kartuPesertaConfig.studentPhotoOffsetTop}" 
-                                             oninput="updateKartuConfig('studentPhotoOffsetTop', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
+                                             oninput="kartuSizeSliderInput('studentPhotoOffsetTop', parseInt(this.value))" onchange="updateKartuConfig('studentPhotoOffsetTop', parseInt(this.value))" class="w-full accent-emerald-600 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer">
                                     </div>
                                     ` : ''}
                                 </div>
@@ -7776,9 +7772,9 @@ function initKartuPesertaConfigIfNeeded() {
     }
 }
 
-function getLogoKiri() {
+function getLogoKiri(scale) {
     initKartuPesertaConfigIfNeeded();
-    const size = window.kartuPesertaConfig.logoSize || 44;
+    const size = Math.round((window.kartuPesertaConfig.logoSize || 44) * (scale || 1) * 100) / 100;
     if (window.kartuPesertaConfig.logoKiri) {
         return `<img src="${window.kartuPesertaConfig.logoKiri}" style="max-width: 100%; max-height: ${size}px; object-fit: contain;" />`;
     }
@@ -7800,9 +7796,9 @@ function getLogoKiri() {
     `;
 }
 
-function getLogoKanan() {
+function getLogoKanan(scale) {
     initKartuPesertaConfigIfNeeded();
-    const size = window.kartuPesertaConfig.logoSize || 44;
+    const size = Math.round((window.kartuPesertaConfig.logoSize || 44) * (scale || 1) * 100) / 100;
     if (window.kartuPesertaConfig.logoKanan) {
         return `<img src="${window.kartuPesertaConfig.logoKanan}" style="max-width: 100%; max-height: ${size}px; object-fit: contain;" />`;
     }
@@ -7827,10 +7823,10 @@ function getLogoKanan() {
     `;
 }
 
-function getStempelSvg(schoolName) {
+function getStempelSvg(schoolName, scale) {
     initKartuPesertaConfigIfNeeded();
     if (window.kartuPesertaConfig.showStempel === false) return '';
-    const size = window.kartuPesertaConfig.stempelSize || 85;
+    const size = Math.round((window.kartuPesertaConfig.stempelSize || 85) * (scale || 1) * 100) / 100;
     if (window.kartuPesertaConfig.stempel) {
         return `<img src="${window.kartuPesertaConfig.stempel}" style="max-width: 100%; max-height: ${size}px; object-fit: contain;" />`;
     }
@@ -7865,10 +7861,10 @@ function getStempelSvg(schoolName) {
     `;
 }
 
-function getTtdHtml() {
+function getTtdHtml(scale) {
     initKartuPesertaConfigIfNeeded();
     if (window.kartuPesertaConfig.showTtd === false) return '';
-    const size = window.kartuPesertaConfig.ttdSize || 75;
+    const size = Math.round((window.kartuPesertaConfig.ttdSize || 75) * (scale || 1) * 100) / 100;
     if (window.kartuPesertaConfig.ttd) {
         return `<img src="${window.kartuPesertaConfig.ttd}" style="max-width: 100%; max-height: ${Math.round(size * 0.53)}px; object-fit: contain;" />`;
     }
@@ -7882,11 +7878,21 @@ function getTtdHtml() {
 
 function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
     initKartuPesertaConfigIfNeeded();
+
+    const widthVal = window.kartuPesertaConfig.cardWidth || 380;
+    const heightVal = window.kartuPesertaConfig.cardHeight || 260;
+    // KARTU_SCALE_V1: isi kartu diskalakan proporsional terhadap lebar kartu di
+    // mode pratinjau (desain acuan 380px). Di mode cetak k=1 sehingga output
+    // cetak tidak berubah sama sekali (jalur cetak sudah menskalakan sendiri
+    // lewat transform di cetakKartuUjian).
+    const kartuScaleK = isPrintMode ? 1 : (widthVal / 380);
+    const S = (n) => Math.round(n * kartuScaleK * 100) / 100;
+    const contentHeight = heightVal - Math.round(100 * kartuScaleK);
     
-    const logoKiriSrc = getLogoKiri();
-    const logoKananSrc = getLogoKanan();
-    const stampSvg = getStempelSvg(window.kartuPesertaConfig.kop3);
-    const ttdHtml = getTtdHtml();
+    const logoKiriSrc = getLogoKiri(kartuScaleK);
+    const logoKananSrc = getLogoKanan(kartuScaleK);
+    const stampSvg = getStempelSvg(window.kartuPesertaConfig.kop3, kartuScaleK);
+    const ttdHtml = getTtdHtml(kartuScaleK);
     
     const atts = (appState.attendance || []).filter(a => 
         (String(a.studentId) === String(st.id) || String(a.studentId) === String(st.name)) && 
@@ -7902,11 +7908,7 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
     
     const studentPhotoHtml = studentPhoto 
         ? `<img src="${window.getPhotoHtmlSrc ? window.getPhotoHtmlSrc(studentPhoto) : ''}" style="width: 100%; height: 100%; object-fit: cover;" referrerPolicy="no-referrer" />`
-        : `<div style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #fafafa; border: 1px solid #ddd; text-align: center; font-size: 7px; line-height: 1.1; font-weight: bold; color: #94a3b8; box-sizing: border-box; padding: 2px;"><div style="font-size: 11px; margin-bottom: 2px; color: #cbd5e1;">👤</div>No Foto<br>Absensi</div>`;
-
-    const widthVal = window.kartuPesertaConfig.cardWidth || 380;
-    const heightVal = window.kartuPesertaConfig.cardHeight || 260;
-    const contentHeight = heightVal - 100;
+        : `<div style="width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #fafafa; border: 1px solid #ddd; text-align: center; font-size: ${S(7)}px; line-height: 1.1; font-weight: bold; color: #94a3b8; box-sizing: border-box; padding: 2px;"><div style="font-size: ${S(11)}px; margin-bottom: 2px; color: #cbd5e1;">👤</div>No Foto<br>Absensi</div>`;
 
     const cardStyle = isPrintMode 
         ? `box-sizing: border-box; border: 1.5px solid #000; width: ${widthVal}px; height: ${heightVal}px; float: left; margin: 5px; padding-top: ${window.kartuPesertaConfig.paddingTop}px; padding-bottom: ${window.kartuPesertaConfig.paddingBottom}px; padding-left: 14px; padding-right: 14px; position: relative; font-family: Arial, sans-serif; page-break-inside: avoid; background-color: #fff; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between;`
@@ -7932,10 +7934,10 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
             ` : logoKiriSrc}
          </div>
          <div style="width: 70%; text-align: center; line-height: 1.1;">
-            <div style="font-size: 8pt; font-weight: bold; letter-spacing: 0.1px; font-family: 'Times New Roman', Times, serif; color: #000; text-transform: uppercase; word-break: break-word;">${window.kartuPesertaConfig.kop1}</div>
-            <div style="font-size: 9.5pt; font-weight: bold; font-family: 'Times New Roman', Times, serif; color: #000; text-transform: uppercase; word-break: break-word;">${window.kartuPesertaConfig.kop2}</div>
-            <div style="font-size: 11pt; font-weight: bold; color: #065f46; letter-spacing: 0.1px; font-family: 'Times New Roman', Times, serif; text-transform: uppercase; word-break: break-word;">${window.kartuPesertaConfig.kop3}</div>
-            <div style="font-size: 5.5pt; font-weight: bold; margin-top: 1px; font-family: Arial, sans-serif; color: #000; line-height: 1.1; word-break: break-word;">${window.kartuPesertaConfig.alamat}</div>
+            <div style="font-size: ${S(8)}pt; font-weight: bold; letter-spacing: 0.1px; font-family: 'Times New Roman', Times, serif; color: #000; text-transform: uppercase; word-break: break-word;">${window.kartuPesertaConfig.kop1}</div>
+            <div style="font-size: ${S(9.5)}pt; font-weight: bold; font-family: 'Times New Roman', Times, serif; color: #000; text-transform: uppercase; word-break: break-word;">${window.kartuPesertaConfig.kop2}</div>
+            <div style="font-size: ${S(11)}pt; font-weight: bold; color: #065f46; letter-spacing: 0.1px; font-family: 'Times New Roman', Times, serif; text-transform: uppercase; word-break: break-word;">${window.kartuPesertaConfig.kop3}</div>
+            <div style="font-size: ${S(5.5)}pt; font-weight: bold; margin-top: 1px; font-family: Arial, sans-serif; color: #000; line-height: 1.1; word-break: break-word;">${window.kartuPesertaConfig.alamat}</div>
          </div>
          <div style="width: 15%; text-align: right; display: flex; align-items: center; justify-content: center;">
             ${!isPrintMode ? `
@@ -7954,27 +7956,33 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
       <div style="width: 100%; height: 4px; background-color: #000; margin-bottom: 5px;"></div>
       
       <!-- TITLE -->
-      <div style="text-align: center; font-size: 9pt; font-weight: bold; margin-bottom: 5px; letter-spacing: 1px; color: #000; text-transform: uppercase;">${window.kartuPesertaConfig.titleText || 'KARTU PESERTA'}</div>
+      <div style="text-align: center; font-size: ${S(9)}pt; font-weight: bold; margin-bottom: 5px; letter-spacing: 1px; color: #000; text-transform: uppercase;">${window.kartuPesertaConfig.titleText || 'KARTU PESERTA'}</div>
       
       <!-- CONTENT -->
-      <div class="card-content-area" style="display: flex; justify-content: space-between; height: ${contentHeight}px; overflow: hidden; position: relative;">
+      <div class="card-content-area" style="display: flex; flex-direction: column; height: ${contentHeight}px; overflow: hidden; position: relative;">
+         <!-- Nama Siswa selebar penuh (KARTU_NAMA_FULLWIDTH_V1): baris nama di atas,
+              memakai lebar penuh area konten sehingga nama panjang mentok ke tepi
+              kartu sebelum melipat. Kelompok foto/TTD/stempel di kolom kanan menempati
+              bagian bawah, jadi tidak ada yang tertabrak. Label 19.2% + titik dua 3%
+              sejajar dengan kolom tabel di bawah (32% dari 60% = 19.2%, 5% dari 60% = 3%). -->
+         <div style="display: flex; font-size: ${S(8)}pt; line-height: 1.35; color: #000; margin-bottom: 3px;">
+            <span style="width: 19.2%; flex-shrink: 0; white-space: nowrap; font-weight: bold;">Nama Siswa</span>
+            <span style="width: 3%; flex-shrink: 0; text-align: center; font-weight: bold;">:</span>
+            <span style="flex: 1; min-width: 0; font-weight: 900; text-transform: uppercase; word-break: break-word;" title="${st.name}">${st.name}</span>
+         </div>
+         <div style="display: flex; justify-content: space-between; flex: 1; min-height: 0;">
          <!-- Left Details (60%) -->
-         <div style="width: 60%; font-size: 8pt; line-height: 1.35; display: flex; flex-direction: column; justify-content: start; gap: 3px;">
-            <table style="width: 100%; border-collapse: collapse; font-size: 8pt; color: #000; table-layout: fixed;">
+         <div style="width: 60%; font-size: ${S(8)}pt; line-height: 1.35; display: flex; flex-direction: column; justify-content: start; gap: 3px;">
+            <table style="width: 100%; border-collapse: collapse; font-size: ${S(8)}pt; color: #000; table-layout: fixed;">
                <tr>
-                  <td style="width: 32%; vertical-align: top; white-space: nowrap; font-weight: bold;">Nama Siswa</td>
-                  <td style="width: 5%; vertical-align: top; text-align: center; font-weight: bold;">:</td>
-                  <td style="font-weight: 900; vertical-align: top; text-transform: uppercase; font-size: 8pt; word-break: break-word;" title="${st.name}">${st.name}</td>
-               </tr>
-               <tr>
-                  <td style="white-space: nowrap; font-weight: bold; vertical-align: top;">Kelas</td>
-                  <td style="text-align: center; font-weight: bold; vertical-align: top;">:</td>
+                  <td style="width: 32%; white-space: nowrap; font-weight: bold; vertical-align: top;">Kelas</td>
+                  <td style="width: 5%; text-align: center; font-weight: bold; vertical-align: top;">:</td>
                   <td style="font-weight: 900; vertical-align: top; text-transform: uppercase; word-break: break-word;">${className}</td>
                </tr>
                <tr>
                   <td style="white-space: nowrap; font-weight: bold; vertical-align: top;">User Name</td>
                   <td style="text-align: center; font-weight: bold; vertical-align: top;">:</td>
-                  <td style="font-weight: 900; font-family: monospace; font-size: 8.5pt; vertical-align: top; word-break: break-all;">${st.username}</td>
+                  <td style="font-weight: 900; font-family: monospace; font-size: ${S(8.5)}pt; vertical-align: top; word-break: break-all;">${st.username}</td>
                </tr>
                ${(() => {
                   if (window.kartuPesertaConfig.showPassword === false) return '';
@@ -7995,7 +8003,7 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
                   <tr>
                      <td style="white-space: nowrap; font-weight: bold; vertical-align: top;">Password</td>
                      <td style="text-align: center; font-weight: bold; vertical-align: top;">:</td>
-                     <td style="font-weight: 900; font-family: monospace; font-size: 8.5pt; vertical-align: top; word-break: break-all;">${displayPassword}</td>
+                     <td style="font-weight: 900; font-family: monospace; font-size: ${S(8.5)}pt; vertical-align: top; word-break: break-all;">${displayPassword}</td>
                   </tr>
                   `;
                })()}
@@ -8009,7 +8017,7 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
          
          <!-- Right Signature (40%) -->
          <div class="${!isPrintMode ? 'group relative border border-dashed border-transparent hover:border-amber-400 p-0.5 rounded transition-colors' : ''}"
-              style="width: 40%; position: relative; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; padding-bottom: 0px; padding-left: 15px; box-sizing: border-box; height: 100%; transform: translate(${window.kartuPesertaConfig.signatureGroupOffsetLeft || 0}px, ${window.kartuPesertaConfig.signatureGroupOffsetTop || 0}px);">
+              style="width: 40%; position: relative; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; padding-bottom: 0px; padding-left: ${S(15)}px; box-sizing: border-box; height: 100%; transform: translate(${S(window.kartuPesertaConfig.signatureGroupOffsetLeft || 0)}px, ${S(window.kartuPesertaConfig.signatureGroupOffsetTop || 0)}px);">
             
             ${!isPrintMode ? `
             <div class="absolute inset-x-0 top-0 h-4.5 cursor-move flex items-center justify-center bg-amber-500/10 hover:bg-amber-500/20 opacity-0 group-hover:opacity-100 transition-opacity z-30 border-b border-dashed border-amber-300"
@@ -8021,11 +8029,11 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
             ` : ''}
 
             <!-- Place & Date -->
-            <div style="font-size: 8pt; line-height: 1.1; text-align: left; color: #000; white-space: nowrap;">${window.kartuPesertaConfig.tanggalUjian}</div>
-            <div style="font-size: 8pt; font-weight: bold; line-height: 1.1; margin-top: 2px; text-align: left; color: #000; white-space: nowrap;">Kepala Sekolah,</div>
+            <div style="font-size: ${S(8)}pt; line-height: 1.1; text-align: left; color: #000; white-space: nowrap;">${window.kartuPesertaConfig.tanggalUjian}</div>
+            <div style="font-size: ${S(8)}pt; font-weight: bold; line-height: 1.1; margin-top: 2px; text-align: left; color: #000; white-space: nowrap;">Kepala Sekolah,</div>
             
             <!-- Overlapping container for TTD, Stamp and Name -->
-            <div style="position: relative; width: 100%; height: 70px; margin-top: 2px;">
+            <div style="position: relative; width: 100%; height: ${S(70)}px; margin-top: 2px;">
                <!-- Student Photo (Diambil dari absensi terakhir / profil) -->
                ${window.kartuPesertaConfig.showStudentPhoto ? (
                   !isPrintMode ? `
@@ -8034,10 +8042,10 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
                        onmousedown="initCardElementDrag(event, \'studentPhoto\')" 
                        ontouchstart="initCardElementDrag(event, \'studentPhoto\')"
                        style="position: absolute; border: 1.5px dashed #10b981; overflow: visible; z-index: 25; background-color: #fff; box-sizing: border-box; 
-                               left: ${window.kartuPesertaConfig.studentPhotoOffsetLeft}px; 
-                               top: ${window.kartuPesertaConfig.studentPhotoOffsetTop}px; 
-                               width: ${window.kartuPesertaConfig.studentPhotoWidth}px; 
-                               height: ${window.kartuPesertaConfig.studentPhotoHeight}px;">
+                               left: ${S(window.kartuPesertaConfig.studentPhotoOffsetLeft)}px; 
+                               top: ${S(window.kartuPesertaConfig.studentPhotoOffsetTop)}px; 
+                               width: ${S(window.kartuPesertaConfig.studentPhotoWidth)}px; 
+                               height: ${S(window.kartuPesertaConfig.studentPhotoHeight)}px;">
                      <!-- Hover tooltip -->
                      <div class="absolute -top-4.5 left-1/2 -translate-x-1/2 bg-emerald-600 text-white text-[6px] font-bold px-1 py-0.2 rounded shadow opacity-0 group-hover/photo:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">↕ Geser Foto</div>
                      
@@ -8056,10 +8064,10 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
                   </div>
                   ` : `
                   <div style="position: absolute; border: 1px solid #000; overflow: hidden; z-index: 12; background-color: #fff; box-sizing: border-box; 
-                               left: ${window.kartuPesertaConfig.studentPhotoOffsetLeft}px; 
-                               top: ${window.kartuPesertaConfig.studentPhotoOffsetTop}px; 
-                               width: ${window.kartuPesertaConfig.studentPhotoWidth}px; 
-                               height: ${window.kartuPesertaConfig.studentPhotoHeight}px;">
+                               left: ${S(window.kartuPesertaConfig.studentPhotoOffsetLeft)}px; 
+                               top: ${S(window.kartuPesertaConfig.studentPhotoOffsetTop)}px; 
+                               width: ${S(window.kartuPesertaConfig.studentPhotoWidth)}px; 
+                               height: ${S(window.kartuPesertaConfig.studentPhotoHeight)}px;">
                      ${studentPhotoHtml}
                   </div>
                   `
@@ -8071,7 +8079,7 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
                     title="Seret untuk memindahkan Stempel" 
                     onmousedown="initCardElementDrag(event, \'stempel\')" 
                     ontouchstart="initCardElementDrag(event, \'stempel\')"
-                    style="position: absolute; left: ${window.kartuPesertaConfig.stempelOffsetLeft}px; top: ${window.kartuPesertaConfig.stempelOffsetTop}px; width: ${window.kartuPesertaConfig.stempelSize}px; height: ${window.kartuPesertaConfig.stempelSize}px; opacity: 0.95; z-index: 20; display: flex; align-items: center; justify-content: center;">
+                    style="position: absolute; left: ${S(window.kartuPesertaConfig.stempelOffsetLeft)}px; top: ${S(window.kartuPesertaConfig.stempelOffsetTop)}px; width: ${S(window.kartuPesertaConfig.stempelSize)}px; height: ${S(window.kartuPesertaConfig.stempelSize)}px; opacity: 0.95; z-index: 20; display: flex; align-items: center; justify-content: center;">
                   <div class="absolute -inset-1 border border-dashed border-emerald-400 opacity-0 group-hover/stempel:opacity-100 rounded-full transition-opacity pointer-events-none"></div>
                   <div class="absolute -top-4.5 left-1/2 -translate-x-1/2 bg-emerald-600 text-white text-[6px] font-bold px-1 py-0.2 rounded shadow opacity-0 group-hover/stempel:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">↕ Geser Stempel</div>
                   ${stampSvg}
@@ -8086,7 +8094,7 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
                   </div>
                </div>
                ` : `
-               <div style="position: absolute; left: ${window.kartuPesertaConfig.stempelOffsetLeft}px; top: ${window.kartuPesertaConfig.stempelOffsetTop}px; width: ${window.kartuPesertaConfig.stempelSize}px; height: ${window.kartuPesertaConfig.stempelSize}px; opacity: 0.9; pointer-events: none; z-index: 20; display: flex; align-items: center; justify-content: center;">
+               <div style="position: absolute; left: ${S(window.kartuPesertaConfig.stempelOffsetLeft)}px; top: ${S(window.kartuPesertaConfig.stempelOffsetTop)}px; width: ${S(window.kartuPesertaConfig.stempelSize)}px; height: ${S(window.kartuPesertaConfig.stempelSize)}px; opacity: 0.9; pointer-events: none; z-index: 20; display: flex; align-items: center; justify-content: center;">
                   ${stampSvg}
                </div>
                `}
@@ -8097,7 +8105,7 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
                     title="Seret untuk memindahkan Tanda Tangan" 
                     onmousedown="initCardElementDrag(event, \'ttd\')" 
                     ontouchstart="initCardElementDrag(event, \'ttd\')"
-                    style="position: absolute; left: ${window.kartuPesertaConfig.ttdOffsetLeft}px; top: ${window.kartuPesertaConfig.ttdOffsetTop}px; width: ${window.kartuPesertaConfig.ttdSize}px; height: ${Math.round(window.kartuPesertaConfig.ttdSize * 0.5)}px; z-index: 10; display: flex; align-items: center; justify-content: center;">
+                    style="position: absolute; left: ${S(window.kartuPesertaConfig.ttdOffsetLeft)}px; top: ${S(window.kartuPesertaConfig.ttdOffsetTop)}px; width: ${S(window.kartuPesertaConfig.ttdSize)}px; height: ${S(Math.round(window.kartuPesertaConfig.ttdSize * 0.5))}px; z-index: 10; display: flex; align-items: center; justify-content: center;">
                   <div class="absolute -inset-1 border border-dashed border-emerald-400 opacity-0 group-hover/ttd:opacity-100 rounded transition-opacity pointer-events-none"></div>
                   <div class="absolute -top-4.5 left-1/2 -translate-x-1/2 bg-emerald-600 text-white text-[6px] font-bold px-1 py-0.2 rounded shadow opacity-0 group-hover/ttd:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50">↕ Geser TTD</div>
                   ${ttdHtml}
@@ -8112,16 +8120,17 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
                   </div>
                </div>
                ` : `
-               <div style="position: absolute; left: ${window.kartuPesertaConfig.ttdOffsetLeft}px; top: ${window.kartuPesertaConfig.ttdOffsetTop}px; width: ${window.kartuPesertaConfig.ttdSize}px; height: ${Math.round(window.kartuPesertaConfig.ttdSize * 0.5)}px; z-index: 10; display: flex; align-items: center; justify-content: center;">
+               <div style="position: absolute; left: ${S(window.kartuPesertaConfig.ttdOffsetLeft)}px; top: ${S(window.kartuPesertaConfig.ttdOffsetTop)}px; width: ${S(window.kartuPesertaConfig.ttdSize)}px; height: ${S(Math.round(window.kartuPesertaConfig.ttdSize * 0.5))}px; z-index: 10; display: flex; align-items: center; justify-content: center;">
                   ${ttdHtml}
                </div>
                `}
 
                <!-- Principal Name - Positioned at the bottom, overlapping signature and stamp, NO underline -->
-               <div style="position: absolute; left: 0; bottom: 0px; font-size: 9.5pt; font-weight: bold; white-space: nowrap; z-index: 15; text-align: left; color: #000;">
+               <div style="position: absolute; left: 0; bottom: 0px; font-size: ${S(9.5)}pt; font-weight: bold; white-space: nowrap; z-index: 15; text-align: left; color: #000;">
                   ${window.kartuPesertaConfig.kepalaSekolah}
                </div>
             </div>
+         </div>
          </div>
       </div>
       ${!isPrintMode ? `
@@ -8140,6 +8149,89 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
     </div>
     `;
 }
+
+// KARTU_SCALE_V1: tambal pratinjau kartu secara langsung tanpa re-render penuh.
+// Dipakai slider "Atur Ukuran" (oninput) dan drag elemen kartu — supaya slider
+// tidak hancur di tengah drag (updateKartuConfig membangun ulang seluruh modul,
+// termasuk slider yang sedang dipegang, sehingga drag mati di tick pertama) dan
+// pratinjau tetap benar di semua lebar kartu.
+function patchKartuPreviewLive() {
+    initKartuPesertaConfigIfNeeded();
+    const cfg = window.kartuPesertaConfig;
+    const W = cfg.cardWidth || 380;
+    const H = cfg.cardHeight || 260;
+    const k = W / 380;
+    const S = (n) => Math.round(n * k * 100) / 100;
+    document.querySelectorAll('.preview-card-item').forEach(card => {
+        card.style.width = W + 'px';
+        card.style.height = H + 'px';
+        card.style.paddingTop = (cfg.paddingTop ?? 4) + 'px';
+        card.style.paddingBottom = (cfg.paddingBottom ?? 4) + 'px';
+        const contentArea = card.querySelector('.card-content-area');
+        if (contentArea) contentArea.style.height = (H - Math.round(100 * k)) + 'px';
+        card.querySelectorAll('[title="Seret kiri-kanan untuk mengubah ukuran logo"]').forEach(logo => {
+            const img = logo.querySelector('img, svg');
+            if (img) {
+                img.style.maxHeight = S(cfg.logoSize || 44) + 'px';
+                img.style.width = S(cfg.logoSize || 44) + 'px';
+                img.style.height = S(cfg.logoSize || 44) + 'px';
+            }
+            const textBadge = logo.querySelector('.absolute.-top-5');
+            if (textBadge) textBadge.innerText = `↔ Logo: ${cfg.logoSize || 44}px`;
+        });
+        const stempelEl = card.querySelector('[title="Seret untuk memindahkan Stempel"]');
+        if (stempelEl) {
+            stempelEl.style.left = S(cfg.stempelOffsetLeft || 0) + 'px';
+            stempelEl.style.top = S(cfg.stempelOffsetTop || 0) + 'px';
+            stempelEl.style.width = S(cfg.stempelSize || 85) + 'px';
+            stempelEl.style.height = S(cfg.stempelSize || 85) + 'px';
+            const img = stempelEl.querySelector('img, svg');
+            if (img) {
+                img.style.maxHeight = S(cfg.stempelSize || 85) + 'px';
+                img.style.width = S(cfg.stempelSize || 85) + 'px';
+                img.style.height = S(cfg.stempelSize || 85) + 'px';
+            }
+        }
+        const ttdEl = card.querySelector('[title="Seret untuk memindahkan Tanda Tangan"]');
+        if (ttdEl) {
+            ttdEl.style.left = S(cfg.ttdOffsetLeft || 0) + 'px';
+            ttdEl.style.top = S(cfg.ttdOffsetTop || 0) + 'px';
+            ttdEl.style.width = S(cfg.ttdSize || 75) + 'px';
+            ttdEl.style.height = S(Math.round((cfg.ttdSize || 75) * 0.5)) + 'px';
+            const img = ttdEl.querySelector('img, svg');
+            if (img) {
+                img.style.maxHeight = S(Math.round((cfg.ttdSize || 75) * 0.53)) + 'px';
+                img.style.width = S(cfg.ttdSize || 75) + 'px';
+                img.style.height = S(Math.round((cfg.ttdSize || 75) * 0.5)) + 'px';
+            }
+        }
+        const photoEl = card.querySelector('[title="Seret untuk memindahkan Foto Siswa"]');
+        if (photoEl) {
+            photoEl.style.left = S(cfg.studentPhotoOffsetLeft || 0) + 'px';
+            photoEl.style.top = S(cfg.studentPhotoOffsetTop || 0) + 'px';
+            photoEl.style.width = S(cfg.studentPhotoWidth || 50) + 'px';
+            photoEl.style.height = S(cfg.studentPhotoHeight || 65) + 'px';
+        }
+        const sigGroupEl = card.querySelector('[title="Seret baris ini untuk menggeser seluruh Kelompok TTD"]');
+        if (sigGroupEl && sigGroupEl.parentNode) {
+            sigGroupEl.parentNode.style.transform = `translate(${S(cfg.signatureGroupOffsetLeft || 0)}px, ${S(cfg.signatureGroupOffsetTop || 0)}px)`;
+        }
+    });
+}
+
+window.kartuSizeSliderInput = function(key, val) {
+    initKartuPesertaConfigIfNeeded();
+    window.kartuPesertaConfig[key] = val;
+    const slider = document.getElementById('cfg-' + key);
+    if (slider) {
+        const container = slider.parentNode;
+        if (container) {
+            const labelSpan = container.querySelector('.text-emerald-600');
+            if (labelSpan) labelSpan.innerText = val + 'px';
+        }
+    }
+    patchKartuPreviewLive();
+};
 
 function updateKartuConfig(key, val) {
     initKartuPesertaConfigIfNeeded();
@@ -8233,20 +8325,8 @@ window.initCardResize = function(e, direction) {
             window.kartuPesertaConfig.cardHeight = newHeight;
         }
         
-        // Instant visual feedback for ALL preview cards
-        const cards = document.querySelectorAll('.preview-card-item');
-        cards.forEach(card => {
-            if (window.kartuPesertaConfig.cardWidth) {
-                card.style.width = window.kartuPesertaConfig.cardWidth + 'px';
-            }
-            if (window.kartuPesertaConfig.cardHeight) {
-                card.style.height = window.kartuPesertaConfig.cardHeight + 'px';
-                const contentArea = card.querySelector('.card-content-area');
-                if (contentArea) {
-                    contentArea.style.height = (window.kartuPesertaConfig.cardHeight - 100) + 'px';
-                }
-            }
-        });
+        // Instant visual feedback for ALL preview cards (tanpa re-render)
+        patchKartuPreviewLive();
         
         // Dynamically update the display texts in settings panel if currently open
         const widthDisplay = document.getElementById('cfg-cardWidth-val');
@@ -8349,70 +8429,9 @@ window.initCardElementDrag = function(e, type) {
             window.kartuPesertaConfig.logoSize = Math.max(25, Math.min(100, startLogoSize + deltaX));
         }
         
-        // Instant visual feedback for ALL preview cards!
-        const cards = document.querySelectorAll('.preview-card-item');
-        cards.forEach(card => {
-            if (type === 'stempel' || type === 'stempelResize') {
-                const stempelEl = card.querySelector('[title="Seret untuk memindahkan Stempel"]');
-                if (stempelEl) {
-                    stempelEl.style.left = window.kartuPesertaConfig.stempelOffsetLeft + 'px';
-                    stempelEl.style.top = window.kartuPesertaConfig.stempelOffsetTop + 'px';
-                    stempelEl.style.width = window.kartuPesertaConfig.stempelSize + 'px';
-                    stempelEl.style.height = window.kartuPesertaConfig.stempelSize + 'px';
-                    const img = stempelEl.querySelector('img, svg');
-                    if (img) {
-                        img.style.maxHeight = window.kartuPesertaConfig.stempelSize + 'px';
-                        img.style.width = window.kartuPesertaConfig.stempelSize + 'px';
-                        img.style.height = window.kartuPesertaConfig.stempelSize + 'px';
-                    }
-                }
-            }
-            if (type === 'ttd' || type === 'ttdResize') {
-                const ttdEl = card.querySelector('[title="Seret untuk memindahkan Tanda Tangan"]');
-                if (ttdEl) {
-                    ttdEl.style.left = window.kartuPesertaConfig.ttdOffsetLeft + 'px';
-                    ttdEl.style.top = window.kartuPesertaConfig.ttdOffsetTop + 'px';
-                    ttdEl.style.width = window.kartuPesertaConfig.ttdSize + 'px';
-                    ttdEl.style.height = Math.round(window.kartuPesertaConfig.ttdSize * 0.5) + 'px';
-                    const img = ttdEl.querySelector('img, svg');
-                    if (img) {
-                        img.style.maxHeight = Math.round(window.kartuPesertaConfig.ttdSize * 0.53) + 'px';
-                        img.style.width = window.kartuPesertaConfig.ttdSize + 'px';
-                        img.style.height = Math.round(window.kartuPesertaConfig.ttdSize * 0.5) + 'px';
-                    }
-                }
-            }
-            if (type === 'studentPhoto' || type === 'studentPhotoResize') {
-                const photoEl = card.querySelector('[title="Seret untuk memindahkan Foto Siswa"]');
-                if (photoEl) {
-                    photoEl.style.left = window.kartuPesertaConfig.studentPhotoOffsetLeft + 'px';
-                    photoEl.style.top = window.kartuPesertaConfig.studentPhotoOffsetTop + 'px';
-                    photoEl.style.width = window.kartuPesertaConfig.studentPhotoWidth + 'px';
-                    photoEl.style.height = window.kartuPesertaConfig.studentPhotoHeight + 'px';
-                }
-            }
-            if (type === 'sigGroup') {
-                const sigGroupEl = card.querySelector('[title="Seret baris ini untuk menggeser seluruh Kelompok TTD"]');
-                if (sigGroupEl && sigGroupEl.parentNode) {
-                    sigGroupEl.parentNode.style.transform = `translate(${window.kartuPesertaConfig.signatureGroupOffsetLeft}px, ${window.kartuPesertaConfig.signatureGroupOffsetTop}px)`;
-                }
-            }
-            if (type === 'logoSize') {
-                const logos = card.querySelectorAll('[title="Seret kiri-kanan untuk mengubah ukuran logo"]');
-                logos.forEach(logo => {
-                    const img = logo.querySelector('img, svg');
-                    if (img) {
-                        img.style.maxHeight = window.kartuPesertaConfig.logoSize + 'px';
-                        img.style.width = window.kartuPesertaConfig.logoSize + 'px';
-                        img.style.height = window.kartuPesertaConfig.logoSize + 'px';
-                    }
-                    const textBadge = logo.querySelector('.absolute.-top-5');
-                    if (textBadge) {
-                        textBadge.innerText = `↔ Logo: ${window.kartuPesertaConfig.logoSize}px`;
-                    }
-                });
-            }
-        });
+        // Instant visual feedback for ALL preview cards (tanpa re-render)
+        patchKartuPreviewLive();
+
         
         // Dynamically update corresponding slider and text inside sidebar settings panel if open
         if (type === 'stempel' || type === 'stempelResize') {
