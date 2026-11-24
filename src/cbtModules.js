@@ -567,6 +567,18 @@ function selectBankCollection(id) {
     renderQuestionBankModule(document.getElementById('view-container'));
 }
 
+// QB_COLLECTIONS_TENANT_V1 — identitas tenant untuk grup/bank baru di sisi klien.
+// Server tetap menandai ulang dari sesi (tagNewRecord), tapi objek lokal wajib
+// membawa tenant supaya mode offline & daftar lokal bisa membedakan grup
+// antar madrasah (sebelumnya grup baru tidak membawa tenan sama sekali).
+function qbCurrentTenantTag() {
+    const u = (typeof appState !== 'undefined' && appState.currentUser) || {};
+    const active = (typeof window !== 'undefined' && window.__activeTenant) || {};
+    const mid = String(u.madrasahId || u.madrasahSlug || active.id || active.slug || 'default');
+    const m = (typeof appState !== 'undefined' && Array.isArray(appState.madrasahs) ? appState.madrasahs : []).find(x => String(x.id) === mid || String(x.slug) === mid);
+    return { madrasahId: m ? m.id : mid, madrasahSlug: m ? m.slug : mid };
+}
+
 function openBankCollectionModal(editId = null) {
     const editing = editId ? (appState.questionBankCollections || []).find(c => String(c.id) === String(editId)) : null;
     const modal = document.getElementById('modal-container');
@@ -596,6 +608,11 @@ async function saveBankCollection(e) {
     const name = document.getElementById('qbc-name').value.trim();
     const editId = document.getElementById('qbc-edit-id')?.value || null;
     if (!name) { showToast('Nama grup wajib diisi.', 'error'); return; }
+    // QB_COLLECTIONS_TENANT_V1: nama grup tidak boleh kembar di madrasah ini —
+    // dua grup bernama sama membingungkan (kartu terlihat sama) dan soal
+    // gampang tertukar antar grup.
+    const dupName = (appState.questionBankCollections || []).find(c => String(c.id) !== String(editId || '') && String(c.name || '').trim().toLowerCase() === name.toLowerCase());
+    if (dupName) { showToast('Nama grup sudah dipakai di madrasah ini. Buka grup yang sudah ada, atau pakai nama lain.', 'error'); return; }
     if (!Array.isArray(appState.questionBankCollections)) appState.questionBankCollections = [];
     let col;
     if (editId) {
@@ -603,7 +620,7 @@ async function saveBankCollection(e) {
         if (!col) { showToast('Grup tidak ditemukan.', 'error'); return; }
         col.name = name;
     } else {
-        col = { id: 'QBC' + Date.now(), name, createdAt: new Date().toISOString() };
+        col = { id: 'QBC' + Date.now(), name, createdAt: new Date().toISOString(), ...qbCurrentTenantTag() };
         appState.questionBankCollections.push(col);
     }
     try {
@@ -699,6 +716,13 @@ async function saveQuestionBankGroup(e) {
 
     if (!code) { showToast('Kode wajib diisi.', 'error'); return; }
 
+    // QB_COLLECTIONS_TENANT_V1: kode bank tidak boleh kembar di madrasah ini.
+    // Soal menempel ke bank lewat KODE (bukan id grup), jadi bank baru dengan
+    // kode yang sama langsung menampilkan soal bank lama — terlihat "sudah
+    // ada isinya" padahal itu soal grup lain.
+    const dupCode = (appState.questionBankGroups || []).find(bg => String(bg.id) !== String(editId || '') && String(bg.code || '').trim().toLowerCase() === code.toLowerCase());
+    if (dupCode) { showToast('Kode bank soal sudah dipakai di madrasah ini. Buka bank soal yang sudah ada, atau pakai kode lain.', 'error'); return; }
+
     if (editId) {
         const grp = (appState.questionBankGroups || []).find(bg => String(bg.id) === String(editId));
         if (!grp) { showToast('Bank soal tidak ditemukan.', 'error'); return; }
@@ -728,7 +752,7 @@ async function saveQuestionBankGroup(e) {
         return;
     }
 
-    const newGroup = { id: 'BG' + Date.now(), code, subjectId, classId, collectionId, createdAt: new Date().toISOString() }; // QB_COLLECTIONS_V1
+    const newGroup = { id: 'BG' + Date.now(), code, subjectId, classId, collectionId, createdAt: new Date().toISOString(), ...qbCurrentTenantTag() }; // QB_COLLECTIONS_V1
     appState.questionBankGroups.push(newGroup);
 
     try {
