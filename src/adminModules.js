@@ -1486,6 +1486,7 @@ function renderStudentModule(container) {
                     <table class="w-full text-left border-collapse min-w-[650px]">
                         <thead>
                             <tr class="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase">
+                                <th class="p-4 w-12 text-center">No</th>
                                 ${!isTeacher ? `<th class="p-4 text-center"><input type="checkbox" onchange="toggleSelectAllStudentsPage(this.checked)" class="w-4 h-4 rounded text-blue-600 cursor-pointer"></th>` : ''}
                                 <th class="p-4">NIS</th>
                                 <th class="p-4 text-center">Profil</th>
@@ -1497,12 +1498,13 @@ function renderStudentModule(container) {
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-slate-100 text-sm">
-                            ${filteredStudents.map(s => {
+                            ${filteredStudents.map((s, idx) => {
                                 const cls = (appState.classes || []).find(c => String(c.id) === String(s.classId || s.class_id));
                                 const activeExamKeys = Object.keys(appState.activeExamSessions || {});
                                 const isOnline = activeExamKeys.some(k => k.startsWith(s.id + '_')) || (appState.chats && appState.chats.some(c => String(c.senderId) === String(s.id) && Date.now() - c.timestamp < 300000));
                                 return `
                                     <tr class="hover:bg-slate-50/50 transition">
+                                        <td class="p-4 text-center text-xs text-slate-400">${idx + 1}</td>
                                         ${!isTeacher ? `<td class="p-4 text-center"><input type="checkbox" class="student-page-checkbox w-4 h-4 rounded text-blue-600 cursor-pointer" value="${s.id}"></td>` : ''}
                                         <td class="p-4 font-mono text-xs font-bold text-emerald-700">${s.nis || '-'}</td>
                                         <td class="p-4 text-center">
