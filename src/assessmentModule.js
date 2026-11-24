@@ -984,6 +984,56 @@ function evaluasiExamDateMs(exam) {
     return Number.isFinite(created) ? created : null;
 }
 
+// MONITORING_PICKER_V1 — label kelas & tanggal untuk kartu monitoring.
+// Kartu sebelumnya membaca ex.className yang tidak pernah diisi (jadwal
+// hanya menyimpan ex.classes = array id kelas) sehingga selalu tampil
+// "Semua Kelas". Label kini diturunkan dari ex.classes.
+function monitoringExamClassLabel(ex) {
+    if (ex && ex.className) return ex.className;
+    const arr = (ex && Array.isArray(ex.classes)) ? ex.classes : [];
+    if (!arr.length) return 'Semua Kelas';
+    const low = arr.map(c => String(c).toLowerCase().trim());
+    if (low.includes('all') || low.includes('semua kelas')) return 'Semua Kelas';
+    const names = arr.map(id => {
+        const cls = (appState.classes || []).find(c => String(c.id) === String(id));
+        return cls ? cls.name : String(id);
+    });
+    if (names.length <= 2) return names.join(', ');
+    return names.slice(0, 2).join(', ') + ' +' + (names.length - 2) + ' kelas';
+}
+
+function monitoringLkpdClassLabel(lk) {
+    if (lk && lk.className) return lk.className;
+    const cid = String(lk && lk.classId ? lk.classId : '').trim().toLowerCase();
+    if (!cid || cid === 'all' || cid === 'semua kelas') return 'Semua Kelas';
+    const cls = (appState.classes || []).find(c => String(c.id).toLowerCase() === cid);
+    return cls ? cls.name : 'Semua Kelas';
+}
+
+// Hari (tengah malam lokal) dari ex.date saja — tanpa fallback createdAt,
+// supaya jadwal tanpa tanggal tetap masuk kolom utama (tidak hilang).
+function monitoringExamDayMs(ex) {
+    const raw = String(ex && ex.date ? ex.date : '').trim();
+    let m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (m) return new Date(+m[1], +m[2] - 1, +m[3]).getTime();
+    m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (m) return new Date(+m[3], +m[2] - 1, +m[1]).getTime();
+    return null;
+}
+
+function monitoringExamDateLabel(ex) {
+    const ms = monitoringExamDayMs(ex);
+    const days = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+    let datePart = 'Tanpa tanggal';
+    if (ms !== null) {
+        const d = new Date(ms);
+        datePart = days[d.getDay()] + ', ' + d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear();
+    }
+    const timePart = (ex && ex.startTime) ? ' • ' + ex.startTime + (ex.endTime ? '–' + ex.endTime : '') : '';
+    return datePart + timePart;
+}
+
 function evaluasiExamMatchesDateFilter(exam, filter, nowMs) {
     if (!filter || filter === 'all') return true;
     const ms = evaluasiExamDateMs(exam);
@@ -1928,7 +1978,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <h3 class="font-extrabold text-slate-800 text-base sm:text-lg">
                                                 ${appState.selectedMonitoringType === 'cbt' ? 'Pilih Ujian CBT yang Dipantau' : 'Pilih Lembar Kerja (LKPD) yang Dipantau'}
                                             </h3>
-                                            <p class="text-xs text-slate-400">Silakan pilih salah satu jadwal aktif di bawah untuk memulai sesi pemantauan.</p>
+                                            <p class="text-xs text-slate-400">${appState.selectedMonitoringType === 'cbt' ? 'Jadwal hari ini tampil di kolom utama; jadwal yang sudah lewat ada di kolom samping.' : 'Silakan pilih salah satu LKPD aktif di bawah untuk memulai sesi pemantauan.'}</p>
                                         </div>
                                         <button type="button" onclick="appState.selectedMonitoringType = null; renderAssessmentModule(document.getElementById('view-container'), 'monitoring', null);" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer">
                                             <i class="fa-solid fa-arrow-left"></i> <span>Ganti Tipe Monitoring</span>
@@ -1946,7 +1996,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                                                 <span class="px-2.5 py-0.5 bg-emerald-500/20 text-emerald-300 font-black text-[10px] rounded-full border border-emerald-400/30">
                                                                     LKPD Interaktif
                                                                 </span>
-                                                                <span class="text-xs text-emerald-200 font-semibold">${assessmentEscapeHtml(lk.className || 'Semua Kelas')}</span>
+                                                                <span class="text-xs text-emerald-200 font-semibold">${assessmentEscapeHtml(monitoringLkpdClassLabel(lk))}</span>
                                                             </div>
                                                             <h4 class="font-black text-base text-white">${assessmentEscapeHtml(lk.title)}</h4>
                                                             <p class="text-xs text-slate-400 line-clamp-1 mt-1">${lk.markers?.length || 0} Titik Penanda Soal &bull; ${lk.submissions?.length || 0} Jawaban Siswa Masuk</p>
@@ -1961,23 +2011,52 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <div class="p-8 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed text-xs">Belum ada LKPD terdaftar untuk kelas ini.</div>
                                         `}
                                     ` : `
-                                        <!-- DAFTAR UJIAN CBT -->
-                                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                            ${displayExams.filter(ex => ex.recordType !== 'EVENT').map(ex => `
+                                        <!-- DAFTAR UJIAN CBT: 2 kolom — utama = jadwal hari ini, samping = sudah lewat / akan datang -->
+                                        ${(() => {
+                                            const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+                                            const todayMs = todayStart.getTime();
+                                            const cbtExams = displayExams.filter(ex => ex.recordType !== 'EVENT');
+                                            const dayOf = (ex) => monitoringExamDayMs(ex);
+                                            const todayList = cbtExams.filter(ex => { const d = dayOf(ex); return d === null || d === todayMs; });
+                                            const pastList = cbtExams.filter(ex => { const d = dayOf(ex); return d !== null && d < todayMs; });
+                                            const futureList = cbtExams.filter(ex => { const d = dayOf(ex); return d !== null && d > todayMs; });
+                                            const pastOpen = !!appState.monitoringPastOpen;
+                                            const card = (ex) => `
                                                 <div class="bg-slate-900 text-white p-6 rounded-3xl shadow-lg border border-slate-800 space-y-4 flex flex-col justify-between">
                                                     <div>
                                                         <div class="flex items-center gap-2 mb-2">
                                                             <span class="px-2.5 py-0.5 bg-indigo-500/20 text-indigo-300 font-black text-[10px] rounded-full border border-indigo-400/30">
                                                                 CBT Exam
                                                             </span>
-                                                            <span class="text-xs text-slate-400 font-semibold">${assessmentEscapeHtml(ex.className || 'Semua Kelas')}</span>
+                                                            <span class="text-xs text-slate-400 font-semibold">${assessmentEscapeHtml(monitoringExamClassLabel(ex))}</span>
                                                         </div>
                                                         <h4 class="font-bold text-base text-white">${assessmentEscapeHtml(ex.title)}</h4>
                                                         <p class="text-xs text-slate-400 mt-1">${assessmentEscapeHtml(ex.subjectName || ex.subject || 'Mapel')}</p>
+                                                        <p class="text-[11px] text-slate-500 mt-1">${assessmentEscapeHtml(monitoringExamDateLabel(ex))}</p>
                                                     </div>
                                                     <button type="button" onclick="renderAssessmentModule(document.getElementById('view-container'), 'monitoring', ${assessmentInlineArg(ex.id)})" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl text-xs shadow transition cursor-pointer">Mulai Live Monitoring CBT</button>
+                                                </div>`;
+                                            const emptyBox = (msg) => `<div class="p-6 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed text-xs">${msg}</div>`;
+                                            return `
+                                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                                                <div class="lg:col-span-2 space-y-3">
+                                                    <h4 class="font-extrabold text-slate-800 text-sm">Jadwal Aktif Hari Ini <span class="text-slate-400 font-bold">(${todayList.length})</span></h4>
+                                                    ${todayList.length ? `<div class="grid grid-cols-1 md:grid-cols-2 gap-4">${todayList.map(card).join('')}</div>` : emptyBox('Tidak ada jadwal ujian hari ini.')}
                                                 </div>
-                                            `).join('')}
+                                                <div class="space-y-3">
+                                                    <button type="button" onclick="appState.monitoringPastOpen = !appState.monitoringPastOpen; renderAssessmentModule(document.getElementById('view-container'), 'monitoring', null);" class="w-full flex items-center justify-between px-4 py-3 bg-slate-100 hover:bg-slate-200 rounded-2xl text-xs font-extrabold text-slate-700 transition cursor-pointer">
+                                                        <span>Jadwal Lainnya</span>
+                                                        <span class="text-slate-400 font-bold">${pastList.length} lewat &bull; ${futureList.length} akan datang ${pastOpen ? '▴' : '▾'}</span>
+                                                    </button>
+                                                    ${pastOpen ? `
+                                                        <h5 class="font-extrabold text-slate-700 text-xs pt-1">Sudah Lewat (${pastList.length})</h5>
+                                                        ${pastList.length ? `<div class="grid grid-cols-1 gap-4">${pastList.map(card).join('')}</div>` : emptyBox('Belum ada jadwal yang sudah lewat.')}
+                                                        <h5 class="font-extrabold text-slate-700 text-xs pt-2">Akan Datang (${futureList.length})</h5>
+                                                        ${futureList.length ? `<div class="grid grid-cols-1 gap-4">${futureList.map(card).join('')}</div>` : emptyBox('Belum ada jadwal akan datang.')}
+                                                    ` : ''}
+                                                </div>
+                                            </div>`;
+                                        })()}
                                         </div>
                                     `}
                                 </div>
@@ -2022,6 +2101,9 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                         const blockedMap = JSON.parse(localStorage.getItem('madrasah_blocked_students')) || {};
                         const livecamFrames = appState.runtimeLivecamFrames || {};
 
+                        // MONITORING_FILTERS_V1: filter Kelas & Jadwal manual dihapus —
+                        // kelas sudah ikut jadwal yang dipilih di awal (langkah 1),
+                        // di live monitoring cukup filter Ruang + pencarian nama/NIS.
                         // Filter the students list
                         let filteredStudentsForMonitor = appState.students || [];
 
@@ -2032,12 +2114,8 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                             });
                         }
 
-                        // 2. Filter by Class if selected
-                        if (appState.monitoringFilterClassId) {
-                            filteredStudentsForMonitor = filteredStudentsForMonitor.filter(st => String(st.classId) === String(appState.monitoringFilterClassId));
-                        }
 
-                        // 3. Filter by Room if selected
+                        // 2. Filter by Room if selected
                         if (appState.monitoringFilterRoomId) {
                             const selectedRoomObj = (appState.rooms || []).find(r => String(r.id) === String(appState.monitoringFilterRoomId));
                             if (selectedRoomObj) {
@@ -2048,7 +2126,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                             }
                         }
 
-                        // 4. Filter by Search Query (Nama / NIS)
+                        // 3. Filter by Search Query (Nama / NIS)
                         if (appState.monitoringFilterSearch && appState.monitoringFilterSearch.trim() !== '') {
                             const q = appState.monitoringFilterSearch.trim().toLowerCase();
                             filteredStudentsForMonitor = filteredStudentsForMonitor.filter(st => {
@@ -2058,9 +2136,6 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                             });
                         }
 
-                        const examClasses = appState.classes.filter(c => {
-                            return !activeExam.classes || activeExam.classes.length === 0 || activeExam.classes.includes('ALL') || activeExam.classes.some(cId => String(cId) === String(c.id));
-                        });
 
                         return `
                             <div class="space-y-4">
@@ -2079,21 +2154,6 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                         <div class="relative min-w-[180px] sm:min-w-[220px]">
                                             <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
                                             <input type="text" id="monitor-search-input" value="${appState.monitoringFilterSearch || ''}" oninput="onMonitoringFilterChange('${activeExam.id}')" placeholder="Cari Nama / NIS..." class="w-full pl-9 pr-3 py-2 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200/80 rounded-2xl text-xs font-semibold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400 transition">
-                                        </div>
-                                        <!-- Filter Kelas -->
-                                        <div class="flex items-center space-x-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/60 px-3.5 py-2 rounded-2xl transition duration-150">
-                                            <span class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Kelas</span>
-                                            <select id="monitor-class-filter" onchange="onMonitoringFilterChange('${activeExam.id}')" class="bg-transparent text-xs font-bold text-slate-700 focus:outline-none cursor-pointer">
-                                                <option value="">Semua Kelas</option>
-                                                ${examClasses.map(c => `<option value="${c.id}" ${appState.monitoringFilterClassId === String(c.id) ? 'selected' : ''}>${c.name}</option>`).join('')}
-                                            </select>
-                                        </div>
-                                        <!-- Filter Jadwal (pindah ujian tanpa keluar dari monitoring) -->
-                                        <div class="flex items-center space-x-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/60 px-3.5 py-2 rounded-2xl transition duration-150 max-w-[220px]">
-                                            <span class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Jadwal</span>
-                                            <select id="monitor-exam-filter" onchange="onMonitoringExamSwitch(this.value)" class="bg-transparent text-xs font-bold text-slate-700 focus:outline-none cursor-pointer max-w-[170px] truncate">
-                                                ${displayExams.filter(ex => ex.recordType !== 'EVENT').map(ex => `<option value="${assessmentEscapeHtml(ex.id)}" ${String(appState.activeMonitoringExamId) === String(ex.id) ? 'selected' : ''}>${assessmentEscapeHtml(ex.title)}</option>`).join('')}
-                                            </select>
                                         </div>
                                         <!-- Filter Ruang -->
                                         <div class="flex items-center space-x-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/60 px-3.5 py-2 rounded-2xl transition duration-150">
