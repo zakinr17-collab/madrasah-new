@@ -3741,7 +3741,7 @@ function openConvertQuestionModal(activeCode = '') {
                             <label class="px-3.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold rounded-xl text-xs transition flex items-center space-x-1.5 cursor-pointer shadow-sm border border-blue-200">
                                 <i class="fa-solid fa-file-word text-blue-600"></i>
                                 <span>Import File Word (.docx)</span>
-                                <input type="file" id="cvt-word-input" accept=".docx, .doc, .txt, .html, .htm" onchange="handleConvertWordFileUpload(event)" class="hidden" />
+                                <input type="file" id="cvt-word-input" accept=".docx, .doc, .odt, .rtf, .txt, .html, .htm" onchange="handleConvertWordFileUpload(event)" class="hidden" />
                             </label>
                             ${activeCode ? `
                                 <button type="button" onclick="loadActiveBankQuestionsToConvert(${qbInlineArg(activeCode)})" class="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold rounded-xl text-xs transition flex items-center space-x-1.5 cursor-pointer shadow-sm">
@@ -5634,22 +5634,245 @@ function assembleQuestionTextFromDocxLines(raw) {
     return out.join('\n');
 }
 
+// CONVERT_DOC_IMPORT_V1 — pembaca format selain .docx untuk import soal.
+// .doc lama (Word 97-2003) adalah biner OLE (CFB), bukan zip: mammoth dan
+// JSZip tidak bisa membacanya. Teks diambil dari stream "WordDocument"
+// (dibaca via extractWordDocumentStreamBytes; kalau bukan file OLE yang
+// valid, fallback memindai seluruh file). Hasilnya "seadanya": teks soal
+// sederhana (nomor + opsi) umumnya terbaca utuh, tapi baris nyasar bisa
+// ikut — pengguna WAJIB memeriksa isi #cvt-raw-text sebelum Convert.
+function extractWordDocumentStreamBytes(bytes) {
+    // Pembaca CFB (OLE) minimal: cari stream "WordDocument", kembalikan
+    // byte-nya. null kalau bukan OLE valid / stream tidak ditemukan /
+    // stream tersimpan sebagai mini-stream (< 4096 byte).
+    if (!bytes || bytes.length < 512) return null;
+    const sig = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+    for (let k = 0; k < 8; k++) if (bytes[k] !== sig[k]) return null;
+    const u16 = (o) => bytes[o] | (bytes[o + 1] << 8);
+    const u32 = (o) => (bytes[o] | (bytes[o + 1] << 8) | (bytes[o + 2] << 16) | (bytes[o + 3] << 24)) >>> 0;
+    const sectorShift = u16(30);
+    if (sectorShift < 7 || sectorShift > 12) return null;
+    const sectorSize = 1 << sectorShift;
+    const firstDirSector = u32(48);
+    const miniCutoff = u32(56);
+    const firstDifat = u32(68);
+    const numDifat = u32(72);
+    if (firstDirSector === 0xffffffff) return null;
+    const difat = [];
+    for (let k = 0; k < 109; k++) {
+        const v = u32(76 + k * 4);
+        if (v !== 0xffffffff) difat.push(v);
+    }
+    let difatSector = firstDifat;
+    for (let n = 0; n < numDifat && difatSector !== 0xfffffffe && difatSector !== 0xffffffff; n++) {
+        const off = 512 + difatSector * sectorSize;
+        if (off + sectorSize > bytes.length) break;
+        for (let k = 0; k < (sectorSize / 4) - 1; k++) {
+            const v = u32(off + k * 4);
+            if (v !== 0xffffffff) difat.push(v);
+        }
+        difatSector = u32(off + sectorSize - 4);
+    }
+    if (!difat.length) return null;
+    const fat = [];
+    for (const s of difat) {
+        const off = 512 + s * sectorSize;
+        if (off + sectorSize > bytes.length) return null;
+        for (let k = 0; k < sectorSize / 4; k++) fat.push(u32(off + k * 4));
+    }
+    const readChain = (start) => {
+        const chunks = [];
+        let s = start, guard = 0;
+        const maxSectors = Math.ceil(bytes.length / sectorSize) + 1;
+        while (s !== 0xfffffffe && s !== 0xffffffff && s < fat.length && guard++ < maxSectors) {
+            const off = 512 + s * sectorSize;
+            if (off + sectorSize > bytes.length) break;
+            chunks.push(bytes.slice(off, off + sectorSize));
+            s = fat[s];
+        }
+        const total = chunks.reduce((a, c) => a + c.length, 0);
+        const merged = new Uint8Array(total);
+        let p = 0;
+        for (const c of chunks) { merged.set(c, p); p += c.length; }
+        return merged;
+    };
+    const dirBytes = readChain(firstDirSector);
+    for (let e = 0; e + 128 <= dirBytes.length; e += 128) {
+        const nameLen = (dirBytes[e + 64] | (dirBytes[e + 65] << 8));
+        if (nameLen < 4 || nameLen > 64) continue;
+        let name = '';
+        for (let k = 0; k + 1 < nameLen - 1; k += 2) {
+            name += String.fromCharCode(dirBytes[e + k] | (dirBytes[e + k + 1] << 8));
+        }
+        if (name.toLowerCase() !== 'worddocument') continue;
+        const objType = dirBytes[e + 66];
+        if (objType !== 2) return null;
+        const startSector = (dirBytes[e + 116] | (dirBytes[e + 117] << 8) | (dirBytes[e + 118] << 16) | (dirBytes[e + 119] << 24)) >>> 0;
+        const size = (dirBytes[e + 120] | (dirBytes[e + 121] << 8) | (dirBytes[e + 122] << 16) | (dirBytes[e + 123] << 24)) >>> 0;
+        if (size < miniCutoff) return null; // mini-stream: fallback pindai semua
+        if (startSector === 0xffffffff) return null;
+        return readChain(startSector).slice(0, size);
+    }
+    return null;
+}
+
+function extractDocLegacyTextFromBuffer(buf) {
+    const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf || []);
+    // Utamakan stream WordDocument (bebas tabel font/metadata); kalau bukan
+    // file OLE, pindai seluruh file.
+    const scanBytes = extractWordDocumentStreamBytes(bytes) || bytes;
+    const parts = [];
+    const pushRun = (pos, text) => { if (text && text.length >= 2) parts.push({ pos, text }); };
+    // 1) UTF-16LE: byte rendah tercetak + byte tinggi 0x00; tanda baca umum
+    //    (0x2013-0x2019, 0x201C-0x201D, 0x2026) ikut dipetakan.
+    const punct16 = { 0x2013: '–', 0x2014: '—', 0x2018: "'", 0x2019: "'", 0x201C: '"', 0x201D: '"', 0x2026: '...' };
+    let run = '', runStart = 0, i = 0;
+    const flushRun = () => { pushRun(runStart, run); run = ''; };
+    while (i + 1 < scanBytes.length) {
+        const lo = scanBytes[i], hi = scanBytes[i + 1];
+        let ch = null;
+        if (hi === 0x00) {
+            if (lo === 0x0d || lo === 0x0b || lo === 0x07) ch = '\n';
+            else if ((lo >= 0x20 && lo <= 0x7e) || lo >= 0xa0) ch = String.fromCharCode(lo);
+        } else if (hi === 0x20 && punct16[(hi << 8) | lo]) {
+            ch = punct16[(hi << 8) | lo];
+        }
+        if (ch !== null) {
+            if (!run) runStart = i;
+            run += ch;
+            i += 2;
+        } else {
+            flushRun();
+            i += 1;
+        }
+    }
+    flushRun();
+    // 2) ANSI (1 byte): deretan byte tercetak latin-1.
+    let runA = '', runAStart = 0;
+    const flushRunA = () => { pushRun(runAStart, runA); runA = ''; };
+    for (let j = 0; j < scanBytes.length; j++) {
+        const b = scanBytes[j];
+        if ((b >= 0x20 && b <= 0x7e) || b >= 0xa0) {
+            if (!runA) runAStart = j;
+            runA += String.fromCharCode(b);
+        } else if (b === 0x0d || b === 0x0b || b === 0x07) {
+            if (!runA) runAStart = j;
+            runA += '\n';
+        } else flushRunA();
+    }
+    flushRunA();
+    // Gabung urut posisi file, lalu buang baris sampah biner.
+    parts.sort((a, b) => a.pos - b.pos);
+    const lines = [];
+    for (const p of parts) {
+        for (const rawLn of p.text.split('\n')) {
+            const t = rawLn.replace(/[^\x20-\x7e\xa0-\xff\u2013\u2014\u2018\u2019\u201c\u201d\u2026]/g, '').trim();
+            if (!t || t.length < 2) continue;
+            const content = (t.match(/[A-Za-z0-9]/g) || []).length;
+            if (content < 2 || content / t.length < 0.5) continue;
+            lines.push(t);
+        }
+    }
+    return lines.join('\n');
+}
+
+async function extractDocLegacyText(file) {
+    const buf = await file.arrayBuffer();
+    return extractDocLegacyTextFromBuffer(buf);
+}
+
+async function extractOdtText(file) {
+    const JSZipMod = window.JSZip || (await import('jszip')).default;
+    const JSZip = JSZipMod.default || JSZipMod;
+    const zip = await JSZip.loadAsync(file);
+    const xmlFile = zip.file('content.xml');
+    if (!xmlFile) throw new Error('content.xml tidak ditemukan');
+    const xml = await xmlFile.async('string');
+    const text = xml
+        .replace(/<\/text:[ph]>/g, '\n')
+        .replace(/<text:tab[^>]*\/>/g, '\t')
+        .replace(/<text:s[^>]*\/>/g, ' ')
+        .replace(/<[^>]+>/g, '')
+        .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+    return text.split('\n').map(s => s.trim()).filter(Boolean).join('\n');
+}
+
+function stripRtfToText(rtf) {
+    let t = String(rtf || '');
+    t = t.replace(/\\'([0-9a-fA-F]{2})/g, (m, h) => String.fromCharCode(parseInt(h, 16)));
+    t = t.replace(/\\u(-?\d+)\??/g, (m, n) => {
+        const code = Number(n);
+        return code < 0 ? String.fromCharCode(65536 + code) : String.fromCharCode(code);
+    });
+    t = t.replace(/\\par[d]?\b/g, '\n').replace(/\\line\b/g, '\n').replace(/\\tab\b/g, '\t');
+    t = t.replace(/\\[a-zA-Z]+-?\d*[ ]?/g, '');
+    t = t.replace(/[{}]/g, '').replace(/\\\\/g, '\\');
+    return t.split('\n').map(s => s.trim()).filter(Boolean).join('\n');
+}
+
+// CONVERT_DOC_IMPORT_V1 — Import soal: .docx/.doc/.odt/.rtf/.txt/.html.
+// Perbaikan 2026-11-24: (1) `processWithMammothFlow` sebelumnya dideklarasi
+// dengan `const` DI BAWAH `return` cabang .docx, sehingga saat ekstraksi
+// .docx gagal dan .catch memanggilnya, dia masih di temporal dead zone ->
+// "ReferenceError: Cannot access 's' before initialization" dan import mati
+// diam-diam. Sekarang dideklarasikan DI ATAS semua cabang. (2) .doc lama
+// (biner OLE, bukan zip) tidak bisa dibaca mammoth/JSZip -> diekstrak
+// langsung dari byte-nya (extractDocLegacyText, seadanya, wajib dicek
+// hasilnya). (3) .odt dibaca via JSZip content.xml, .rtf dikupas markup-nya,
+// .txt/.html dibaca sebagai teks (sebelumnya file non-.docx tidak diproses
+// sama sekali walau sudah tercantum di accept).
 function handleConvertWordFileUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
 
-    showToast('Membaca file Word...', 'info');
+    showToast('Membaca file...', 'info');
+
+    const lowerName = String(file.name || '').toLowerCase();
+
+    // Isi #cvt-raw-text kalau ada isinya; kembalikan false kalau kosong.
+    const fillConvertedTextarea = (text) => {
+        const textarea = document.getElementById('cvt-raw-text');
+        if (textarea && text && String(text).trim()) {
+            textarea.value = String(text);
+            return true;
+        }
+        return false;
+    };
+
+    // Fallback Mammoth untuk .docx — DIDEKLARASIKAN DI ATAS (lihat marker).
+    const processWithMammothFlow = (f) => {
+        const processWithMammoth = (mammothInst) => {
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                mammothInst.convertToHtml({ arrayBuffer: evt.target.result })
+                    .then(function(result) {
+                        const htmlContent = result.value || '';
+                        const extractedText = parseWordHtmlToText(htmlContent);
+                        if (fillConvertedTextarea(extractedText)) {
+                            showToast('Berhasil mengimpor teks dari file Word! (Persamaan Equation mungkin tidak terbaca)', 'warning');
+                        } else {
+                            showToast('Mammoth tidak menemukan teks di file ini.', 'error');
+                        }
+                    })
+                    .catch(function() {
+                        showToast('File ini bukan .docx yang valid. Simpan ulang sebagai .docx di Word lalu coba lagi.', 'error');
+                    });
+            };
+            reader.readAsArrayBuffer(f);
+        };
+        if (window.mammoth) processWithMammoth(window.mammoth);
+        else import('mammoth').then(mod => { window.mammoth = mod.default || mod; processWithMammoth(window.mammoth); }).catch(() => {
+            showToast('Gagal memuat pembaca Word. Periksa koneksi lalu coba lagi.', 'error');
+        });
+    };
 
     // Jalur utama .docx: ekstraksi langsung document.xml (persamaan Equation Word
     // dikonversi ke LaTeX otomatis). Mammoth hanya fallback jika JSZip gagal.
-    const lowerName = String(file.name || '').toLowerCase();
     if (lowerName.endsWith('.docx')) {
         extractDocxTextWithMath(file)
             .then((raw) => {
                 const text = assembleQuestionTextFromDocxLines(raw);
-                const textarea = document.getElementById('cvt-raw-text');
-                if (textarea && text.trim()) {
-                    textarea.value = text;
+                if (fillConvertedTextarea(text)) {
                     showToast('Berhasil mengimpor file Word (rumus Equation dikonversi ke LaTeX)!', 'success');
                 } else {
                     // hasil kosong -> fallback mammoth
@@ -5663,33 +5886,66 @@ function handleConvertWordFileUpload(e) {
         return;
     }
 
-    const processWithMammothFlow = (f) => {
-        const processWithMammoth = (mammothInst) => {
-            const reader = new FileReader();
-            reader.onload = function(evt) {
-                mammothInst.convertToHtml({ arrayBuffer: evt.target.result })
-                    .then(function(result) {
-                        const htmlContent = result.value || '';
-                        const extractedText = parseWordHtmlToText(htmlContent);
-                        const textarea = document.getElementById('cvt-raw-text');
-                        if (textarea) textarea.value = extractedText;
-                        showToast('Berhasil mengimpor teks dari file Word! (Persamaan Equation mungkin tidak terbaca)', 'warning');
-                    })
-                    .catch(function() {
-                        const readerText = new FileReader();
-                        readerText.onload = function(txtEvt) {
-                            const textarea = document.getElementById('cvt-raw-text');
-                            if (textarea) textarea.value = txtEvt.target.result;
-                            showToast('Berhasil mengimpor teks file!', 'success');
-                        };
-                        readerText.readAsText(f);
-                    });
-            };
-            reader.readAsArrayBuffer(f);
+    // .doc lama (Word 97-2003): biner OLE, bukan zip — mammoth/JSZip tidak
+    // bisa. Teks dipindai dari byte-nya; hasilnya seadanya, wajib dicek.
+    if (lowerName.endsWith('.doc')) {
+        extractDocLegacyText(file)
+            .then((text) => {
+                if (fillConvertedTextarea(text)) {
+                    showToast('File .doc lama berhasil dibaca (teks diekstrak seadanya — periksa hasilnya sebelum Convert).', 'warning');
+                } else {
+                    showToast('Tidak ada teks yang bisa dibaca dari file .doc ini.', 'error');
+                }
+            })
+            .catch(() => {
+                showToast('Gagal membaca file .doc. Simpan ulang sebagai .docx di Word lalu coba lagi.', 'error');
+            });
+        return;
+    }
+
+    if (lowerName.endsWith('.odt')) {
+        extractOdtText(file)
+            .then((text) => {
+                if (fillConvertedTextarea(text)) {
+                    showToast('Berhasil mengimpor file ODT!', 'success');
+                } else {
+                    showToast('Tidak ada teks yang bisa dibaca dari file ODT ini.', 'error');
+                }
+            })
+            .catch(() => {
+                showToast('Gagal membaca file ODT. Simpan ulang sebagai .docx di Word lalu coba lagi.', 'error');
+            });
+        return;
+    }
+
+    if (lowerName.endsWith('.rtf')) {
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            const text = stripRtfToText(String(evt.target.result || ''));
+            if (fillConvertedTextarea(text)) {
+                showToast('Berhasil mengimpor file RTF!', 'success');
+            } else {
+                showToast('Tidak ada teks yang bisa dibaca dari file RTF ini.', 'error');
+            }
         };
-        if (window.mammoth) processWithMammoth(window.mammoth);
-        else import('mammoth').then(mod => { window.mammoth = mod.default || mod; processWithMammoth(window.mammoth); }).catch(() => {});
+        reader.readAsText(file);
+        return;
+    }
+
+    // .txt/.html/.htm dan lainnya: baca sebagai teks.
+    const reader = new FileReader();
+    reader.onload = function(evt) {
+        let text = String(evt.target.result || '');
+        if (lowerName.endsWith('.html') || lowerName.endsWith('.htm')) {
+            text = parseWordHtmlToText(text);
+        }
+        if (fillConvertedTextarea(text)) {
+            showToast('Berhasil mengimpor teks file!', 'success');
+        } else {
+            showToast('File kosong atau tidak bisa dibaca.', 'error');
+        }
     };
+    reader.readAsText(file);
 }
 
 // Improved Multi-Format Question Import Modal
@@ -5724,13 +5980,19 @@ function openQuestionImportModal(code) {
 
                 <!-- File Drop / Upload -->
                 <div class="space-y-2">
-                    <label class="block text-xs font-bold uppercase text-slate-700">Opsi 1: Upload File (.docx, .doc, .pdf, .html, .htm, .zip, .xlsx, .csv, .txt)</label>
+                    <label class="block text-xs font-bold uppercase text-slate-700">Opsi 1: Upload File (.docx, .doc, .odt, .rtf, .pdf, .html, .htm, .zip, .xlsx, .csv, .txt)</label>
                     <div class="border-2 border-dashed border-slate-300 hover:border-emerald-500 rounded-2xl p-4 text-center transition bg-slate-50/50">
                         <i class="fa-solid fa-cloud-arrow-up text-2xl text-slate-400 mb-1"></i>
                         <p class="text-xs text-slate-600 mb-2 font-medium">Pilih file Word, PDF, Web Page (HTML/ZIP), Excel, atau Teks dari komputer Anda</p>
-                        <input type="file" id="question-import-file" accept=".docx, .doc, .pdf, .html, .htm, .zip, .xlsx, .xls, .csv, .txt" onchange="handleQuestionImportFile(event, '${code}')" class="w-full text-xs text-slate-500 file:mr-auto file:mx-auto file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-emerald-600 file:text-white hover:file:bg-emerald-700 cursor-pointer"/>
+                        <input type="file" id="question-import-file" accept=".docx, .doc, .odt, .rtf, .pdf, .html, .htm, .zip, .xlsx, .xls, .csv, .txt" onchange="handleQuestionImportFile(event, '${code}')" class="w-full text-xs text-slate-500 file:mr-auto file:mx-auto file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-emerald-600 file:text-white hover:file:bg-emerald-700 cursor-pointer"/>
                     </div>
                 </div>
+
+                <!-- Opsi Rumus Matematika -->
+                <label class="flex items-start gap-2 p-3 bg-indigo-50/60 border border-indigo-200 rounded-2xl cursor-pointer">
+                    <input type="checkbox" id="import-auto-math" checked class="mt-0.5 w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 cursor-pointer"/>
+                    <span class="text-xs text-slate-700 leading-relaxed"><b class="text-slate-800">Otomatis kenali rumus matematika</b> — pola seperti <span class="font-mono bg-white px-1 rounded">2^4</span>, <span class="font-mono bg-white px-1 rounded">3√5</span>, <span class="font-mono bg-white px-1 rounded">^2Log 16</span> diubah jadi LaTeX ($...$). Matikan kalau soal bukan matematika supaya teks tidak ikut diubah.</span>
+                </label>
 
                 <!-- Direct Paste Option -->
                 <div class="space-y-2 pt-2 border-t">
@@ -6044,7 +6306,7 @@ function autoFormatMathExpressions(str) {
     return s;
 }
 
-function cleanAndFormatMathCellContent(cell) {
+function cleanAndFormatMathCellContent(cell, autoMath = true) {
     if (!cell) return '';
 
     let inner = cell.innerHTML ? cell.innerHTML.trim() : '';
@@ -6076,7 +6338,7 @@ function cleanAndFormatMathCellContent(cell) {
     let textContent = temp.textContent || temp.innerText || '';
     textContent = textContent.replace(/^[\-\—\–\―]{2,}$/gm, '').trim();
 
-    let formattedText = autoFormatMathExpressions(textContent);
+    let formattedText = autoMath ? autoFormatMathExpressions(textContent) : textContent;
 
     return formattedText.trim();
 }
@@ -6086,6 +6348,9 @@ function handleQuestionImportFile(e, code) {
     if (!file) return;
 
     const fileName = file.name.toLowerCase();
+    // IMPORT_MATH_TOGGLE_V1 — checkbox rumus di modal Import Soal.
+    const autoMath = document.getElementById('import-auto-math')?.checked ?? true;
+    const fmt = (s) => autoMath ? autoFormatMathExpressions(s) : s;
 
     if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.csv')) {
         // Excel Import
@@ -6110,16 +6375,16 @@ function handleQuestionImportFile(e, code) {
                     const row = rows[i];
                     if (!row || row.length === 0 || !row[1]) continue;
 
-                    const qText = autoFormatMathExpressions(String(row[1] || '').trim());
+                    const qText = fmt(String(row[1] || '').trim());
                     const imgUrl = String(row[2] || '').trim();
-                    const optA = autoFormatMathExpressions(String(row[3] || '').trim());
-                    const optB = autoFormatMathExpressions(String(row[4] || '').trim());
-                    const optC = autoFormatMathExpressions(String(row[5] || '').trim());
-                    const optD = autoFormatMathExpressions(String(row[6] || '').trim());
-                    const optE = autoFormatMathExpressions(String(row[7] || '').trim());
+                    const optA = fmt(String(row[3] || '').trim());
+                    const optB = fmt(String(row[4] || '').trim());
+                    const optC = fmt(String(row[5] || '').trim());
+                    const optD = fmt(String(row[6] || '').trim());
+                    const optE = fmt(String(row[7] || '').trim());
                     const keyVal = String(row[8] || '').trim();
                     const kindVal = String(row[9] || '').trim().toLowerCase();
-                    const expVal = autoFormatMathExpressions(String(row[10] || '').trim());
+                    const expVal = fmt(String(row[10] || '').trim());
 
                     let options = [optA, optB, optC, optD, optE].filter(o => o !== '');
                     const isEssay = kindVal === 'essay' || kindVal === 'esy' || options.length === 0;
@@ -6200,7 +6465,7 @@ function handleQuestionImportFile(e, code) {
                     htmlText = htmlText.replace(regex, `$1${dataUrl}$3`);
                 }
 
-                parseQuestionsFromTextOrHtml(htmlText, code);
+                parseQuestionsFromTextOrHtml(htmlText, code, autoMath);
                 showToast('Berhasil membaca file HTML & Gambar dari ZIP!', 'success');
             } catch (err) {
                 console.error('ZIP import error:', err);
@@ -6212,7 +6477,7 @@ function handleQuestionImportFile(e, code) {
         // Standalone HTML / Web Page Import
         const reader = new FileReader();
         reader.onload = function(evt) {
-            parseQuestionsFromTextOrHtml(evt.target.result, code);
+            parseQuestionsFromTextOrHtml(evt.target.result, code, autoMath);
         };
         reader.readAsText(file);
     } else if (fileName.endsWith('.pdf')) {
@@ -6246,7 +6511,7 @@ function handleQuestionImportFile(e, code) {
                     fullText += text + '\n\n';
                 }
 
-                parseQuestionsFromTextOrHtml(fullText, code);
+                parseQuestionsFromTextOrHtml(fullText, code, autoMath);
                 showToast('Berhasil membaca & mengekstrak teks dari file PDF!', 'success');
             } catch (err) {
                 console.error('PDF import error:', err);
@@ -6262,12 +6527,12 @@ function handleQuestionImportFile(e, code) {
                 mammothInstance.convertToHtml({ arrayBuffer: arrayBuffer })
                     .then(function(result) {
                         const htmlContent = result.value;
-                        parseQuestionsFromTextOrHtml(htmlContent, code);
+                        parseQuestionsFromTextOrHtml(htmlContent, code, autoMath);
                     })
                     .catch(function(err) {
                         console.warn('Mammoth import failed, falling back to raw text:', err);
                         const text = new TextDecoder('utf-8').decode(arrayBuffer);
-                        parseQuestionsFromTextOrHtml(text, code);
+                        parseQuestionsFromTextOrHtml(text, code, autoMath);
                     });
             };
             reader.readAsArrayBuffer(file);
@@ -6283,16 +6548,37 @@ function handleQuestionImportFile(e, code) {
                 console.error("Failed to load mammoth", err);
                 const reader = new FileReader();
                 reader.onload = function(evt) {
-                    parseQuestionsFromTextOrHtml(evt.target.result, code);
+                    parseQuestionsFromTextOrHtml(evt.target.result, code, autoMath);
                 };
                 reader.readAsText(file);
             });
         }
-    } else {
-        // Plain Text or .doc fallback
+    } else if (fileName.endsWith('.doc')) {
+        // CONVERT_DOC_IMPORT_V1 — .doc lama: biner OLE, bukan zip.
+        extractDocLegacyText(file)
+            .then((text) => {
+                if (text && text.trim()) parseQuestionsFromTextOrHtml(text, code, autoMath);
+                else showToast('Tidak ada teks yang bisa dibaca dari file .doc ini.', 'error');
+            })
+            .catch(() => showToast('Gagal membaca file .doc. Simpan ulang sebagai .docx di Word lalu coba lagi.', 'error'));
+    } else if (fileName.endsWith('.odt')) {
+        extractOdtText(file)
+            .then((text) => {
+                if (text && text.trim()) parseQuestionsFromTextOrHtml(text, code, autoMath);
+                else showToast('Tidak ada teks yang bisa dibaca dari file ODT ini.', 'error');
+            })
+            .catch(() => showToast('Gagal membaca file ODT. Simpan ulang sebagai .docx di Word lalu coba lagi.', 'error'));
+    } else if (fileName.endsWith('.rtf')) {
         const reader = new FileReader();
         reader.onload = function(evt) {
-            parseQuestionsFromTextOrHtml(evt.target.result, code);
+            parseQuestionsFromTextOrHtml(stripRtfToText(String(evt.target.result || '')), code, autoMath);
+        };
+        reader.readAsText(file);
+    } else {
+        // Plain Text fallback
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+            parseQuestionsFromTextOrHtml(evt.target.result, code, autoMath);
         };
         reader.readAsText(file);
     }
@@ -6304,10 +6590,11 @@ function handleQuestionDirectTextImport(code) {
         showToast('Ketik atau tempel teks soal terlebih dahulu.', 'error');
         return;
     }
-    parseQuestionsFromTextOrHtml(textarea.value, code);
+    const autoMath = document.getElementById('import-auto-math')?.checked ?? true;
+    parseQuestionsFromTextOrHtml(textarea.value, code, autoMath);
 }
 
-function parseQuestionsFromTextOrHtml(rawContent, code) {
+function parseQuestionsFromTextOrHtml(rawContent, code, autoMath = true) {
     if (!rawContent) return;
 
     const group = appState.questionBankGroups.find(bg => String(bg.code) === String(code));
@@ -6340,7 +6627,7 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
                     if (img && img.src && !imgUrl) {
                         imgUrl = img.src;
                     }
-                    return cleanAndFormatMathCellContent(c);
+                    return cleanAndFormatMathCellContent(c, autoMath);
                 });
 
                 if (cells.length === 0) return;
@@ -6455,17 +6742,19 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
 
     const saveCurrent = () => {
         if (!currentQ || !currentQ.question) return;
+        // IMPORT_MATH_TOGGLE_V1 — lewati format rumus kalau checkbox mati.
+        const fmt = (s) => autoMath ? autoFormatMathExpressions(s) : s;
 
         const qTextLower = currentQ.question.toLowerCase();
         const ansLower = String(currentAnswer || '').toLowerCase();
         const isEssay = currentTS.includes('ESY') || currentTS.includes('ESSAY') || currentOptions.length === 0 || qTextLower.includes('esay') || qTextLower.includes('essay') || ansLower.includes('esay') || ansLower.includes('essay');
 
-        const finalQuestionText = autoFormatMathExpressions(currentQ.question.replace(/\s*\((essay|esay)\)/i, '').trim());
+        const finalQuestionText = fmt(currentQ.question.replace(/\s*\((essay|esay)\)/i, '').trim());
         // Opsi yang isinya hanya gambar diberi label teks ("Gambar A")
         // supaya kunci jawaban (teks opsi) dan penilaian tetap jalan.
-        const finalOptions = isEssay ? [] : (currentOptions.length > 0 ? currentOptions.map((opt, i) => autoFormatMathExpressions(opt) || (currentOptionImages[i] ? 'Gambar ' + 'ABCDE'[i] : '')) : ['A', 'B', 'C', 'D', 'E']);
+        const finalOptions = isEssay ? [] : (currentOptions.length > 0 ? currentOptions.map((opt, i) => fmt(opt) || (currentOptionImages[i] ? 'Gambar ' + 'ABCDE'[i] : '')) : ['A', 'B', 'C', 'D', 'E']);
         const finalOptionImages = isEssay ? [] : currentOptions.map((_, i) => currentOptionImages[i] || '');
-        const finalExp = autoFormatMathExpressions(currentExp || '');
+        const finalExp = fmt(currentExp || '');
 
         let answerKey = String(currentAnswer || '').replace(/\s*\((essay|esay)\)/i, '').trim();
         if (!isEssay) {
@@ -6491,7 +6780,7 @@ function parseQuestionsFromTextOrHtml(rawContent, code) {
             imageUrl: finalImage,
             options: finalOptions,
             optionImages: finalOptionImages,
-            answer: autoFormatMathExpressions(answerKey || (isEssay ? 'Jawaban' : (finalOptions[0] || 'A'))),
+            answer: fmt(answerKey || (isEssay ? 'Jawaban' : (finalOptions[0] || 'A'))),
             explanation: finalExp
         });
         addedCount++;
