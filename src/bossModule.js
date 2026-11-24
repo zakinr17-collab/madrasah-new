@@ -2223,6 +2223,7 @@ function openManageMadrasahModal(madrasahId) {
                             <table class="w-full text-left text-xs border-collapse">
                                 <thead class="bg-slate-50 text-[10px] uppercase text-slate-400 border-b border-slate-200">
                                     <tr>
+                                        <th class="p-2.5 w-10 text-center">No</th>
                                         <th class="p-2.5">Nama Guru / NIP</th>
                                         <th class="p-2.5">Username</th>
                                         <th class="p-2.5">Mapel</th>
@@ -2230,8 +2231,9 @@ function openManageMadrasahModal(madrasahId) {
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
-                                    ${teachers.map(t => `
+                                    ${teachers.map((t, i) => `
                                         <tr>
+                                            <td class="p-2.5 text-center font-bold text-slate-500">${i + 1}</td>
                                             <td class="p-2.5 font-bold text-slate-800">${t.name} <span class="block text-[10px] font-normal text-slate-400">NIP: ${t.nip || '-'}</span></td>
                                             <td class="p-2.5 font-mono text-slate-600">${t.username}</td>
                                             <td class="p-2.5 text-slate-600">${Array.isArray(t.mapel) ? t.mapel.join(', ') : (t.mapel || '-')}</td>
@@ -2262,14 +2264,16 @@ function openManageMadrasahModal(madrasahId) {
                             <table class="w-full text-left text-xs border-collapse">
                                 <thead class="bg-slate-50 text-[10px] uppercase text-slate-400 border-b border-slate-200">
                                     <tr>
+                                        <th class="p-2.5 w-10 text-center">No</th>
                                         <th class="p-2.5">Nama Siswa / NIS</th>
                                         <th class="p-2.5">Kelas</th>
                                         <th class="p-2.5">Username</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-slate-100">
-                                    ${students.map(s => `
+                                    ${students.map((s, i) => `
                                         <tr>
+                                            <td class="p-2.5 text-center font-bold text-slate-500">${i + 1}</td>
                                             <td class="p-2.5 font-bold text-slate-800">${s.name} <span class="block text-[10px] font-normal text-slate-400">NIS: ${s.nis || '-'}</span></td>
                                             <td class="p-2.5 font-semibold text-slate-600">${s.className || s.kelas || '-'}</td>
                                             <td class="p-2.5 font-mono text-slate-600">${s.username}</td>
