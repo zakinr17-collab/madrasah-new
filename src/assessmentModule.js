@@ -1696,7 +1696,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                         </div>
                                         <label class="flex items-center gap-2 mt-2 text-[11px] font-bold text-slate-600 cursor-pointer">
                                             <input type="checkbox" id="cfg-printAuto" ${window.kartuPesertaConfig.printAuto !== false ? 'checked' : ''} onchange="updateKartuConfig('printAuto', this.checked)" class="accent-emerald-600"/>
-                                            Auto (2 &times; 5, ukuran kartu dibiarkan apa adanya)
+                                            Auto (2 &times; 5, kartu diskalakan agar muat satu halaman)
                                         </label>
                                         <p class="text-[10px] text-slate-400 mt-1">Bila Auto dimatikan, kartu otomatis diskalakan mengisi penuh halaman A4 sesuai kolom &times; baris di atas — tidak ada sisa kertas terbuang.</p>
                                     </div>
@@ -1880,7 +1880,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                 <i class="fa-solid fa-circle-info text-base text-amber-600 mt-0.5 shrink-0"></i>
                                 <div>
                                     <p class="font-bold">Pratinjau Hasil Cetak</p>
-                                    <p class="mt-0.5 opacity-90 leading-relaxed">Berikut adalah contoh tampilan langsung kartu peserta ujian. Ketika Anda menekan <b>Download PDF</b>, sistem mencetak seluruh <b>${filtered.length} siswa</b> yang cocok dengan filter di atas. Jumlah kartu per halaman A4 <b>dapat diatur bebas</b> di tab <b>Atur Ukuran</b> &rarr; <b>Layout Cetak PDF (Kolom &times; Baris)</b> — saat ini <b>${window.kartuPesertaConfig.printAuto !== false ? 'Auto (2 &times; 5, ukuran kartu asli)' : (window.kartuPesertaConfig.printCols||2) + ' &times; ' + (window.kartuPesertaConfig.printRows||5) + ' (kartu diskalakan mengisi halaman)'}</b>.</p>
+                                    <p class="mt-0.5 opacity-90 leading-relaxed">Berikut adalah contoh tampilan langsung kartu peserta ujian. Ketika Anda menekan <b>Download PDF</b>, sistem mencetak seluruh <b>${filtered.length} siswa</b> yang cocok dengan filter di atas. Jumlah kartu per halaman A4 <b>dapat diatur bebas</b> di tab <b>Atur Ukuran</b> &rarr; <b>Layout Cetak PDF (Kolom &times; Baris)</b> — saat ini <b>${window.kartuPesertaConfig.printAuto !== false ? 'Auto (2 &times; 5, kartu diskalakan agar muat halaman)' : (window.kartuPesertaConfig.printCols||2) + ' &times; ' + (window.kartuPesertaConfig.printRows||5) + ' (kartu diskalakan mengisi halaman)'}</b>.</p>
                                 </div>
                             </div>
                             
@@ -8578,7 +8578,13 @@ function cetakKartuUjian() {
     const stampSvg = getStempelSvg(window.kartuPesertaConfig.kop3);
     const ttdHtml = getTtdHtml();
     
-    // PRINT_GRID_V1: layout cetak custom (kolom x baris). Auto = 2x5, ukuran kartu apa adanya.
+    // PRINT_GRID_V1: layout cetak custom (kolom x baris). Auto = 2x5.
+    // PRINT_FIT_V1: skala Auto dulu dipaksa 1 ("ukuran kartu apa adanya") — padahal
+    // 2 kolom x 390px = 786px melebihi lebar halaman 733px dan 5 baris x 270px =
+    // 1374px melebihi tinggi halaman 1032px; grid yang meluber itu terpotong oleh
+    // overflow:hidden di .print-page (kiri-kanan karena grid di tengah, bawah karena
+    // baris ke-4/5 tidak muat). Kini skala Auto juga dibatasi rasio muat halaman
+    // (tetap 1 bila kartunya memang muat), jadi 2x5 selalu utuh dalam satu halaman.
     let cols = Math.max(1, Math.min(10, parseInt(window.kartuPesertaConfig.printCols, 10) || 2));
     let rows = Math.max(1, Math.min(20, parseInt(window.kartuPesertaConfig.printRows, 10) || 5));
     const autoMode = window.kartuPesertaConfig.printAuto !== false;
@@ -8603,7 +8609,7 @@ function cetakKartuUjian() {
         const rowsUsed = Math.max(1, Math.min(rows, Math.ceil(chunk.length / cols)));
         const cellW = (pageWpx - (cols - 1) * gap) / cols;
         const cellH = (pageHpx - (rowsUsed - 1) * gap) / rowsUsed;
-        const scale = autoMode2 ? 1 : Math.min(cellW / cardBoxW, cellH / cardBoxH, baseScale);
+        const scale = autoMode2 ? Math.min(1, cellW / cardBoxW, cellH / cardBoxH) : Math.min(cellW / cardBoxW, cellH / cardBoxH, baseScale);
         let cells = '';
         chunk.forEach((st) => {
             const cls = classes.find(c => String(c.id) === String(st.classId || st.class_id));
