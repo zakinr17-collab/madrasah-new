@@ -6868,25 +6868,9 @@ function openManageRoomModal(roomId) {
                 </div>
 
                 <div class="space-y-3">
-                    <h4 class="font-bold text-slate-700 text-sm">Daftar Anggota di Ruang Ini (${(room.members || []).length})</h4>
-                    <div class="max-h-60 overflow-y-auto space-y-2 border rounded-2xl p-3 bg-white">
-                        ${(room.members || []).length > 0 ? (room.members || []).map(mId => {
-                            const st = students.find(s => String(s.id) === String(mId)) || { name: mId, nis: '-' };
-                            return `
-                                <div class="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border text-xs">
-                                    <div>
-                                        <p class="font-bold text-slate-800">${st.name}</p>
-                                        <p class="text-[10px] text-slate-400">NIS: ${st.nis || '-'}</p>
-                                    </div>
-                                    <button type="button" onclick="removeStudentFromRoom('${room.id}', '${mId}')" class="text-rose-400 hover:text-rose-600 px-2 py-1"><i class="fa-solid fa-trash"></i></button>
-                                </div>
-                            `;
-                        }).join('') : `
-                            <div class="text-center py-6 text-xs text-slate-400">
-                                <i class="fa-solid fa-user-group text-xl mb-1"></i>
-                                <p>Belum ada anggota dalam ruang ini.</p>
-                            </div>
-                        `}
+                    <h4 class="font-bold text-slate-700 text-sm">Daftar Anggota di Ruang Ini (<span id="room-member-count">${(room.members || []).length}</span>)</h4>
+                    <div id="room-member-list" class="max-h-60 overflow-y-auto space-y-2 border rounded-2xl p-3 bg-white">
+                        ${roomMemberListHTML(room, students)}
                     </div>
                 </div>
 
@@ -6896,7 +6880,9 @@ function openManageRoomModal(roomId) {
             </div>
         </div>
     `;
-    setTimeout(() => renderRoomCandidateList(roomId), 50);
+    // ROOM_MEMBER_LIST_V1: render kandidat langsung (sinkron) — daftar tidak
+    // boleh muncul belakangan dan menggeser isi modal ke bawah.
+    renderRoomCandidateList(roomId);
 }
 
 function addStudentToRoom(roomId) {
@@ -6919,7 +6905,9 @@ function addStudentToRoom(roomId) {
     room.members.push(studentId);
     saveState('rooms');
     showToast('Siswa berhasil ditambahkan ke ruang!', 'success');
-    openManageRoomModal(roomId);
+    // ROOM_MEMBER_LIST_V1: update di tempat, jangan bangun ulang modal.
+    renderRoomMemberList(room);
+    renderRoomCandidateList(roomId);
 }
 
 function removeStudentFromRoom(roomId, studentId) {
@@ -6929,7 +6917,11 @@ function removeStudentFromRoom(roomId, studentId) {
     room.members = (room.members || []).filter(id => String(id) !== String(studentId));
     saveState('rooms');
     showToast('Siswa dikeluarkan dari ruang', 'success');
-    openManageRoomModal(roomId);
+    // ROOM_MEMBER_LIST_V1: update di tempat — jangan bangun ulang modal,
+    // supaya scroll tidak loncat ke atas (siswa yang dihapus kembali muncul
+    // di daftar kandidat).
+    renderRoomMemberList(room);
+    renderRoomCandidateList(roomId);
 }
 
 function downloadRoomTemplate() {
@@ -6970,7 +6962,11 @@ function handleRoomExcelImport(e, roomId) {
         if (!room) return;
         if (!room.members) room.members = [];
 
+        // ROOM_UNIQUE_MEMBER_V1: nama yang sudah masuk ruang LAIN tidak ikut
+        // ter-import ke ruang ini (aturan yang sama dengan daftar centang).
+        const taken = getRoomTakenMemberIds(room);
         let addedCount = 0;
+        let skippedTaken = 0;
         for (let i = 1; i < rows.length; i++) {
             const row = rows[i];
             if (!row || row.length === 0) continue;
@@ -6981,15 +6977,19 @@ function handleRoomExcelImport(e, roomId) {
             if (!nis && !name) continue;
 
             const st = (appState.students || []).find(s => (s.nis && String(s.nis) === nis) || (s.name && s.name.toLowerCase() === name.toLowerCase()));
-            if (st && !room.members.includes(st.id)) {
+            if (!st) continue;
+            if (taken.has(String(st.id))) { skippedTaken++; continue; }
+            if (!room.members.some(m => String(m) === String(st.id))) {
                 room.members.push(st.id);
                 addedCount++;
             }
         }
 
         saveState('rooms');
-        showToast(`Berhasil import ${addedCount} anggota ke ruang!`, 'success');
-        openManageRoomModal(roomId);
+        showToast(`Berhasil import ${addedCount} anggota ke ruang!` + (skippedTaken > 0 ? ` (${skippedTaken} dilewati: sudah di ruang lain.)` : ''), 'success');
+        // ROOM_MEMBER_LIST_V1: update di tempat, jangan bangun ulang modal.
+        renderRoomMemberList(room);
+        renderRoomCandidateList(roomId);
     };
     reader.readAsArrayBuffer(file);
 }
@@ -10614,14 +10614,58 @@ window.deleteRoom = deleteRoom;
 window.openManageRoomModal = openManageRoomModal;
 window.addStudentToRoom = addStudentToRoom;
 
-function getRoomCandidates(room) {
-    const members = new Set((room.members || []).map(m => String(m)));
-    // ROOM_UNIQUE_MEMBER_V1: siswa yang sudah masuk ruang LAIN tidak ditampilkan lagi
+// ROOM_UNIQUE_MEMBER_V1: id siswa yang sudah masuk ruang LAIN (bukan ruang ini)
+function getRoomTakenMemberIds(room) {
     const taken = new Set();
     (appState.rooms || []).forEach(r => {
         if (String(r.id) === String(room.id)) return;
         (r.members || []).forEach(m => taken.add(String(m)));
     });
+    return taken;
+}
+
+// ROOM_MEMBER_LIST_V1: HTML daftar anggota ruang — dipakai saat modal dibuka
+// dan saat tambah/hapus anggota (update di tempat, modal tidak dibangun ulang).
+function roomMemberListHTML(room, students) {
+    const members = room.members || [];
+    if (members.length === 0) {
+        return `
+            <div class="text-center py-6 text-xs text-slate-400">
+                <i class="fa-solid fa-user-group text-xl mb-1"></i>
+                <p>Belum ada anggota dalam ruang ini.</p>
+            </div>
+        `;
+    }
+    return members.map(mId => {
+        const st = students.find(s => String(s.id) === String(mId)) || { name: mId, nis: '-' };
+        return `
+            <div class="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border text-xs">
+                <div>
+                    <p class="font-bold text-slate-800">${assessmentEscapeHtml(st.name)}</p>
+                    <p class="text-[10px] text-slate-400">NIS: ${assessmentEscapeHtml(st.nis || '-')}</p>
+                </div>
+                <button type="button" onclick="removeStudentFromRoom('${room.id}', '${mId}')" class="text-rose-400 hover:text-rose-600 px-2 py-1"><i class="fa-solid fa-trash"></i></button>
+            </div>
+        `;
+    }).join('');
+}
+
+// Update daftar anggota + hitungan di tempat tanpa membangun ulang modal,
+// supaya posisi scroll modal tidak loncat setiap tambah/hapus anggota.
+function renderRoomMemberList(room) {
+    const listEl = document.getElementById('room-member-list');
+    if (!listEl) return;
+    const countEl = document.getElementById('room-member-count');
+    if (countEl) countEl.textContent = String((room.members || []).length);
+    const prevScroll = listEl.scrollTop;
+    listEl.innerHTML = roomMemberListHTML(room, appState.students || []);
+    listEl.scrollTop = prevScroll;
+}
+
+function getRoomCandidates(room) {
+    const members = new Set((room.members || []).map(m => String(m)));
+    // ROOM_UNIQUE_MEMBER_V1: siswa yang sudah masuk ruang LAIN tidak ditampilkan lagi
+    const taken = getRoomTakenMemberIds(room);
     return (appState.students || []).filter(st => !members.has(String(st.id)) && !taken.has(String(st.id)));
 }
 
@@ -10644,8 +10688,12 @@ function renderRoomCandidateList(roomId) {
     const classId = classSel ? classSel.value : '';
     let candidates = getRoomCandidates(room);
     if (classId) candidates = candidates.filter(st => String(st.classId || st.class_id) === String(classId));
+    // ROOM_MEMBER_LIST_V1: daftar kandidat ikut digambar ulang, tapi posisi
+    // scroll-nya dipertahankan supaya tidak loncat ke atas.
+    const prevScroll = listEl.scrollTop;
     if (candidates.length === 0) {
         listEl.innerHTML = `<div class="text-center py-4 text-[11px] text-slate-400">Tidak ada siswa yang bisa ditambahkan${classId ? ' di kelas ini' : ''}.</div>`;
+        listEl.scrollTop = prevScroll;
         return;
     }
     listEl.innerHTML = candidates.map(st => `
@@ -10655,6 +10703,7 @@ function renderRoomCandidateList(roomId) {
             <span class="text-[10px] text-slate-400">NIS: ${assessmentEscapeHtml(st.nis || '-')}</span>
         </label>
     `).join('');
+    listEl.scrollTop = prevScroll;
     const checkAll = document.getElementById('room-check-all');
     if (checkAll) checkAll.checked = false;
 }
@@ -10678,14 +10727,21 @@ function addCheckedStudentsToRoom(roomId) {
         return;
     }
     if (!room.members) room.members = [];
+    // ROOM_UNIQUE_MEMBER_V1: daftar kandidat sudah menyaring ruang lain, tapi
+    // periksa lagi di sini — modal bisa kedaluwarsa bila ruang diubah di tempat lain.
+    const taken = getRoomTakenMemberIds(room);
     let added = 0;
+    let skippedTaken = 0;
     checked.forEach(id => {
+        if (taken.has(String(id))) { skippedTaken++; return; }
         if (!room.members.some(m => String(m) === String(id))) { room.members.push(id); added++; }
     });
     saveState('rooms');
-    showToast(added + ' siswa berhasil dimasukkan ke ruang!', 'success');
-    openManageRoomModal(roomId);
-    setTimeout(() => renderRoomCandidateList(roomId), 50);
+    showToast(added + ' siswa berhasil dimasukkan ke ruang!' + (skippedTaken > 0 ? ` (${skippedTaken} dilewati: sudah di ruang lain.)` : ''), 'success');
+    // ROOM_MEMBER_LIST_V1: update di tempat — jangan bangun ulang modal,
+    // supaya scroll tidak loncat ke atas.
+    renderRoomMemberList(room);
+    renderRoomCandidateList(roomId);
 }
 window.applyRoomImportCount = applyRoomImportCount;
 window.filterRoomCandidateList = filterRoomCandidateList;
