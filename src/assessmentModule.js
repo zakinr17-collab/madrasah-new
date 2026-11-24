@@ -8017,7 +8017,7 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
          
          <!-- Right Signature (40%) -->
          <div class="${!isPrintMode ? 'group relative border border-dashed border-transparent hover:border-amber-400 p-0.5 rounded transition-colors' : ''}"
-              style="width: 40%; position: relative; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-start; padding-bottom: 0px; padding-left: ${S(15)}px; box-sizing: border-box; height: 100%; transform: translate(${S(window.kartuPesertaConfig.signatureGroupOffsetLeft || 0)}px, ${S(window.kartuPesertaConfig.signatureGroupOffsetTop || 0)}px);">
+              style="width: 40%; position: relative; display: flex; flex-direction: column; justify-content: flex-end; align-items: flex-end; padding-bottom: 0px; padding-left: ${S(15)}px; box-sizing: border-box; height: 100%; transform: translate(${S(window.kartuPesertaConfig.signatureGroupOffsetLeft || 0)}px, ${S(window.kartuPesertaConfig.signatureGroupOffsetTop || 0)}px);">
             
             ${!isPrintMode ? `
             <div class="absolute inset-x-0 top-0 h-4.5 cursor-move flex items-center justify-center bg-amber-500/10 hover:bg-amber-500/20 opacity-0 group-hover:opacity-100 transition-opacity z-30 border-b border-dashed border-amber-300"
@@ -8029,8 +8029,8 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
             ` : ''}
 
             <!-- Place & Date -->
-            <div style="font-size: ${S(8)}pt; line-height: 1.1; text-align: left; color: #000; white-space: nowrap;">${window.kartuPesertaConfig.tanggalUjian}</div>
-            <div style="font-size: ${S(8)}pt; font-weight: bold; line-height: 1.1; margin-top: 2px; text-align: left; color: #000; white-space: nowrap;">Kepala Sekolah,</div>
+            <div style="font-size: ${S(8)}pt; line-height: 1.1; text-align: right; color: #000; white-space: nowrap;">${window.kartuPesertaConfig.tanggalUjian}</div>
+            <div style="font-size: ${S(8)}pt; font-weight: bold; line-height: 1.1; margin-top: 2px; text-align: right; color: #000; white-space: nowrap;">Kepala Sekolah,</div>
             
             <!-- Overlapping container for TTD, Stamp and Name -->
             <div style="position: relative; width: 100%; height: ${S(70)}px; margin-top: 2px;">
@@ -8126,7 +8126,7 @@ function getKartuPesertaHtml(st, className, roomName, isPrintMode) {
                `}
 
                <!-- Principal Name - Positioned at the bottom, overlapping signature and stamp, NO underline -->
-               <div style="position: absolute; left: 0; bottom: 0px; font-size: ${S(9.5)}pt; font-weight: bold; white-space: nowrap; z-index: 15; text-align: left; color: #000;">
+               <div style="position: absolute; left: auto; right: 0; bottom: 0px; font-size: ${S(9.5)}pt; font-weight: bold; white-space: nowrap; z-index: 15; text-align: right; color: #000;">
                   ${window.kartuPesertaConfig.kepalaSekolah}
                </div>
             </div>
