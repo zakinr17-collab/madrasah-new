@@ -60,9 +60,9 @@ async function openRegisterMadrasahModal() {
     if (!modal) {
         modal = document.createElement('div');
         modal.id = 'register-madrasah-modal';
-        modal.className = 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto';
+        modal.className = 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex justify-center p-4 overflow-y-auto';
         modal.innerHTML = `
-            <div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-100 p-6 sm:p-8 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+            <div class="bg-white w-full max-w-lg my-auto rounded-3xl shadow-2xl border border-slate-100 p-6 sm:p-8 space-y-5 animate-in fade-in zoom-in-95 duration-200">
                 <div class="flex items-center justify-between border-b border-slate-100 pb-4">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 bg-emerald-100 text-emerald-700 rounded-2xl flex items-center justify-center font-bold text-lg">
@@ -270,8 +270,12 @@ function openTopUpTokenModal() {
     const isOffline = appState.isOfflineMode || window.isOfflineMode;
     const role = String(appState.role || '').toLowerCase().trim();
     const isTeacher = role === 'teacher' || role === 'guru';
-    
-    modal.className = 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto';
+
+    // TOPUP_MODAL_SCROLL_V1: tanpa items-center — panel yang lebih tinggi dari
+    // layar jadi terpotong di atas dan tidak bisa di-scroll ke sana (tombol X
+    // hilang, modal tidak bisa ditutup). Panel memakai my-auto: panel pendek
+    // tetap di tengah, panel tinggi mulai dari atas dan bisa di-scroll penuh.
+    modal.className = 'fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex justify-center p-4 overflow-y-auto';
     
     if (isTeacher) {
         const teacherName = (appState.currentUser && appState.currentUser.name) || 'Guru';
@@ -280,7 +284,7 @@ function openTopUpTokenModal() {
             : ((appState.currentUser && appState.currentUser.cbtTokenBalance) || 0);
 
         modal.innerHTML = `
-        <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-100 p-6 sm:p-8 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+        <div class="bg-white w-full max-w-md my-auto rounded-3xl shadow-2xl border border-slate-100 p-6 sm:p-8 space-y-5 animate-in fade-in zoom-in-95 duration-200">
             <div class="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div class="flex items-center gap-3">
                     <div class="w-10 h-10 bg-amber-100 text-amber-800 rounded-2xl flex items-center justify-center font-bold text-lg shadow-sm">
@@ -341,7 +345,7 @@ function openTopUpTokenModal() {
 
     if (isOffline) {
         modal.innerHTML = `
-        <div class="bg-white w-full max-w-md rounded-3xl shadow-2xl border border-slate-100 p-6 sm:p-8 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+        <div class="bg-white w-full max-w-md my-auto rounded-3xl shadow-2xl border border-slate-100 p-6 sm:p-8 space-y-5 animate-in fade-in zoom-in-95 duration-200">
             <div class="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div class="flex items-center gap-3">
                     <div class="w-10 h-10 bg-emerald-100 text-emerald-700 rounded-2xl flex items-center justify-center font-bold text-lg">
@@ -395,7 +399,7 @@ function openTopUpTokenModal() {
         `;
     } else {
         modal.innerHTML = `
-        <div class="bg-white w-full max-w-lg rounded-3xl shadow-2xl border border-slate-100 p-6 sm:p-8 space-y-5 animate-in fade-in zoom-in-95 duration-200">
+        <div class="bg-white w-full max-w-lg my-auto rounded-3xl shadow-2xl border border-slate-100 p-6 sm:p-8 space-y-5 animate-in fade-in zoom-in-95 duration-200">
             <div class="flex items-center justify-between border-b border-slate-100 pb-4">
                 <div class="flex items-center gap-3">
                     <div class="w-10 h-10 bg-amber-100 text-amber-700 rounded-2xl flex items-center justify-center font-bold text-lg">
@@ -445,16 +449,19 @@ function openTopUpTokenModal() {
                     </div>
                 </div>
 
-                <div class="bg-amber-50 p-4 rounded-2xl border border-amber-200 text-xs space-y-1.5 text-amber-900">
-                    <strong class="font-bold flex items-center gap-1.5 text-amber-900">
-                        <i class="fa-solid fa-building-columns"></i> Rekening Pembayaran (Transfer Bank / E-Wallet):
-                    </strong>
-                    <div class="font-mono text-[11px] bg-white p-2.5 rounded-xl border border-amber-200 space-y-0.5">
-                        ${(appState.paymentAccounts && appState.paymentAccounts.length > 0 ? appState.paymentAccounts : [
-                            { name: 'ShopeePay', number: '081234567890', owner: 'BOS PLATFORM' },
-                            { name: 'DANA', number: '081234567890', owner: 'BOS PLATFORM' },
-                            { name: 'Bank BRI', number: '0123-01-098765-50-1', owner: 'BOS PLATFORM' }
-                        ]).map(acc => `<div><strong>${acc.name}:</strong> ${acc.number} ${acc.owner ? `(a.n. ${acc.owner})` : ''}</div>`).join('')}
+                <!-- TOPUP_WA_V1: rekening pembayaran dihapus, diganti nomor WA Admin BOS -->
+                <div class="bg-emerald-50 border border-emerald-100 rounded-2xl p-4 space-y-3">
+                    <div class="flex items-center gap-2">
+                        <i class="fa-brands fa-whatsapp text-emerald-600 text-lg"></i>
+                        <span class="text-xs font-bold text-emerald-800 uppercase tracking-wider">Hubungi Admin BOS via WhatsApp</span>
+                    </div>
+                    <p class="text-[11px] text-emerald-700 leading-relaxed">Untuk pembayaran token, hubungi Admin BOS di nomor WhatsApp berikut. Kirim ID Madrasah Anda beserta bukti transfer, lalu Admin akan memberikan Kode Token.</p>
+                    <div class="flex items-center gap-2 bg-white rounded-xl p-3 border border-emerald-200 shadow-sm">
+                        <div class="flex-1 font-mono text-sm font-bold text-slate-800">085746719790</div>
+                        <button type="button" onclick="navigator.clipboard.writeText('085746719790'); window.showToast ? window.showToast('Nomor WhatsApp Admin disalin!', 'success') : alert('Nomor disalin!');" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold transition">Salin</button>
+                        <a href="https://wa.me/6285746719790?text=${encodeURIComponent('Halo Admin BOS, saya ingin top-up token ujian. ID Madrasah: ' + ((appState.currentUser && appState.currentUser.madrasahId) || 'default'))}" target="_blank" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-bold flex items-center gap-1 transition">
+                            Chat WA <i class="fa-solid fa-arrow-up-right-from-square"></i>
+                        </a>
                     </div>
                 </div>
 
@@ -492,7 +499,7 @@ function openTopUpTokenModal() {
                         <h4 class="text-xs font-extrabold text-slate-800 uppercase tracking-wider">Aktivasi Token Offline via Kode Lisensi</h4>
                     </div>
                     <div class="space-y-2">
-                        <p class="text-[11px] text-slate-500">Jika Anda menginstal secara luring/offline di localhost, silakan transfer terlebih dahulu ke rekening di atas, lalu minta Kode Lisensi/Aktivasi kepada Admin BOS, dan masukkan di bawah ini.</p>
+                        <p class="text-[11px] text-slate-500">Jika Anda menginstal secara luring/offline di localhost, silakan hubungi Admin BOS via WhatsApp di atas untuk pembayaran, lalu minta Kode Lisensi/Aktivasi kepada Admin BOS, dan masukkan di bawah ini.</p>
                         <div class="flex gap-2">
                             <input type="text" id="offline-activation-key-input" placeholder="Masukkan Kode Aktivasi..." class="flex-1 px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-[11px] font-mono focus:bg-white focus:outline-none focus:border-emerald-500" />
                             <button type="button" onclick="submitOfflineActivationKey()" class="px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-2xl transition flex items-center gap-1.5 shadow-md shadow-emerald-600/10 active:scale-95">
@@ -1328,10 +1335,6 @@ async function renderBossDashboard(container, initialTab = 'tokens') {
                         <span>Daftar Madrasah & Saldo Token</span>
                         <span class="px-2 py-0.5 bg-slate-200 text-slate-700 text-[10px] font-bold rounded-full">${madrasahs.length}</span>
                     </button>
-                    <button type="button" onclick="switchBossTab('payment')" id="boss-tab-payment" class="boss-tab-btn px-5 py-3 rounded-2xl text-xs font-bold transition flex items-center gap-2 ${initialTab === 'payment' ? 'bg-purple-900 text-white shadow-md shadow-purple-900/10' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'}">
-                        <i class="fa-solid fa-wallet"></i>
-                        <span>Pengaturan Pembayaran</span>
-                    </button>
                     <button type="button" onclick="switchBossTab('registration')" id="boss-tab-registration" class="boss-tab-btn px-5 py-3 rounded-2xl text-xs font-bold transition flex items-center gap-2 ${initialTab === 'registration' ? 'bg-purple-900 text-white shadow-md shadow-purple-900/10' : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'}">
                         <i class="fa-solid fa-user-shield"></i>
                         <span>Pengaturan Pendaftaran</span>
@@ -1370,8 +1373,6 @@ function switchBossTab(tabName) {
         renderBossTokenRequestsTab(contentDiv);
     } else if (tabName === 'madrasahs') {
         renderBossMadrasahsTab(contentDiv);
-    } else if (tabName === 'payment') {
-        renderBossPaymentTab(contentDiv);
     } else if (tabName === 'registration') {
         renderBossRegistrationTab(contentDiv);
     }
@@ -2002,120 +2003,6 @@ async function saveMadrasahRegistrationPolicy(e) {
     }
 }
 
-function renderBossPaymentTab(container) {
-    const paymentAccounts = appState.paymentAccounts || [
-        { id: '1', name: 'ShopeePay', number: '081234567890', owner: 'BOS PLATFORM' },
-        { id: '2', name: 'DANA', number: '081234567890', owner: 'BOS PLATFORM' },
-        { id: '3', name: 'Bank BRI', number: '0123-01-098765-50-1', owner: 'BOS PLATFORM' },
-        { id: '4', name: 'Bank Mandiri', number: '130-00-9876543-2', owner: 'BOS PLATFORM' }
-    ];
-
-    container.innerHTML = `
-        <div class="bg-white rounded-3xl border border-slate-100 shadow-sm p-6 space-y-6">
-            <div class="border-b border-slate-100 pb-4 flex items-center justify-between">
-                <div>
-                    <h2 class="text-base font-bold text-slate-800">Pengaturan Rekening Pembayaran Top-Up Token</h2>
-                    <p class="text-xs text-slate-400">Atur nomor rekening e-wallet (ShopeePay, DANA, OVO) atau bank yang akan otomatis tampil di modal top-up token akun Admin Madrasah.</p>
-                </div>
-                <button type="button" onclick="addPaymentAccountRow()" class="px-4 py-2 bg-purple-900 hover:bg-purple-800 text-white font-bold text-xs rounded-2xl shadow-sm transition flex items-center gap-1.5 cursor-pointer">
-                    <i class="fa-solid fa-plus"></i> Tambah Rekening
-                </button>
-            </div>
-
-            <form onsubmit="submitPaymentSettings(event)" class="space-y-4">
-                <div id="payment-accounts-list" class="space-y-3">
-                    ${paymentAccounts.map((acc, idx) => `
-                        <div class="payment-row grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200/80 items-center">
-                            <div class="sm:col-span-3">
-                                <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Nama Layanan / Bank</label>
-                                <input type="text" name="acc_name" value="${acc.name || ''}" placeholder="Cth: ShopeePay / DANA / BCA" required class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800">
-                            </div>
-                            <div class="sm:col-span-4">
-                                <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Nomor Rekening / No. HP</label>
-                                <input type="text" name="acc_number" value="${acc.number || ''}" placeholder="Cth: 081234567890" required class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-800">
-                            </div>
-                            <div class="sm:col-span-4">
-                                <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Atas Nama (a.n.)</label>
-                                <input type="text" name="acc_owner" value="${acc.owner || ''}" placeholder="Cth: PT BOS PLATFORM" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800">
-                            </div>
-                            <div class="sm:col-span-1 flex items-end justify-center pt-5">
-                                <button type="button" onclick="this.closest('.payment-row').remove()" class="w-9 h-9 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl flex items-center justify-center transition" title="Hapus rekening">
-                                    <i class="fa-solid fa-trash-can text-xs"></i>
-                                </button>
-                            </div>
-                        </div>
-                    `).join('')}
-                </div>
-
-                <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
-                    <button type="submit" class="px-6 py-3 bg-purple-900 hover:bg-purple-800 text-white font-bold text-xs rounded-2xl shadow-md transition flex items-center gap-2 cursor-pointer">
-                        <i class="fa-solid fa-floppy-disk"></i> Simpan Pengaturan Pembayaran
-                    </button>
-                </div>
-            </form>
-        </div>
-    `;
-}
-
-function addPaymentAccountRow() {
-    const list = document.getElementById('payment-accounts-list');
-    if (!list) return;
-    const div = document.createElement('div');
-    div.className = 'payment-row grid grid-cols-1 sm:grid-cols-12 gap-3 p-4 bg-slate-50 rounded-2xl border border-slate-200/80 items-center animate-in fade-in duration-200';
-    div.innerHTML = `
-        <div class="sm:col-span-3">
-            <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Nama Layanan / Bank</label>
-            <input type="text" name="acc_name" value="" placeholder="Cth: ShopeePay / DANA / BCA" required class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-800">
-        </div>
-        <div class="sm:col-span-4">
-            <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Nomor Rekening / No. HP</label>
-            <input type="text" name="acc_number" value="" placeholder="Cth: 081234567890" required class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-mono font-bold text-slate-800">
-        </div>
-        <div class="sm:col-span-4">
-            <label class="block text-[10px] font-bold uppercase text-slate-400 mb-1">Atas Nama (a.n.)</label>
-            <input type="text" name="acc_owner" value="" placeholder="Cth: PT BOS PLATFORM" class="w-full px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-800">
-        </div>
-        <div class="sm:col-span-1 flex items-end justify-center pt-5">
-            <button type="button" onclick="this.closest('.payment-row').remove()" class="w-9 h-9 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl flex items-center justify-center transition" title="Hapus rekening">
-                <i class="fa-solid fa-trash-can text-xs"></i>
-            </button>
-        </div>
-    `;
-    list.appendChild(div);
-}
-
-async function submitPaymentSettings(e) {
-    e.preventDefault();
-    const rows = document.querySelectorAll('.payment-row');
-    const paymentAccounts = [];
-    rows.forEach((row, idx) => {
-        const name = row.querySelector('input[name="acc_name"]').value.trim();
-        const number = row.querySelector('input[name="acc_number"]').value.trim();
-        const owner = row.querySelector('input[name="acc_owner"]').value.trim();
-        if (name && number) {
-            paymentAccounts.push({ id: 'acc_' + (idx + 1), name, number, owner });
-        }
-    });
-
-    try {
-        const res = await fetch('/api/payment-settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ paymentAccounts })
-        });
-        const data = await res.json();
-        if (data.success) {
-            appState.paymentAccounts = data.paymentAccounts;
-            alert(data.message || 'Pengaturan pembayaran berhasil disimpan!');
-        } else {
-            alert(data.message || 'Gagal menyimpan pengaturan.');
-        }
-    } catch (err) {
-        console.error(err);
-        alert('Terjadi kesalahan jaringan.');
-    }
-}
-
 async function deleteMadrasah(madrasahId, madrasahName) {
     if (!confirm(`Apakah Anda yakin ingin menghapus madrasah "${madrasahName}" beserta seluruh data terkait? Tindakan ini tidak dapat dibatalkan.`)) {
         return;
@@ -2383,12 +2270,9 @@ async function editTeacherTokenBalance(teacherId, teacherName, currentBalance) {
 window.renderBossDashboard = renderBossDashboard;
 window.switchBossTab = switchBossTab;
 window.filterMadrasahTable = filterMadrasahTable;
-window.renderBossPaymentTab = renderBossPaymentTab;
 window.renderBossRegistrationTab = renderBossRegistrationTab;
 window.toggleBossRegistrationInviteField = toggleBossRegistrationInviteField;
 window.saveMadrasahRegistrationPolicy = saveMadrasahRegistrationPolicy;
-window.addPaymentAccountRow = addPaymentAccountRow;
-window.submitPaymentSettings = submitPaymentSettings;
 window.deleteMadrasah = deleteMadrasah;
 window.toggleMadrasahStatus = toggleMadrasahStatus;
 window.openManageMadrasahModal = openManageMadrasahModal;
