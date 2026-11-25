@@ -3464,6 +3464,15 @@ function stripMathDelimitersForSingleExpression(value) {
         .trim();
 }
 
+// MATH_CONVERT_FIX_V1: perbaikan convert rumus Unicode (MTK Lanjutan XII):
+// (1) pangkat Unicode lengkap ⁰-⁹ (dulu hanya ⁰¹²³, x⁴/x⁵ mentah);
+// (2) regex pangkat tidak lagi menelan + / - sesudah pangkat (^2-4 tetap
+// ^2-4, bukan ^{2-4}; dulu bikin double superscript -> KaTeX merah);
+// (3) lim x→2 / x→∞ jadi \lim_{x \to ...} + → jadi \to di dalam blok;
+// (4) blok LaTeX dalam tidak lagi bersarang (placeholder dipulihkan polos
+// di dalam blok luar — dulu \frac{\(\sqrt{x+3}\)-2}{x-1} -> KaTeX merah);
+// (5) pecahan polos 1/8 jadi \frac{1}{8}; (6) "2/(x)" dari x^2/(x) bukan
+// pecahan (lookbehind (?<!\^)) — dulu tertinggal "x^" menggantung -> merah.
 function autoConvertMathToLatex(str) {
     if (!str || typeof str !== 'string') return str;
 
@@ -3479,7 +3488,7 @@ function autoConvertMathToLatex(str) {
     // Step 0: Pre-normalization of Word / MathType field artifacts (〖 and 〗 are field markers in MS Word, strip them)
     text = text.replace(/[〖〗【】⟦⟧〔〕]/g, '');
     text = text.replace(/[\u2212\u2013\u2014]/g, '-'); // Unicode minus and dashes -> '-'
-    text = text.replace(/²/g, '^2').replace(/³/g, '^3').replace(/¹/g, '^1').replace(/⁰/g, '^0');
+    text = text.replace(/²/g, '^2').replace(/³/g, '^3').replace(/¹/g, '^1').replace(/⁰/g, '^0').replace(/⁴/g, '^4').replace(/⁵/g, '^5').replace(/⁶/g, '^6').replace(/⁷/g, '^7').replace(/⁸/g, '^8').replace(/⁹/g, '^9');
 
     // Helper to format math inner content cleanly before LaTeX wrapping
     function formatLatexMath(mathStr) {
@@ -3487,8 +3496,12 @@ function autoConvertMathToLatex(str) {
         let res = mathStr.trim();
         // Remove Word field delimiter artifacts inside
         res = res.replace(/[〖〗【】⟦⟧〔〕]/g, '');
-        // Convert multi-digit/multi-char exponents: ^15 -> ^{15}, ^-3 -> ^{-3}, ^2x -> ^{2x}
-        res = res.replace(/\^([0-9]{2,}|-[0-9]+|[a-zA-Z0-9\+\-\*]{2,})/g, '^{$1}');
+        // Convert multi-digit/multi-char exponents: ^15 -> ^{15}, ^-3 -> ^{-3}, ^2x -> ^{2x}.
+        // HANYA satu token pangkat (angka, -angka, angka+1 huruf, 1 huruf) yang
+        // dikurung — '+'/'-' sesudah pangkat BUKAN bagian pangkat: ^2-4 harus
+        // tetap ^2-4, bukan ^{2-4} (dulu menelan suku berikut, bahkan bikin
+        // double superscript ^...^... yang KaTeX tampilkan merah).
+        res = res.replace(/\^([0-9]{2,}|-[0-9]+|[0-9]+[a-zA-Z]|[a-zA-Z])/g, '^{$1}');
         // Convert unicode / plain math operators to LaTeX commands
         res = res.replace(/×/g, ' \\times ');
         res = res.replace(/÷/g, ' \\div ');
@@ -3499,12 +3512,19 @@ function autoConvertMathToLatex(str) {
         res = res.replace(/±/g, ' \\pm ');
         res = res.replace(/°/g, '^\\circ ');
         res = res.replace(/∞/g, ' \\infty ');
+        res = res.replace(/→/g, ' \\to ');
+        // Akar yang lolos dari Step 7 karena pecahannya sudah dibungkus
+        // duluan oleh Step 2 (mis. (√x-2)/(x-4) jadi \frac{√x-2}{x-4}):
+        // √ mentah di dalam blok membuat KaTeX protes (simbol tak dikenal).
+        res = res.replace(/√\s*\(([^)]+)\)/g, ' \\sqrt{$1} ');
+        res = res.replace(/√\s*([a-zA-Z0-9]+)/g, ' \\sqrt{$1} ');
         res = res.replace(/π/g, ' \\pi ');
         // Format fractions like (a+b)/(c+d) or 3/4 if not already \frac
         if (!res.includes('\\frac')) {
             res = res.replace(/\(([^)]+)\)\/\(([^)]+)\)/g, '\\frac{$1}{$2}');
             res = res.replace(/\(([^)]+)\)\/([a-zA-Z0-9]+)/g, '\\frac{$1}{$2}');
-            res = res.replace(/\b([a-zA-Z0-9]+)\/\(([^)]+)\)/g, '\\frac{$1}{$2}');
+            // (?<!\^): "2/(x)" dari x^2/(x) bukan pecahan (sama seperti Step 2).
+            res = res.replace(/(?<![\^])\b([a-zA-Z0-9]+)\/\(([^)]+)\)/g, '\\frac{$1}{$2}');
         }
         // Normalize spaces around '='
         res = res.replace(/\s*=\s*/g, ' = ');
@@ -3527,6 +3547,20 @@ function autoConvertMathToLatex(str) {
             clean = clean.slice(0, -trailingPunct.length).trim();
         }
         if (!clean) return trailingPunct;
+
+        // Blok LaTeX yang sudah terbungkus (placeholder \uE000..\uF001) harus
+        // masuk sebagai isi polos: kalau ikut terbungkus, setelah restore jadi
+        // \(...\) bersarang di dalam \(...\) dan KaTeX menampilkan merah
+        // (mis. (√(x+3)-2)/(x-1) jadi \frac{\(\sqrt{x+3}\)-2}{x-1}).
+        // slice(2,-2) membuang pembungkus \( \) luar blok dalam itu.
+        clean = clean.replace(/\uE000(\d+)\uF001/g, (m, j) => {
+            const inner = protectedLatex[+j];
+            return inner ? inner.slice(2, -2) : m;
+        });
+        clean = clean.replace(/\uE000(\d+)\uE001/g, (m, j) => {
+            const inner = protectedLatex[+j];
+            return inner ? inner.slice(2, -2) : m;
+        });
 
         const formatted = formatLatexMath(clean);
         protectedLatex.push(`\\(${formatted}\\)`);
@@ -3553,6 +3587,13 @@ function autoConvertMathToLatex(str) {
         return `\uE000${protectedPh.length - 1}\uE001`;
     });
 
+    // Step 1.7: Limit (mis. lim x→2, lim x→-1, lim x→∞) — panah → tidak
+    // masuk kelas operator masterMath, jadi limit tidak pernah terbungkus.
+    text = text.replace(/\blim\s+([a-zA-Z])\s*→\s*(-?∞|-?[a-zA-Z0-9]+(?:\([^)]*\))?)/g, (match, v, target) => {
+        const t = target === '∞' ? '\\infty' : target === '-∞' ? '-\\infty' : target;
+        return wrapAndProtect(`\\lim_{${v} \\to ${t}}`);
+    });
+
     // Step 2: Fractions (e.g. (3x-1)/(x+2), (x-2)/5, 1/2(x+3), 3/4)
     text = text.replace(/\(([^)]+)\)\/\(([^)]+)\)/g, (match, num, den) => {
         return wrapAndProtect(`\\frac{${num.trim()}}{${den.trim()}}`);
@@ -3560,11 +3601,19 @@ function autoConvertMathToLatex(str) {
     text = text.replace(/\(([^)]+)\)\/([a-zA-Z0-9]+)/g, (match, num, den) => {
         return wrapAndProtect(`\\frac{${num.trim()}}{${den.trim()}}`);
     });
-    text = text.replace(/\b([a-zA-Z0-9]+)\/\(([^)]+)\)/g, (match, num, den) => {
+    // (?<!\^): pembilang JANGAN cuplikan ekor pangkat — pada x^2/(x), "2/(x)"
+    // bukan pecahan; kalau ditelan jadi \frac{2}{x}, tertinggal "x^" yang
+    // menggantung dan KaTeX menampilkan merah.
+    text = text.replace(/(?<![\^])\b([a-zA-Z0-9]+)\/\(([^)]+)\)/g, (match, num, den) => {
         return wrapAndProtect(`\\frac{${num.trim()}}{${den.trim()}}`);
     });
     text = text.replace(/\b(\d+)\/(\d+)\s*\(([^)]+)\)/g, (match, num, den, rest) => {
         return wrapAndProtect(`\\frac{${num}}{${den}}(${rest.trim()})`);
+    });
+    // Pecahan polos tanpa kurung (mis. 1/8, 5/2 di opsi) — sebelumnya lolos
+    // sampai masterMath dan hanya terbungkus \(1/8\), bukan \frac.
+    text = text.replace(/\b(\d+)\/(\d+)\b/g, (match, num, den) => {
+        return wrapAndProtect(`\\frac{${num}}{${den}}`);
     });
 
     // Step 3: Factorials & Factorial Arithmetic (e.g. 4!+5!-3!, 5! / (5-2)!, n!/(k!(n-k)!), 4! + 5! - 3!)
