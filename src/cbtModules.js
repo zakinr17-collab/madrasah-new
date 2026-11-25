@@ -4126,8 +4126,64 @@ function runQuestionConversion(activeCode = '') {
 function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1', defaultKJ = 'A', autoMath = true, parseMode = 'auto', optionCount = 5) {
     if (!rawText || !rawText.trim()) return { text: '', parsedQuestions: [], optionCount };
 
-    const lines = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+    let lines = rawText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
     const parsedQuestions = [];
+
+    // KEY_TABLE_V1: tabel kunci jawaban ("No | Jawaban" + baris
+    // "1 | C | 11 | D | ...") dikenali SEBELUM parsing: pasangannya disimpan
+    // ke keyTableMap, baris-barisnya dibuang supaya tidak menempel di teks
+    // soal terakhir (dulu: semua kunci jadi 'A' bawaan dan isi tabel
+    // menempel di soal 40). Kunci eksplisit per soal ("Kunci: B") tetap
+    // menang atas tabel (diterapkan di pushQuestion mode auto). Pengaman:
+    // hanya dipakai bila nomor-nomornya persis 1..M berurutan (M>=2) —
+    // tabel isi biasa yang kebetulan berpasangan tidak ikut.
+    const keyTableMap = {};
+    {
+        const cellsOf = (t) => t.replace(/^•\s*/, '').split('|').map((s) => s.trim());
+        const isKeyHeader = (t) => {
+            const c = cellsOf(t);
+            return c.length >= 2 && c.length % 2 === 0 && c.every((x, idx) => (idx % 2 === 0 ? /^(No\.?|Nomor)$/i.test(x) : /^(Jawaban|Kunci|Jawab)$/i.test(x)));
+        };
+        const pairsOfRow = (t) => {
+            const c = cellsOf(t);
+            if (c.length < 2 || c.length % 2 !== 0) return null;
+            const pairs = [];
+            for (let k = 0; k < c.length; k += 2) {
+                if (!/^\d+$/.test(c[k]) || !/^[A-Ea-e]$/.test(c[k + 1])) return null;
+                pairs.push([Number(c[k]), c[k + 1].toUpperCase()]);
+            }
+            return pairs;
+        };
+        const isOneToM = (pairs) => {
+            if (pairs.length < 2) return false;
+            const nums = pairs.map(([n]) => n).sort((a, b) => a - b);
+            for (let k = 0; k < nums.length; k++) if (nums[k] !== k + 1) return false;
+            return true;
+        };
+        const kept = [];
+        let idx = 0;
+        while (idx < lines.length) {
+            const t = lines[idx].trim();
+            if (!isKeyHeader(t) && !pairsOfRow(t)) { kept.push(lines[idx]); idx++; continue; }
+            let j = idx;
+            const pairs = [];
+            if (isKeyHeader(lines[j].trim())) j++;
+            while (j < lines.length) {
+                const p = pairsOfRow(lines[j].trim());
+                if (!p) break;
+                pairs.push(...p);
+                j++;
+            }
+            if (pairs.length > 0 && isOneToM(pairs)) {
+                pairs.forEach(([n, l]) => { keyTableMap[n] = l; });
+                idx = j;
+            } else {
+                kept.push(lines[idx]);
+                idx++;
+            }
+        }
+        lines = kept;
+    }
 
     if (parseMode === 'enter-essay') {
         // Mode Esay per-Enter (kunci di atas): setiap butir = 2 baris -
@@ -4354,7 +4410,7 @@ function parseRawTextToCBTFormat(rawText, defaultTS = 'PG', defaultKD = '1.0.1',
                 num: currentNum,
                 ts: isEssayInline ? 'ESY' : defaultTS,
                 kd: defaultKD,
-                kj: isEssayInline ? String(currentKey || '') : (/^[A-E]+$/i.test(String(currentKey || '')) ? String(currentKey).toUpperCase().trim() : String(currentKey || '').trim() || String(defaultKJ || '').trim()),
+                kj: isEssayInline ? String(currentKey || '') : (/^[A-E]+$/i.test(String(currentKey || '')) ? String(currentKey).toUpperCase().trim() : String(currentKey || '').trim() || (keyTableMap[currentNum] || '') || String(defaultKJ || '').trim()),
                 abs: '',
                 imageUrl: (imageOptions && !isEssayInline && (defaultTS === 'PG' || defaultTS === 'PGX')) ? '' : (currentImageData || ''),
                 questionText: qText,
