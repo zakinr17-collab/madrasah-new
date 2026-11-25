@@ -3146,11 +3146,18 @@ function downloadJournalAsWord() {
 }
 
 // Manual Single Question Addition & Editing
+// Q_MODAL_SCROLL_V1: wrapper modal soal JANGAN pakai `items-center` — panel
+// form soal lebih tinggi dari viewport laptop, dan flex centering mendorong
+// bagian atas panel ke luar viewport sehingga tidak bisa di-scroll (jebakan
+// flexbox yang sama dengan TOPUP_MODAL_SCROLL_V1). Tanpa items-center +
+// panel `my-auto`: panel pendek tetap di tengah, panel tinggi bisa
+// di-scroll penuh dari judul sampai tombol Simpan. Dipakai tambah soal dan
+// edit soal (openEditSingleQuestionModal memanggil fungsi ini).
 function openAddSingleQuestionModal(code) {
     const modal = document.getElementById('modal-container');
     modal.innerHTML = `
-        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
-            <div class="bg-white w-full max-w-xl rounded-3xl shadow-2xl p-6 space-y-4 my-8">
+        <div class="fixed inset-0 z-50 flex justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
+            <div class="bg-white w-full max-w-xl rounded-3xl shadow-2xl p-6 space-y-4 my-auto">
                 <div class="flex justify-between items-center pb-2 border-b">
                     <h3 class="font-bold text-slate-800 text-base flex items-center space-x-2">
                         <i class="fa-solid fa-plus-circle text-blue-600"></i>
