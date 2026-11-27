@@ -2544,7 +2544,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <h3 class="font-extrabold text-slate-800 text-base sm:text-lg">
                                                 ${appState.selectedMonitoringType === 'cbt' ? 'Pilih Ujian CBT yang Dipantau' : 'Pilih Lembar Kerja (LKPD) yang Dipantau'}
                                             </h3>
-                                            <p class="text-xs text-slate-400">${appState.selectedMonitoringType === 'cbt' ? 'Jadwal hari ini tampil di kolom utama; jadwal yang sudah lewat ada di kolom samping.' : 'Silakan pilih salah satu LKPD aktif di bawah untuk memulai sesi pemantauan.'}</p>
+                                            <p class="text-xs text-slate-400">${appState.selectedMonitoringType === 'cbt' ? 'Pilih filter di bawah — daftar siswa muncul sesuai filter. Jadwal wajib dipilih; Kelas & Ruang boleh dikosongkan.' : 'Silakan pilih salah satu LKPD aktif di bawah untuk memulai sesi pemantauan.'}</p>
                                         </div>
                                         <button type="button" onclick="appState.selectedMonitoringType = null; renderAssessmentModule(document.getElementById('view-container'), 'monitoring', null);" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer">
                                             <i class="fa-solid fa-arrow-left"></i> <span>Ganti Tipe Monitoring</span>
@@ -2577,52 +2577,9 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <div class="p-8 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed text-xs">Belum ada LKPD terdaftar untuk kelas ini.</div>
                                         `}
                                     ` : `
-                                        <!-- DAFTAR UJIAN CBT: 2 kolom — utama = jadwal hari ini, samping = sudah lewat / akan datang -->
-                                        ${(() => {
-                                            const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-                                            const todayMs = todayStart.getTime();
-                                            const cbtExams = displayExams.filter(ex => ex.recordType !== 'EVENT');
-                                            const dayOf = (ex) => monitoringExamDayMs(ex);
-                                            const todayList = cbtExams.filter(ex => { const d = dayOf(ex); return d === null || d === todayMs; });
-                                            const pastList = cbtExams.filter(ex => { const d = dayOf(ex); return d !== null && d < todayMs; });
-                                            const futureList = cbtExams.filter(ex => { const d = dayOf(ex); return d !== null && d > todayMs; });
-                                            const pastOpen = !!appState.monitoringPastOpen;
-                                            const card = (ex) => `
-                                                <div class="bg-slate-900 text-white p-6 rounded-3xl shadow-lg border border-slate-800 space-y-4 flex flex-col justify-between">
-                                                    <div>
-                                                        <div class="flex items-center gap-2 mb-2">
-                                                            <span class="px-2.5 py-0.5 bg-indigo-500/20 text-indigo-300 font-black text-[10px] rounded-full border border-indigo-400/30">
-                                                                CBT Exam
-                                                            </span>
-                                                            <span class="text-xs text-slate-400 font-semibold">${assessmentEscapeHtml(monitoringExamClassLabel(ex))}</span>
-                                                        </div>
-                                                        <h4 class="font-bold text-base text-white">${assessmentEscapeHtml(ex.title)}</h4>
-                                                        <p class="text-xs text-slate-400 mt-1">${assessmentEscapeHtml(ex.subjectName || ex.subject || 'Mapel')}</p>
-                                                        <p class="text-[11px] text-slate-500 mt-1">${assessmentEscapeHtml(monitoringExamDateLabel(ex))}</p>
-                                                    </div>
-                                                    <button type="button" onclick="renderAssessmentModule(document.getElementById('view-container'), 'monitoring', ${assessmentInlineArg(ex.id)})" class="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-2xl text-xs shadow transition cursor-pointer">Mulai Live Monitoring CBT</button>
-                                                </div>`;
-                                            const emptyBox = (msg) => `<div class="p-6 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed text-xs">${msg}</div>`;
-                                            return `
-                                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                                                <div class="lg:col-span-2 space-y-3">
-                                                    <h4 class="font-extrabold text-slate-800 text-sm">Jadwal Aktif Hari Ini <span class="text-slate-400 font-bold">(${todayList.length})</span></h4>
-                                                    ${todayList.length ? `<div class="grid grid-cols-1 md:grid-cols-2 gap-4">${todayList.map(card).join('')}</div>` : emptyBox('Tidak ada jadwal ujian hari ini.')}
-                                                </div>
-                                                <div class="space-y-3">
-                                                    <button type="button" onclick="appState.monitoringPastOpen = !appState.monitoringPastOpen; renderAssessmentModule(document.getElementById('view-container'), 'monitoring', null);" class="w-full flex items-center justify-between px-4 py-3 bg-slate-100 hover:bg-slate-200 rounded-2xl text-xs font-extrabold text-slate-700 transition cursor-pointer">
-                                                        <span>Jadwal Lainnya</span>
-                                                        <span class="text-slate-400 font-bold">${pastList.length} lewat &bull; ${futureList.length} akan datang ${pastOpen ? '▴' : '▾'}</span>
-                                                    </button>
-                                                    ${pastOpen ? `
-                                                        <h5 class="font-extrabold text-slate-700 text-xs pt-1">Sudah Lewat (${pastList.length})</h5>
-                                                        ${pastList.length ? `<div class="grid grid-cols-1 gap-4">${pastList.map(card).join('')}</div>` : emptyBox('Belum ada jadwal yang sudah lewat.')}
-                                                        <h5 class="font-extrabold text-slate-700 text-xs pt-2">Akan Datang (${futureList.length})</h5>
-                                                        ${futureList.length ? `<div class="grid grid-cols-1 gap-4">${futureList.map(card).join('')}</div>` : emptyBox('Belum ada jadwal akan datang.')}
-                                                    ` : ''}
-                                                </div>
-                                            </div>`;
-                                        })()}
+                                        <!-- MONITORING_FILTER_PAGE_V1: pemilih jadwal jadi filter; daftar siswa muncul di bawah bila jadwal dipilih -->
+                                        ${monitoringFilterBarHTML(displayExams)}
+                                        <div class="p-8 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed text-sm">Pilih jadwal dulu untuk melihat daftar siswa.<br><span class="text-xs">Kelas dan Ruang boleh dikosongkan (Semua).</span></div>
                                         </div>
                                     `}
                                 </div>
@@ -2666,9 +2623,9 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                         const blockedMap = JSON.parse(localStorage.getItem('madrasah_blocked_students')) || {};
                         const livecamFrames = appState.runtimeLivecamFrames || {};
 
-                        // MONITORING_FILTERS_V1: filter Kelas & Jadwal manual dihapus —
-                        // kelas sudah ikut jadwal yang dipilih di awal (langkah 1),
-                        // di live monitoring cukup filter Ruang + pencarian nama/NIS.
+                        // MONITORING_FILTER_PAGE_V1: filter Kelas/Jadwal/Ruang/cari ada di
+                        // halaman pilih di atas; daftar di bawah disaring langkah 1 (kelas
+                        // jadwal), 1b (kelas filter), 2 (ruang), 3 (cari nama/NIS).
                         // Filter the students list
                         let filteredStudentsForMonitor = appState.students || [];
 
@@ -2677,6 +2634,11 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                             filteredStudentsForMonitor = filteredStudentsForMonitor.filter(st => {
                                 return activeExam.classes.some(cId => String(cId) === String(st.classId));
                             });
+                        }
+
+                        // 1b. Filter by Kelas yang dipilih di filter (bila ada)
+                        if (appState.monitoringFilterClassId) {
+                            filteredStudentsForMonitor = filteredStudentsForMonitor.filter(st => String(st.classId) === String(appState.monitoringFilterClassId));
                         }
 
 
@@ -2702,32 +2664,41 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                         }
 
 
+                        // MONITORING_FILTER_PAGE_V1: hitungan ringkas untuk chip di atas daftar.
+                        const monitorCounts = { active: 0, done: 0, idle: 0, blocked: 0 };
+                        filteredStudentsForMonitor.forEach(st => {
+                            const ck1 = st.id + '_' + activeExam.id;
+                            const ck2 = String(st.id) + '_' + String(activeExam.id);
+                            const cDone = (completedExams[ck1] === true || completedExams[ck2] === true) || Boolean(forceFinishedExams[ck1] || forceFinishedExams[ck2] || completedExams[ck1] === 'force_finish' || completedExams[ck2] === 'force_finish');
+                            const cBlocked = isStudentBlocked(activeExam.id, st.id);
+                            const cActive = (activeSessions[ck1] !== undefined || activeSessions[ck2] !== undefined);
+                            if (cBlocked) monitorCounts.blocked++;
+                            else if (cDone) monitorCounts.done++;
+                            else if (cActive) monitorCounts.active++;
+                            else monitorCounts.idle++;
+                        });
+
                         return `
                             <div class="space-y-4">
-                                <div class="bg-white p-6 rounded-3xl shadow-sm border flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-                                    <div class="space-y-2">
-                                        <button type="button" onclick="appState.activeMonitoringExamId = null; renderAssessmentModule(document.getElementById('view-container'), 'monitoring', null);" class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 active:scale-95 text-slate-700 font-extrabold rounded-2xl text-xs inline-flex items-center gap-2 transition cursor-pointer border border-slate-200/80 shadow-sm">
-                                            <i class="fa-solid fa-arrow-left"></i> <span>Kembali ke Pilih Jadwal Ujian</span>
-                                        </button>
+                                <div class="bg-white p-6 rounded-3xl shadow-sm border space-y-6">
+                                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-slate-100 pb-4 gap-4">
                                         <div>
-                                            <h3 class="font-extrabold text-slate-800 text-lg">Live Monitoring: ${activeExam.title}</h3>
-                                            <p class="text-xs text-slate-400">Pantau kehadiran, status pengerjaan, livecam, pelanggaran keluar tab, dan kontrol peserta.</p>
+                                            <h3 class="font-extrabold text-slate-800 text-base sm:text-lg">Pilih Ujian CBT yang Dipantau</h3>
+                                            <p class="text-xs text-slate-400">Pilih filter di bawah — daftar siswa muncul sesuai filter. Jadwal wajib dipilih; Kelas &amp; Ruang boleh dikosongkan.</p>
                                         </div>
+                                        <button type="button" onclick="appState.selectedMonitoringType = null; renderAssessmentModule(document.getElementById('view-container'), 'monitoring', null);" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer">
+                                            <i class="fa-solid fa-arrow-left"></i> <span>Ganti Tipe Monitoring</span>
+                                        </button>
+                                    </div>
+                                    ${monitoringFilterBarHTML(displayExams)}
+                                </div>
+
+                                <div class="bg-white p-6 rounded-3xl shadow-sm border flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                                    <div>
+                                        <h3 class="font-extrabold text-slate-800 text-lg">Live Monitoring: ${activeExam.title}</h3>
+                                        <p class="text-xs text-slate-400">Pantau kehadiran, status pengerjaan, livecam, pelanggaran keluar tab, dan kontrol peserta.</p>
                                     </div>
                                     <div class="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-                                        <!-- Search Nama / NIS -->
-                                        <div class="relative min-w-[180px] sm:min-w-[220px]">
-                                            <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
-                                            <input type="text" id="monitor-search-input" value="${appState.monitoringFilterSearch || ''}" oninput="onMonitoringFilterChange('${activeExam.id}')" placeholder="Cari Nama / NIS..." class="w-full pl-9 pr-3 py-2 bg-slate-50 hover:bg-slate-100/80 focus:bg-white border border-slate-200/80 rounded-2xl text-xs font-semibold text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400 transition">
-                                        </div>
-                                        <!-- Filter Ruang -->
-                                        <div class="flex items-center space-x-2 bg-slate-50 hover:bg-slate-100 border border-slate-200/60 px-3.5 py-2 rounded-2xl transition duration-150">
-                                            <span class="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">Ruang</span>
-                                            <select id="monitor-room-filter" onchange="onMonitoringFilterChange('${activeExam.id}')" class="bg-transparent text-xs font-bold text-slate-700 focus:outline-none cursor-pointer">
-                                                <option value="">Semua Ruang</option>
-                                                ${(appState.rooms || []).map(r => `<option value="${r.id}" ${appState.monitoringFilterRoomId === String(r.id) ? 'selected' : ''}>${r.name}</option>`).join('')}
-                                            </select>
-                                        </div>
                                         <!-- Kirim Pesan ke Semua -->
                                         <button type="button" onclick="openBroadcastMessageModal('${activeExam.id}')" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl text-xs shadow flex items-center space-x-1.5 transition cursor-pointer">
                                             <i class="fa-solid fa-bullhorn text-[11px]"></i><span>Kirim Pesan</span>
@@ -2745,6 +2716,14 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                     </div>
                                 </div>
 
+                                <div class="flex flex-wrap gap-2">
+                                    <span class="px-3 py-1.5 bg-emerald-100 text-emerald-800 font-bold rounded-full text-[11px]">Mengerjakan: ${monitorCounts.active}</span>
+                                    <span class="px-3 py-1.5 bg-slate-100 text-slate-700 font-bold rounded-full text-[11px]">Selesai: ${monitorCounts.done}</span>
+                                    <span class="px-3 py-1.5 bg-amber-100 text-amber-800 font-bold rounded-full text-[11px]">Belum Mulai: ${monitorCounts.idle}</span>
+                                    ${monitorCounts.blocked ? `<span class="px-3 py-1.5 bg-rose-100 text-rose-800 font-bold rounded-full text-[11px]">Diblokir: ${monitorCounts.blocked}</span>` : ''}
+                                    <span class="px-3 py-1.5 bg-slate-100 text-slate-700 font-bold rounded-full text-[11px]">Total: ${filteredStudentsForMonitor.length} siswa</span>
+                                </div>
+
                                 <!-- Local IP / Offline WebRTC Expose Helper Banner -->
                                 <div id="admin-local-ip-bypass-banner" style="${adminSpotlightEnabled ? '' : 'display:none'}" class="bg-amber-50/70 border border-amber-200 rounded-3xl p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shadow-sm">
                                     <div class="space-y-1">
@@ -2757,10 +2736,6 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                         </p>
                                     </div>
                                     <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                                        <button type="button" onclick="event.stopPropagation(); window.refreshMonitoringState('${activeExam.id}', this)" class="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 active:scale-95 text-white rounded-2xl text-[10px] font-bold shadow-md flex items-center space-x-1.5 transition whitespace-nowrap cursor-pointer">
-                                            <i class="fa-solid fa-arrows-rotate"></i>
-                                            <span>Refresh Data</span>
-                                        </button>
                                                                                 <button type="button" onclick="event.stopPropagation(); triggerAdminCameraPermissionBypass()" id="admin-bypass-btn" class="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-2xl text-[10px] font-bold shadow-md flex items-center space-x-1.5 transition whitespace-nowrap cursor-pointer">
                                             <i class="fa-solid fa-key"></i>
                                             <span>Buka Akses IP Lokal</span>
@@ -7826,6 +7801,63 @@ async function toggleStudentLivecamMode(examId, studentId) {
         window.showToast('Spotlight Video Live sedang dinonaktifkan.', 'info');
     }
 }
+
+// MONITORING_FILTER_PAGE_V1: halaman pilih Monitoring jadi filter (Kelas/Jadwal/
+// Ruang/cari). Kartu siswa TIDAK diubah — daftar live di bawah filter memakai
+// markup kartu yang sama persis seperti live view lama. Tombol Refresh Data
+// sengaja tidak ada di halaman ini (daftar sudah update live otomatis).
+function monitoringPickerExamOptionsHTML(exams, classId) {
+    const selectedId = String(appState.activeMonitoringExamId || '');
+    let list = (exams || []).filter(ex => ex && ex.recordType !== 'EVENT' && evaluasiExamMatchesClass(ex, classId || ''));
+    // Pilihan aktif tidak boleh hilang dari dropdown (mis. render ulang otomatis).
+    if (selectedId && !list.some(ex => String(ex.id) === selectedId)) {
+        const cur = (exams || []).find(ex => ex && String(ex.id) === selectedId);
+        if (cur) list = [cur, ...list];
+    }
+    return '<option value="">-- Pilih Jadwal Ujian --</option>' + list.map(ex =>
+        `<option value="${assessmentEscapeAttr(String(ex.id))}" ${String(ex.id) === selectedId ? 'selected' : ''}>${assessmentEscapeHtml(ex.title)} — ${assessmentEscapeHtml(monitoringExamDateLabel(ex))} (Kelas ${assessmentEscapeHtml(monitoringExamClassLabel(ex))})</option>`
+    ).join('');
+}
+
+function monitoringFilterBarHTML(exams) {
+    if (appState.monitoringFilterClassId === undefined) appState.monitoringFilterClassId = '';
+    if (appState.monitoringFilterRoomId === undefined) appState.monitoringFilterRoomId = '';
+    if (appState.monitoringFilterSearch === undefined) appState.monitoringFilterSearch = '';
+    const classId = appState.monitoringFilterClassId || '';
+    return `
+    <div class="flex flex-wrap items-end gap-3 pt-1">
+        <div>
+            <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Kelas</label>
+            <select id="monitor-filter-kelas" onchange="onMonitoringFilterChange()" class="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-700 min-w-[150px]">
+                <option value="">Semua Kelas</option>
+                ${(appState.classes || []).map(c => `<option value="${assessmentEscapeAttr(String(c.id))}" ${String(classId) === String(c.id) ? 'selected' : ''}>${assessmentEscapeHtml(c.name)}</option>`).join('')}
+            </select>
+        </div>
+        <div>
+            <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Jadwal Ujian</label>
+            <select id="monitor-filter-jadwal" onchange="onMonitoringFilterChange()" class="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-700 min-w-[220px]">
+                ${monitoringPickerExamOptionsHTML(exams, classId)}
+            </select>
+        </div>
+        <div>
+            <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Ruang</label>
+            <select id="monitor-filter-ruang" onchange="onMonitoringFilterChange()" class="px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-700 min-w-[150px]">
+                <option value="">Semua Ruang</option>
+                ${(appState.rooms || []).map(r => `<option value="${assessmentEscapeAttr(String(r.id))}" ${String(appState.monitoringFilterRoomId || '') === String(r.id) ? 'selected' : ''}>${assessmentEscapeHtml(r.name)}</option>`).join('')}
+            </select>
+        </div>
+        <div>
+            <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">Cari Nama / NIS</label>
+            <div class="relative">
+                <i class="fa-solid fa-magnifying-glass absolute left-3 top-3 text-slate-400 text-xs"></i>
+                <input type="text" id="monitor-search-input" value="${assessmentEscapeAttr(appState.monitoringFilterSearch || '')}" oninput="onMonitoringFilterChange()" placeholder="Cari Nama / NIS..." class="pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 text-slate-700 min-w-[180px]">
+            </div>
+        </div>
+        <button type="button" onclick="onMonitoringPickerReset()" class="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl text-xs transition cursor-pointer">Reset Filter</button>
+    </div>`;
+}
+
+
 function onMonitoringExamSwitch(examId) {
     if (!examId || String(examId) === String(appState.activeMonitoringExamId)) return;
     appState.activeMonitoringExamId = examId;
@@ -7835,21 +7867,31 @@ function onMonitoringExamSwitch(examId) {
     renderAssessmentModule(document.getElementById('view-container'), 'monitoring', examId);
 }
 
-function onMonitoringFilterChange(examId) {
-    const classIdEl = document.getElementById('monitor-class-filter');
-    const roomIdEl = document.getElementById('monitor-room-filter');
+function onMonitoringFilterChange() {
+    const classIdEl = document.getElementById('monitor-filter-kelas');
+    const jadwalEl = document.getElementById('monitor-filter-jadwal');
+    const roomIdEl = document.getElementById('monitor-filter-ruang');
     const searchInputEl = document.getElementById('monitor-search-input');
 
-    const classId = classIdEl ? classIdEl.value : '';
-    const roomId = roomIdEl ? roomIdEl.value : '';
-    const searchVal = searchInputEl ? searchInputEl.value : '';
+    const classId = classIdEl ? classIdEl.value : (appState.monitoringFilterClassId || '');
+    let jadwalId = jadwalEl ? jadwalEl.value : (appState.activeMonitoringExamId || '');
+    const roomId = roomIdEl ? roomIdEl.value : (appState.monitoringFilterRoomId || '');
+    const searchVal = searchInputEl ? searchInputEl.value : (appState.monitoringFilterSearch || '');
 
     appState.monitoringFilterClassId = classId;
     appState.monitoringFilterRoomId = roomId;
     appState.monitoringFilterSearch = searchVal;
-    
+
+    // Bila kelas berubah dan jadwal yang sedang aktif tidak lagi cocok dengan
+    // kelas itu, kosongkan jadwal (pilihannya tidak ada lagi di dropdown).
+    if (jadwalId) {
+        const cur = (appState.exams || []).find(e => String(e.id) === String(jadwalId));
+        if (cur && !evaluasiExamMatchesClass(cur, classId)) jadwalId = '';
+    }
+    appState.activeMonitoringExamId = jadwalId || null;
+
     // Refresh monitoring view
-    renderAssessmentModule(document.getElementById('view-container'), 'monitoring', examId);
+    renderAssessmentModule(document.getElementById('view-container'), 'monitoring', appState.activeMonitoringExamId || null);
 
     // Restore focus and cursor position if user was searching
     const newSearchInput = document.getElementById('monitor-search-input');
@@ -7857,6 +7899,14 @@ function onMonitoringFilterChange(examId) {
         newSearchInput.focus();
         newSearchInput.setSelectionRange(searchVal.length, searchVal.length);
     }
+}
+
+function onMonitoringPickerReset() {
+    appState.monitoringFilterClassId = '';
+    appState.monitoringFilterRoomId = '';
+    appState.monitoringFilterSearch = '';
+    appState.activeMonitoringExamId = null;
+    renderAssessmentModule(document.getElementById('view-container'), 'monitoring', null);
 }
 
 // ==========================================
@@ -10879,6 +10929,7 @@ window.openBroadcastMessageModal = openBroadcastMessageModal;
 window.sendBroadcastExamMessage = sendBroadcastExamMessage;
 window.dismissStudentExamMessage = dismissStudentExamMessage;
 window.onMonitoringFilterChange = onMonitoringFilterChange;
+window.onMonitoringPickerReset = onMonitoringPickerReset;
 window.onMonitoringExamSwitch = onMonitoringExamSwitch;
 window.renderStudentCBTList = renderStudentCBTList;
 
@@ -12343,6 +12394,7 @@ Object.assign(window, {
   sendBroadcastExamMessage,
   dismissStudentExamMessage,
   onMonitoringFilterChange,
+  onMonitoringPickerReset,
   toggleEvaluasiSelectForm,
   onEvaluasiFilterChange,
   filterEvaluasiStudentTable,
