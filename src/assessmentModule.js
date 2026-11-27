@@ -1817,6 +1817,11 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
     const evaluasiExamOptions = getEvaluasiFilteredExams(displayExams); // EVALUASI_EXAM_FILTER_V1
     const activeExam = displayExams.find(e => e.id === appState.activeMonitoringExamId);
     const activeEvalExam = displayExams.find(e => e.id === appState.activeEvaluationExamId);
+    // MONITORING_LIVE_BADGE_V1: badge hanya menghitung sesi yang benar-benar
+    // live (heartbeat < 30 detik) — ambang yang sama dipakai endpoint monitor
+    // untuk isOnline. Sesi yang tidak pernah finish (tab ditutup, waktu habis,
+    // soak test) tidak ikut dihitung, jadi badge 0 saat tidak ada ujian.
+    const liveMonitoringCount = Object.values(appState.activeExamSessions || {}).filter(s => s && typeof s === 'object' && (Date.now() - Number(s.lastSeenAt || 0) < 30000)).length;
 
     const currentTokens = (typeof window.getActiveMadrasahTokenBalance === 'function')
         ? window.getActiveMadrasahTokenBalance()
@@ -1878,9 +1883,9 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                     ${!isTeacher ? `<button type="button" onclick="appState.activeMonitoringExamId = null; appState.activeEvaluationExamId = null; renderAssessmentModule(document.getElementById('view-container'), 'kartu_peserta', null)" class="px-4 py-2.5 rounded-2xl text-xs font-semibold ${currentTab === 'kartu_peserta' ? 'bg-emerald-600 text-white shadow' : 'bg-slate-100 text-slate-700'}">Generate Nomor Peserta</button>` : ''}
                     <button type="button" onclick="appState.activeEvaluationExamId = null; renderAssessmentModule(document.getElementById('view-container'), 'monitoring', null)" class="px-4 py-2.5 rounded-2xl text-xs font-semibold ${currentTab === 'monitoring' ? 'bg-emerald-600 text-white shadow' : 'bg-slate-100 text-slate-700'} flex items-center gap-1.5 relative">
                         <span>Monitoring</span>
-                        ${Object.keys(appState.activeExamSessions || {}).length > 0 ? `
+                        ${liveMonitoringCount > 0 ? `
                             <span class="inline-flex items-center justify-center min-w-[16px] h-4 px-1 bg-rose-500 text-white text-[9px] font-black rounded-full shadow-sm animate-pulse">
-                                ${Object.keys(appState.activeExamSessions || {}).length}
+                                ${liveMonitoringCount}
                             </span>
                         ` : ''}
                     </button>
