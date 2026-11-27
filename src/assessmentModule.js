@@ -905,7 +905,6 @@ function startEvaluasiPolling() {
     // Realtime exam events are the primary update path. This full tenant snapshot is
     // deliberately a slower fallback so an open Evaluasi tab cannot create a request storm.
     window.__evaluasiPollInterval = setInterval(async () => {
-        if (appState.evaluasiPollPaused) return; // PAUSE_UPDATE_V1
         if (document.visibilityState !== 'visible') return;
         if (appState.lastAssessmentSubTab !== 'evaluasi') {
             stopEvaluasiPolling();
@@ -2638,7 +2637,6 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
 
                         // Attach event listener for real-time surgical updates from SSE/WS
                         window.__onExamMonitoringEvent = function(event) {
-                            if (appState.evaluasiPollPaused) return; // PAUSE_UPDATE_V1
                             if (!event || !event.studentId) return;
                             if (appState.lastAssessmentSubTab !== 'monitoring') return;
                             if (event.examId && appState.activeMonitoringExamId && String(event.examId) !== String(appState.activeMonitoringExamId)) {
@@ -2752,11 +2750,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             <i class="fa-solid fa-arrows-rotate"></i>
                                             <span>Refresh Data</span>
                                         </button>
-                                        <button type="button" onclick="event.stopPropagation(); appState.evaluasiPollPaused = !appState.evaluasiPollPaused; renderAssessmentModule(document.getElementById('view-container'), 'monitoring', appState.activeMonitoringExamId || null);" class="px-4 py-2.5 ${appState.evaluasiPollPaused ? 'bg-amber-500 hover:bg-amber-600' : 'bg-white hover:bg-slate-100'} active:scale-95 ${appState.evaluasiPollPaused ? 'text-white' : 'text-slate-700'} border border-slate-200 rounded-2xl text-[10px] font-bold shadow-md flex items-center space-x-1.5 transition whitespace-nowrap cursor-pointer" title="Jeda/lanjutkan pembaruan otomatis">
-                                            <i class="fa-solid ${appState.evaluasiPollPaused ? 'fa-play' : 'fa-pause'}"></i>
-                                            <span>${appState.evaluasiPollPaused ? 'Lanjut Update' : 'Jeda Update'}</span>
-                                        </button>
-                                        <button type="button" onclick="event.stopPropagation(); triggerAdminCameraPermissionBypass()" id="admin-bypass-btn" class="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-2xl text-[10px] font-bold shadow-md flex items-center space-x-1.5 transition whitespace-nowrap cursor-pointer">
+                                                                                <button type="button" onclick="event.stopPropagation(); triggerAdminCameraPermissionBypass()" id="admin-bypass-btn" class="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-2xl text-[10px] font-bold shadow-md flex items-center space-x-1.5 transition whitespace-nowrap cursor-pointer">
                                             <i class="fa-solid fa-key"></i>
                                             <span>Buka Akses IP Lokal</span>
                                         </button>
@@ -2977,10 +2971,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                             <p class="text-xs text-slate-400 mt-0.5">Koreksi lembar jawaban siswa, input nilai, dan cetak laporan hasil.</p>
                         </div>
                         <div class="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl">
-                            <button type="button" onclick="appState.evaluasiPollPaused = !appState.evaluasiPollPaused; renderAssessmentModule(document.getElementById('view-container'), 'evaluasi', appState.evaluasiSelectedExamId || null);" class="px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${appState.evaluasiPollPaused ? 'bg-amber-500 text-white shadow-sm' : 'bg-white text-slate-900 shadow-sm'}" title="Jeda/lanjutkan pembaruan otomatis">
-                                <i class="fa-solid ${appState.evaluasiPollPaused ? 'fa-play' : 'fa-pause'}"></i> <span>${appState.evaluasiPollPaused ? 'Lanjut Update' : 'Jeda Update'}</span>
-                            </button>
-                            <button type="button" onclick="appState.evaluasiMode = 'cbt'; renderAssessmentModule(document.getElementById('view-container'), 'evaluasi', appState.evaluasiSelectedExamId || null);" class="px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${(!appState.evaluasiMode || appState.evaluasiMode === 'cbt') ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}">
+                                                        <button type="button" onclick="appState.evaluasiMode = 'cbt'; renderAssessmentModule(document.getElementById('view-container'), 'evaluasi', appState.evaluasiSelectedExamId || null);" class="px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${(!appState.evaluasiMode || appState.evaluasiMode === 'cbt') ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-900'}">
                                 <i class="fa-solid fa-laptop text-indigo-600"></i> <span>Ujian CBT</span>
                             </button>
                             <button type="button" onclick="appState.evaluasiMode = 'lkpd'; renderAssessmentModule(document.getElementById('view-container'), 'evaluasi', null);" class="px-4 py-2 rounded-xl text-xs font-black transition cursor-pointer flex items-center gap-1.5 ${appState.evaluasiMode === 'lkpd' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-500 hover:text-slate-900'}">
@@ -3267,7 +3258,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
         }
     }
 
-    if (currentTab === 'monitoring' && appState.activeMonitoringExamId && !appState.evaluasiPollPaused) {
+    if (currentTab === 'monitoring' && appState.activeMonitoringExamId) {
         setTimeout(() => {
             if (typeof window.refreshMonitoringState === 'function') {
                 window.refreshMonitoringState(appState.activeMonitoringExamId).catch(err => console.warn("Auto-monitoring state sync failed:", err));
@@ -7666,9 +7657,16 @@ window.promptVideoDurationAndDeductTokens = function(onSuccess) {
                     if (appState.gameMonitoringStudentModes) appState.gameMonitoringStudentModes = {};
                     if (appState.lkpdLivecamModes) appState.lkpdLivecamModes = {};
 
-                    if (typeof renderAssessmentModule === 'function' && document.getElementById('view-container')) {
-                        const activeExam = appState.activeExamId || (appState.exams && appState.exams[0]?.id);
-                        if (activeExam) renderAssessmentModule(document.getElementById('view-container'), 'monitoring', activeExam);
+                    // MONITORING_VIDEO_TIMER_EXAM_V1: saat menit video habis,
+                    // JANGAN pindah jadwal — render ulang dengan jadwal yang
+                    // sedang dipantau. Sebelumnya memakai appState.activeExamId
+                    // yang tidak pernah diisi di mana pun, sehingga selalu
+                    // jatuh ke jadwal PERTAMA (exams[0]); bila jadwal itu
+                    // tidak punya kelas tercatat, saringan kelas dilewati dan
+                    // SEMUA murid tampil tidak sinkron. Hanya render ulang
+                    // bila memang sedang di tab Monitoring dengan jadwal aktif.
+                    if (typeof renderAssessmentModule === 'function' && document.getElementById('view-container') && appState.lastAssessmentSubTab === 'monitoring' && appState.activeMonitoringExamId) {
+                        renderAssessmentModule(document.getElementById('view-container'), 'monitoring', appState.activeMonitoringExamId);
                     }
                     if (typeof renderGameMonitoringDashboard === 'function') renderGameMonitoringDashboard();
                     if (typeof window.renderLkpdMonitoringSection === 'function' && document.getElementById('lkpd-monitoring-container')) {
