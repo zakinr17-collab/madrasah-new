@@ -1068,14 +1068,22 @@ function evaluasiExamMatchesDateFilter(exam, filter, nowMs) {
 }
 
 // EVALUASI_CLASS_EXAM_FILTER_V1: jadwal ujian hanya untuk kelas yang dipilih.
-// exam.classes berisi ID kelas dan/atau NAMA kelas, atau ['ALL'] / kosong
-// (= semua kelas). Cocokkan tanpa peka huruf besar-kecil terhadap ID dan
-// nama kelas yang dipilih (sama longgarnya dengan filter klien di daftar
+// exam.classes berisi ID kelas dan/atau NAMA kelas, atau ['ALL'] / 'Semua
+// Kelas' (= semua kelas). Cocokkan tanpa peka huruf besar-kecil terhadap ID
+// dan nama kelas yang dipilih (sama longgarnya dengan filter klien di daftar
 // ujian siswa); tanpa kelas dipilih, semua jadwal tampil.
+// EVALUASI_CLASS_STRICT_V1: jadwal yang classes-nya kosong/tidak ada TIDAK
+// cocok bila kelas dipilih (bukan "semua kelas") — supaya jadwal yang
+// kelasnya tidak tercatat tidak muncul di kelas mana pun.
 function evaluasiExamMatchesClass(exam, classId) {
     if (!classId) return true;
     const classes = Array.isArray(exam) ? exam : (exam && exam.classes);
-    if (!classes || classes.length === 0) return true;
+    // EVALUASI_CLASS_STRICT_V1: bila kelas dipilih, jadwal yang tidak
+    // punya kelas tercatat TIDAK cocok — hanya jadwal yang kelasnya cocok
+    // eksplisit (ID/nama) atau 'Semua Kelas' yang tampil. Sebelumnya jadwal
+    // tanpa kelas dianggap untuk semua kelas, sehingga muncul di kelas mana
+    // pun (mis. jadwal kelas lain yang kelasnya hanya tertulis di judul).
+    if (!classes || classes.length === 0) return false;
     const cls = (appState.classes || []).find(c => String(c.id) === String(classId));
     const targets = [String(classId)];
     if (cls && cls.name) targets.push(String(cls.name));
