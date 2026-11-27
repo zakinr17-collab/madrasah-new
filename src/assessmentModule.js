@@ -1661,6 +1661,17 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
     const _prevContainerScroll = container ? (container.scrollTop || 0) : 0;
     appState.lastAssessmentSubTab = activeSubTab;
 
+    // MONITORING_KEEP_EXAM_V1: render ulang otomatis (sinkron realtime /
+    // roster) kadang datang tanpa examId — jangan biarkan jadwal yang sedang
+    // dipantau hilang sehingga daftar berubah jadi semua murid. Hanya
+    // berlaku bila memang sudah di tab Monitoring dengan jadwal aktif;
+    // navigasi masuk (pemilih jadwal, LKPD, tombol Kembali) tidak
+    // terpengaruh karena tombol itu mengosongkan activeMonitoringExamId dulu.
+    if (activeSubTab === 'monitoring' && !examId && _prevSubTab === 'monitoring' && appState.activeMonitoringExamId) {
+        console.warn('Monitoring: render ulang tanpa jadwal, pakai jadwal aktif yang tersimpan:', appState.activeMonitoringExamId);
+        examId = appState.activeMonitoringExamId;
+    }
+
     // Selalu ambil roster terbaru dari server untuk Monitoring/Evaluasi.
     // Dibatasi supaya tidak fetch berulang pada setiap render/polling.
     if (
