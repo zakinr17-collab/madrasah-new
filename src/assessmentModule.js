@@ -1822,6 +1822,9 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
     // untuk isOnline. Sesi yang tidak pernah finish (tab ditutup, waktu habis,
     // soak test) tidak ikut dihitung, jadi badge 0 saat tidak ada ujian.
     const liveMonitoringCount = Object.values(appState.activeExamSessions || {}).filter(s => s && typeof s === 'object' && (Date.now() - Number(s.lastSeenAt || 0) < 30000)).length;
+    // MONITORING_CLEANUP_ORPHAN_V1: tombol Bersihkan Sesi Lama hanya untuk
+    // peran yang diizinkan endpoint cleanup-orphan-state.
+    const canCleanupOrphanSessions = ['admin', 'bos', 'superadmin'].includes(getAssessmentActorRole());
 
     const currentTokens = (typeof window.getActiveMadrasahTokenBalance === 'function')
         ? window.getActiveMadrasahTokenBalance()
@@ -2540,6 +2543,15 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             </div>
                                         </div>
                                     </div>
+                                    ${canCleanupOrphanSessions ? `
+                                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-slate-50 border border-slate-200 rounded-2xl px-4 py-3">
+                                        <div>
+                                            <p class="text-xs font-bold text-slate-700">Bersihkan Sesi Lama</p>
+                                            <p class="text-[11px] text-slate-500 leading-relaxed">Hapus sesi ujian dari jadwal yang sudah tidak ada (mis. sisa soak test). Tidak menyentuh ujian yang masih ada.</p>
+                                        </div>
+                                        <button type="button" id="btn-cleanup-orphan-sessions" onclick="cleanupMonitoringOrphanSessions(true)" class="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-2xl text-xs shadow transition cursor-pointer whitespace-nowrap">Bersihkan Sesi Lama</button>
+                                    </div>
+                                    ` : ''}
                                 </div>
                             ` : `
                                 <!-- DETAIL SELECTION BERDASARKAN TIPE MONITORING -->
@@ -7811,6 +7823,48 @@ async function toggleStudentLivecamMode(examId, studentId) {
 // Ruang/cari). Kartu siswa TIDAK diubah — daftar live di bawah filter memakai
 // markup kartu yang sama persis seperti live view lama. Tombol Refresh Data
 // sengaja tidak ada di halaman ini (daftar sudah update live otomatis).
+// MONITORING_CLEANUP_ORPHAN_V1: tombol "Bersihkan Sesi Lama" — memanggil
+// POST /api/exams/cleanup-orphan-state. Langkah 1 selalu dry-run (cek dulu);
+// bila ada ujian yatim, tampilkan konfirmasi berisi jumlahnya, baru hapus beneran.
+async function cleanupMonitoringOrphanSessions(dryRun) {
+    const btn = document.getElementById('btn-cleanup-orphan-sessions');
+    if (btn) { btn.disabled = true; btn.textContent = dryRun ? 'Memeriksa...' : 'Menghapus...'; }
+    try {
+        const res = await fetch('/api/exams/cleanup-orphan-state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ dryRun: dryRun === true })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false) {
+            throw new Error(data.message || ('Server menolak (HTTP ' + res.status + ')'));
+        }
+        if (dryRun === true) {
+            if (!data.orphanExamCount) {
+                if (typeof window.showToast === 'function') window.showToast('Tidak ada sesi lama — semua sesi milik ujian yang masih ada.', 'success');
+                return;
+            }
+            const ids = (data.orphanExamIds || []).slice(0, 3).join(', ');
+            const more = (data.orphanExamIds || []).length > 3 ? ' (+' + ((data.orphanExamIds || []).length - 3) + ' lagi)' : '';
+            const msg = 'Ditemukan ' + data.orphanExamCount + ' ujian tanpa jadwal dengan ' + (data.removedTotalKeys || 0) + ' data sesi lama (' + ids + more + '). Hapus permanen?';
+            if (typeof window.showConfirmModal === 'function') {
+                window.showConfirmModal(msg, () => cleanupMonitoringOrphanSessions(false));
+            } else if (window.confirm(msg)) {
+                cleanupMonitoringOrphanSessions(false);
+            }
+            return;
+        }
+        if (typeof window.showToast === 'function') window.showToast('Sesi lama dibersihkan: ' + (data.removedTotalKeys || 0) + ' data dari ' + (data.orphanExamCount || 0) + ' ujian.', 'success');
+        if (typeof renderAssessmentModule === 'function' && document.getElementById('view-container')) {
+            renderAssessmentModule(document.getElementById('view-container'), 'monitoring', null);
+        }
+    } catch (err) {
+        if (typeof window.showToast === 'function') window.showToast('Gagal membersihkan sesi lama: ' + (err && err.message ? err.message : err), 'error');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = 'Bersihkan Sesi Lama'; }
+    }
+}
+
 function monitoringPickerExamOptionsHTML(exams, classId) {
     const selectedId = String(appState.activeMonitoringExamId || '');
     let list = (exams || []).filter(ex => ex && ex.recordType !== 'EVENT' && evaluasiExamMatchesClass(ex, classId || ''));
@@ -10935,6 +10989,7 @@ window.sendBroadcastExamMessage = sendBroadcastExamMessage;
 window.dismissStudentExamMessage = dismissStudentExamMessage;
 window.onMonitoringFilterChange = onMonitoringFilterChange;
 window.onMonitoringPickerReset = onMonitoringPickerReset;
+window.cleanupMonitoringOrphanSessions = cleanupMonitoringOrphanSessions;
 window.onMonitoringExamSwitch = onMonitoringExamSwitch;
 window.renderStudentCBTList = renderStudentCBTList;
 
@@ -12400,6 +12455,7 @@ Object.assign(window, {
   dismissStudentExamMessage,
   onMonitoringFilterChange,
   onMonitoringPickerReset,
+  cleanupMonitoringOrphanSessions,
   toggleEvaluasiSelectForm,
   onEvaluasiFilterChange,
   filterEvaluasiStudentTable,
