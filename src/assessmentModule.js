@@ -1055,13 +1055,35 @@ function evaluasiExamMatchesDateFilter(exam, filter, nowMs) {
     return true;
 }
 
+// EVALUASI_CLASS_EXAM_FILTER_V1: jadwal ujian hanya untuk kelas yang dipilih.
+// exam.classes berisi ID kelas dan/atau NAMA kelas, atau ['ALL'] / kosong
+// (= semua kelas). Cocokkan tanpa peka huruf besar-kecil terhadap ID dan
+// nama kelas yang dipilih (sama longgarnya dengan filter klien di daftar
+// ujian siswa); tanpa kelas dipilih, semua jadwal tampil.
+function evaluasiExamMatchesClass(exam, classId) {
+    if (!classId) return true;
+    const classes = Array.isArray(exam) ? exam : (exam && exam.classes);
+    if (!classes || classes.length === 0) return true;
+    const cls = (appState.classes || []).find(c => String(c.id) === String(classId));
+    const targets = [String(classId)];
+    if (cls && cls.name) targets.push(String(cls.name));
+    const norm = (s) => String(s || '').trim().toLowerCase();
+    return classes.some(t => {
+        const nt = norm(t);
+        if (nt === 'all' || nt === 'semua kelas') return true;
+        return targets.some(x => norm(x) === nt);
+    });
+}
+
 function getEvaluasiFilteredExams(exams) {
     const filter = appState.evaluasiExamDateFilter || '30d';
     const search = String(appState.evaluasiExamSearch || '').trim().toLowerCase();
     const selectedId = String(appState.evaluasiSelectedExamId || '');
+    const selectedClassId = String(appState.evaluasiSelectedClassId || '');
     return (exams || []).filter(e => {
         if (!e || e.recordType === 'EVENT') return false;
         if (selectedId && String(e.id) === selectedId) return true; // pilihan aktif tidak boleh hilang
+        if (!evaluasiExamMatchesClass(e, selectedClassId)) return false;
         if (!evaluasiExamMatchesDateFilter(e, filter)) return false;
         if (search && !((e.title || '') + ' ' + (e.subject || '')).toLowerCase().includes(search)) return false;
         return true;
@@ -1081,14 +1103,17 @@ function applyEvaluasiExamFilter() {
                 text: o.textContent,
                 date: o.getAttribute('data-date') || '',
                 search: o.getAttribute('data-search') || '',
+                classes: (o.getAttribute('data-classes') || '').split('|').filter(Boolean),
                 selected: o.selected
             }));
     }
     const filter = appState.evaluasiExamDateFilter || '30d';
     const search = String(appState.evaluasiExamSearch || '').trim().toLowerCase();
     const selectedId = String(appState.evaluasiSelectedExamId || '');
+    const selectedClassId = String(appState.evaluasiSelectedClassId || '');
     const filtered = window._evaluasiExamOptions.filter(o => {
         if (selectedId && String(o.value) === selectedId) return true;
+        if (!evaluasiExamMatchesClass(o.classes, selectedClassId)) return false;
         if (!evaluasiExamMatchesDateFilter({ date: o.date }, filter)) return false;
         if (search && !o.search.includes(search)) return false;
         return true;
@@ -1096,7 +1121,7 @@ function applyEvaluasiExamFilter() {
     const escA = typeof window.escapeHtmlAttr === 'function' ? window.escapeHtmlAttr : (s) => String(s);
     const escH = typeof window.escapeHtml === 'function' ? window.escapeHtml : (s) => String(s);
     sel.innerHTML = '<option value="">-- Pilih Jadwal Ujian --</option>' + filtered.map(o =>
-        `<option value="${escA(o.value)}" data-date="${escA(o.date)}" data-search="${escA(o.search)}" ${String(o.value) === selectedId ? 'selected' : ''}>${escH(o.text)}</option>`
+        `<option value="${escA(o.value)}" data-date="${escA(o.date)}" data-search="${escA(o.search)}" data-classes="${escA(o.classes.join('|'))}" ${String(o.value) === selectedId ? 'selected' : ''}>${escH(o.text)}</option>`
     ).join('');
 }
 window.applyEvaluasiExamFilter = applyEvaluasiExamFilter;
@@ -2468,7 +2493,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                 <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">2. Pilih Jadwal Ujian CBT</label>
                                 <select id="eval-exam-select" onchange="onEvaluasiFilterChange()" class="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-700">
                                     <option value="">-- Pilih Jadwal Ujian --</option>
-                                    ${evaluasiExamOptions.map(e => `<option value="${assessmentEscapeAttr(e.id)}" data-date="${assessmentEscapeAttr(e.date || '')}" data-search="${assessmentEscapeAttr(((e.title || '') + ' ' + (e.subject || '')).toLowerCase())}" ${String(appState.evaluasiSelectedExamId) === String(e.id) ? 'selected' : ''}>${assessmentEscapeHtml(e.title)}</option>`).join('')}
+                                    ${evaluasiExamOptions.map(e => `<option value="${assessmentEscapeAttr(e.id)}" data-date="${assessmentEscapeAttr(e.date || '')}" data-search="${assessmentEscapeAttr(((e.title || '') + ' ' + (e.subject || '')).toLowerCase())}" data-classes="${assessmentEscapeAttr(((e.classes || []).join('|')))}" ${String(appState.evaluasiSelectedExamId) === String(e.id) ? 'selected' : ''}>${assessmentEscapeHtml(e.title)}</option>`).join('')}
                                 </select>
                             </div>
                             <div>
@@ -8719,7 +8744,14 @@ function toggleEvaluasiSelectForm() {
 
 function onEvaluasiFilterChange() {
     const classId = document.getElementById('eval-class-select').value;
-    const examId = document.getElementById('eval-exam-select').value;
+    let examId = document.getElementById('eval-exam-select').value;
+    // Kelas adalah saringan 1, jadwal adalah saringan 2 (turunan): ganti
+    // kelas dan jadwal lama bukan jadwal kelas itu -> kosongkan jadwal
+    // supaya tidak tertahan di jadwal kelas lain yang tidak ada di daftar.
+    if (classId && examId) {
+        const ex = (appState.exams || []).find(e => String(e.id) === String(examId));
+        if (ex && !evaluasiExamMatchesClass(ex, classId)) examId = '';
+    }
     appState.evaluasiSelectedClassId = classId;
     appState.evaluasiSelectedExamId = examId;
     evaluasiClearSelection();
