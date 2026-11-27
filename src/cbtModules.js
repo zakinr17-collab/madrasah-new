@@ -3488,6 +3488,13 @@ function autoConvertMathToLatex(str) {
     // Step 0: Pre-normalization of Word / MathType field artifacts (〖 and 〗 are field markers in MS Word, strip them)
     text = text.replace(/[〖〗【】⟦⟧〔〕]/g, '');
     text = text.replace(/[\u2212\u2013\u2014]/g, '-'); // Unicode minus and dashes -> '-'
+    // Pangkat negatif/positif Unicode (2\u207b\u00b3, 4\u207b\u00b9): \u207b/\u207a + angka pangkat -> ^-n / ^+n.
+    // Harus SEBELUM rantai digit di bawah, supaya tidak jadi \u207b^3.
+    text = text.replace(/[\u207b\u207a]([\u2070\u00b9\u00b2\u00b3\u2074\u2075\u2076\u2077\u2078\u2079]+)/g, function (m, ds) {
+        const supMap = { '\u2070': '0', '\u00b9': '1', '\u00b2': '2', '\u00b3': '3', '\u2074': '4', '\u2075': '5', '\u2076': '6', '\u2077': '7', '\u2078': '8', '\u2079': '9' };
+        return '^' + (m[0] === '\u207b' ? '-' : '+') + ds.split('').map(function (d) { return supMap[d]; }).join('');
+    });
+    text = text.replace(/[\u207b\u207a]/g, function (m) { return m === '\u207b' ? '-' : '+'; }); // sisa \u207b/\u207a yang sendirian -> tanda biasa
     text = text.replace(/²/g, '^2').replace(/³/g, '^3').replace(/¹/g, '^1').replace(/⁰/g, '^0').replace(/⁴/g, '^4').replace(/⁵/g, '^5').replace(/⁶/g, '^6').replace(/⁷/g, '^7').replace(/⁸/g, '^8').replace(/⁹/g, '^9');
 
     // Helper to format math inner content cleanly before LaTeX wrapping
@@ -5606,6 +5613,30 @@ function assembleQuestionTextFromDocxLines(raw) {
         if (!t) continue;
         if (/^kunci\s*jawaban\s*:?\s*$/i.test(t) || /^kunci\s*:$/i.test(t)) { flush(); keyMode = true; continue; }
         if (keyMode) {
+            // Baris tabel kunci ("##T## \u2022 1 | C | 11 | D | 21 | B | 31 | A"):
+            // selnya pasangan nomor|huruf \u2014 isi keyList langsung dari sini.
+            // Tanpa ini, baris tabel jatuh ke blok tanpa nomor soal dan dibuang
+            // di tahap output, sehingga semua kunci jadi default 'A'.
+            if (t.startsWith('##T##')) {
+                const cells = t.slice(5).replace(/^\s*\u2022\s*/, '').split('|').map(function (s2) { return s2.trim(); }).filter(function (s2) { return s2 !== ''; });
+                let pairsOk = cells.length >= 2 && cells.length % 2 === 0;
+                const pairs = [];
+                if (pairsOk) {
+                    for (let ci = 0; ci < cells.length; ci += 2) {
+                        const n2 = cells[ci].replace(/[.()]/g, '').trim();
+                        const l2 = cells[ci + 1].trim();
+                        if (!/^\d{1,3}$/.test(n2) || !/^[A-Ea-e]$/.test(l2)) { pairsOk = false; break; }
+                        pairs.push([Number(n2), l2.toUpperCase()]);
+                    }
+                }
+                if (pairsOk) {
+                    for (let pi = 0; pi < pairs.length; pi++) keyList[pairs[pi][0]] = pairs[pi][1];
+                    continue;
+                }
+                // Baris header tabel ("No. | Jawaban | ...") \u2014 lewati, tetap keyMode.
+                if (/no\.?\s*\|/i.test(t) && /jawaban/i.test(t)) continue;
+                keyMode = false;
+            }
             const bare = t.replace(/^##Q##\s*/, '').trim();
             // Kunci bisa: "1. A" / "1. A, B" / "1. Jakarta" (jawaban panjang).
             // Simpan teks kunci apa adanya; multi-huruf dinormalkan jadi A,B.
@@ -5746,10 +5777,16 @@ function assembleQuestionTextFromDocxLines(raw) {
         let qText = b.qtext.join('\n');
         let opts = b.opts.slice();
         const plains = b.plains.slice();
-        // data-list: opsi sebelum pembatas >5 item -> jadikan daftar a-f di dalam soal
-        if (opts.length > 5) {
+        // data-list: opsi sebelum pembatas >5 item -> jadikan daftar a-f di dalam soal.
+        // Syaratnya ada opsi SETELAH pembatas (optsAfter): tanpa pembatas, item
+        // ke-6+ bukan data-list \u2014 biasanya judul bab yang diketik "B. ..."
+        // sehingga ikut terbaca sebagai opsi. Dalam hal itu 5 opsi pertama
+        // dipertahankan dan sisanya dibuang (opsi valid maksimal 5: A-E).
+        if (opts.length > 5 && (b.optsAfter || []).length) {
             qText = (qText ? qText + '\n' : '') + opts.map((o, i2) => '• ' + letters[i2] + '. ' + o).join('\n');
             opts = (b.optsAfter || []).slice();
+        } else if (opts.length > 5) {
+            opts = opts.slice(0, 5);
         } else if ((b.optsAfter || []).length) {
             opts = b.optsAfter.slice();
         }
