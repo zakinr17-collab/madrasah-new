@@ -1730,11 +1730,14 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
     } else if (activeSubTab === 'evaluasi') {
         if (examId) appState.evaluasiSelectedExamId = examId;
         appState.activeEvaluationExamId = examId;
-        const validExams = (appState.exams || []).filter(e => e.recordType !== 'EVENT');
-        const foundSelected = validExams.find(e => String(e.id) === String(appState.evaluasiSelectedExamId));
-        if (!foundSelected && validExams.length > 0) {
-            appState.evaluasiSelectedExamId = validExams[0].id;
-        }
+        // EVALUASI_NO_AUTO_SELECT_V1: TIDAK ada pilih-otomatis jadwal di
+        // sini. Sebelumnya, bila belum ada jadwal terpilih, jadwal PERTAMA
+        // di daftar langsung dipilih sendiri (validExams[0]) — akibatnya
+        // "Koding Ai" selalu muncul sebelum king memilih apa pun, dan
+        // setiap ganti kelas yang mengosongkan jadwal (PR #103) langsung
+        // dihidupkan lagi oleh pilih-otomatis ini, lalu dipertahankan di
+        // daftar oleh force-keep. Sekarang: belum dipilih = kosong, tabel
+        // menampilkan "Pilih Kelas & Jadwal Ujian" sampai king memilih.
         if (appState.evaluasiSelectedExamId && !appState.evaluasiSelectedClassId) {
             const foundEx = (appState.exams || []).find(e => String(e.id) === String(appState.evaluasiSelectedExamId));
             if (foundEx && Array.isArray(foundEx.classes) && foundEx.classes.length > 0 && foundEx.classes[0] !== 'ALL') {
@@ -3108,15 +3111,6 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                         <button type="button" onclick="refreshEvaluasiData('${classId}', '${examId}')" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-blue-600/10 transition cursor-pointer" title="Perbarui Data Nilai Tanpa Keluar Halaman">
                                             <i class="fa-solid fa-rotate"></i><span>Refresh Nilai</span>
                                         </button>
-                                        <!-- Auto Koreksi AI / Non-AI -->
-                                        ${hasEssay ? `
-                                        <button id="btn-auto-koreksi-non-ai" type="button" onclick="runAutoKoreksiNonAI('${classId}', '${examId}')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/10 transition cursor-pointer" title="Koreksi Otomatis Non-AI (Mendukung Bhs Indonesia, Arab, Inggris & Rumus Matematika)">
-                                            <i class="fa-solid fa-calculator text-emerald-200"></i><span>Auto Koreksi Non-AI</span>
-                                        </button>
-                                        <button id="btn-auto-koreksi" type="button" onclick="runAutoKoreksiAI('${classId}', '${examId}')" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-purple-600/10 transition cursor-pointer animate-pulse" title="Koreksi Otomatis Jawaban Esay Siswa Menggunakan AI">
-                                            <i class="fa-solid fa-wand-magic-sparkles text-purple-200"></i><span>Auto Koreksi AI</span>
-                                        </button>
-                                        ` : ''}
                                         <!-- Import ke Nilai Harian -->
                                         <button type="button" onclick="openImportToHarianModal('${classId}', '${examId}')" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-indigo-600/10 transition cursor-pointer" title="Impor nilai evaluasi ini ke rekap Nilai Harian siswa">
                                             <i class="fa-solid fa-file-import"></i><span>Import ke Harian</span>
@@ -9950,96 +9944,6 @@ async function refreshEvaluasiData(classId, examId) {
     showToast(synced ? 'Data nilai berhasil diperbarui!' : 'Data server belum dapat diperbarui. Menampilkan cache terakhir.', synced ? 'success' : 'warning');
 }
 
-function ensureEvaluasiProgressBar(anchorBtnId, label) {
-    let bar = document.getElementById('evaluasi-progress-bar-wrap');
-    const anchor = document.getElementById(anchorBtnId);
-    if (!bar) {
-        bar = document.createElement('div');
-        bar.id = 'evaluasi-progress-bar-wrap';
-        bar.style.cssText = 'margin-top:8px;display:none;';
-        if (anchor && anchor.parentElement) anchor.parentElement.insertBefore(bar, anchor.nextSibling);
-        else document.body.appendChild(bar);
-    }
-    bar.innerHTML = '<div style="display:flex;justify-content:space-between;font-size:10px;font-weight:bold;color:#475569;margin-bottom:3px;"><span id="evaluasi-progress-label">' + (label || 'Memproses...') + '</span><span id="evaluasi-progress-pct">0%</span></div>' +
-        '<div style="height:8px;background:#e2e8f0;border-radius:999px;overflow:hidden;"><div id="evaluasi-progress-fill" style="height:100%;width:0%;background:linear-gradient(90deg,#059669,#10b981);border-radius:999px;transition:width .3s;"></div></div>';
-    bar.style.display = 'block';
-    return {
-        set(pct, text) {
-            const fill = document.getElementById('evaluasi-progress-fill');
-            const pctEl = document.getElementById('evaluasi-progress-pct');
-            const lblEl = document.getElementById('evaluasi-progress-label');
-            const pr = Math.max(0, Math.min(100, Math.round(pct)));
-            if (fill) fill.style.width = pr + '%';
-            if (pctEl) pctEl.textContent = pr + '%';
-            if (lblEl && text) lblEl.textContent = text;
-        },
-        done(ok) {
-            const fill = document.getElementById('evaluasi-progress-fill');
-            if (fill) { fill.style.width = '100%'; fill.style.background = ok === false ? '#dc2626' : 'linear-gradient(90deg,#059669,#10b981)'; }
-            setTimeout(() => { if (bar) bar.style.display = 'none'; }, 2500);
-        }
-    };
-}
-
-async function runAutoKoreksiPerStudent(classId, examId, method) {
-    const isAi = method === 'ai';
-    const btn = document.getElementById(isAi ? 'btn-auto-koreksi' : 'btn-auto-koreksi-non-ai');
-    let originalHtml = '';
-    if (btn) {
-        originalHtml = btn.innerHTML;
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Koreksi berjalan... 0%';
-    }
-    const progress = ensureEvaluasiProgressBar(isAi ? 'btn-auto-koreksi' : 'btn-auto-koreksi-non-ai', isAi ? 'Koreksi AI berjalan...' : 'Koreksi Non-AI berjalan...');
-
-    const completed = appState.completedExams || {};
-    const answers = appState.studentExamAnswers || JSON.parse(localStorage.getItem('madrasah_student_exam_answers') || '{}') || {};
-    const classStudents = (appState.students || []).filter(st => String(st.classId) === String(classId))
-        .filter(st => {
-            const k = st.id + '_' + examId;
-            return Boolean(completed[k] || answers[k] !== undefined);
-        });
-
-    if (classStudents.length === 0) {
-        progress.done(false);
-        if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
-        showToast('Belum ada siswa yang dapat dikoreksi.', 'warning');
-        return;
-    }
-
-    let ok = 0, fail = 0;
-    for (let i = 0; i < classStudents.length; i++) {
-        const st = classStudents[i];
-        const shortName = String(st.name || 'Siswa').split(' ')[0];
-        progress.set((i / classStudents.length) * 100, (isAi ? 'Koreksi AI' : 'Koreksi Non-AI') + ' ' + (i + 1) + '/' + classStudents.length + ' — ' + shortName);
-        if (btn) btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Koreksi... ' + Math.round((i / classStudents.length) * 100) + '%';
-        try {
-            const res = await fetch('/api/gemini/auto-koreksi', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ classId, examId, studentId: st.id, method: isAi ? 'ai' : 'keyword' })
-            });
-            const data = await res.json().catch(() => ({}));
-            if (res.ok && data.success) ok++; else fail++;
-        } catch (_) { fail++; }
-    }
-
-    progress.set(100, 'Selesai');
-    progress.done(true);
-    if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
-    const msg = (isAi ? 'Koreksi AI' : 'Koreksi Non-AI') + ' selesai: ' + ok + ' berhasil' + (fail ? ', ' + fail + ' gagal' : '') + '.';
-    try { await refreshEvaluasiData(classId, examId); } catch (_) {}
-    showToast(msg, fail ? 'warning' : 'success');
-    window.genGuardRelease && window.genGuardRelease('koreksi:' + classId + ':' + examId);
-}
-
-async function runAutoKoreksiNonAI(classId, examId) {
-    return runAutoKoreksiPerStudent(classId, examId, 'keyword');
-}
-
-async function runAutoKoreksiAI(classId, examId) {
-    if (!window.genGuardCheck('koreksi:' + classId + ':' + examId, 15 * 60 * 1000)) { return; }
-    return runAutoKoreksiPerStudent(classId, examId, 'ai');
-}
 
 function generateNilaiEvaluasi() {
     const classId = appState.evaluasiSelectedClassId;
@@ -10997,10 +10901,8 @@ window.openPreviewJawabanEvaluasi = openPreviewJawabanEvaluasi;
 window.downloadSelectedEvaluasiAnswers = downloadSelectedEvaluasiAnswers;
 window.openKoreksiModal = openKoreksiModal;
 window.clickKoreksiBelum = clickKoreksiBelum;
-window.runAutoKoreksiNonAI = runAutoKoreksiNonAI;
 window.runSingleStudentAutoKoreksiNonAI = runSingleStudentAutoKoreksiNonAI;
 window.runSingleStudentAutoKoreksiAI = runSingleStudentAutoKoreksiAI;
-window.runAutoKoreksiAI = runAutoKoreksiAI;
 window.saveKoreksi = saveKoreksi;
 window.generateNilaiEvaluasi = generateNilaiEvaluasi;
 window.openCetakJawabanModal = openCetakJawabanModal;
@@ -12439,8 +12341,6 @@ Object.assign(window, {
   openKoreksiModal,
   saveKoreksi,
   refreshEvaluasiData,
-  runAutoKoreksiAI,
-  runAutoKoreksiNonAI,
   runSingleStudentAutoKoreksiNonAI,
   generateNilaiEvaluasi,
   resetStudentExam,
