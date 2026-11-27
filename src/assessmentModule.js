@@ -919,7 +919,19 @@ function startEvaluasiPolling() {
             if (hasChanges) {
                 const containerEl = document.getElementById('view-container');
                 if (containerEl && appState.lastAssessmentSubTab === 'evaluasi') {
-                    renderAssessmentModule(containerEl, 'evaluasi', appState.evaluasiSelectedExamId);
+                    // EVALUASI_LIVE_PATCH_V1: tambal baris di tempat supaya
+                    // halaman tidak loncat; gambar ulang penuh hanya bila
+                    // struktur berubah (ganti ujian/kelas, mode LKPD, tabel
+                    // belum ada, atau patch gagal).
+                    let patched = false;
+                    try {
+                        patched = evaluasiPatchLiveRows();
+                    } catch (e) {
+                        console.warn('Patch Evaluasi gagal, gambar ulang penuh:', e);
+                    }
+                    if (!patched) {
+                        renderAssessmentModule(containerEl, 'evaluasi', appState.evaluasiSelectedExamId);
+                    }
                 }
             }
         } catch (e) {
@@ -1125,6 +1137,515 @@ function applyEvaluasiExamFilter() {
     ).join('');
 }
 window.applyEvaluasiExamFilter = applyEvaluasiExamFilter;
+
+// EVALUASI_LIVE_PATCH_V1: hitung ringkasan status kelas dari sumber yang
+// sama dengan gambar ulang penuh (ringkasan server bila ada, bila tidak
+// peta lokal) — dipakai gambar ulang dan tambal per baris.
+function evaluasiSummaryCounts(ctx) {
+    const { clsStudents, evaluasiSummaryStudents, examId, forceFinishedMap, completedMap, activeSessions, storedAnswers } = ctx;
+    let countWorking = 0;
+    let countSelesai = 0;
+    let countForceFinish = 0;
+    let countBelumMulai = 0;
+    clsStudents.forEach(st => {
+                            const summaryRow = evaluasiSummaryStudents[String(st.id)] || null;
+                            if (summaryRow) {
+                                if (summaryRow.status === 'force_finished' || summaryRow.forceFinished) countForceFinish++;
+                                else if (summaryRow.status === 'completed') countSelesai++;
+                                else if (summaryRow.status === 'in_progress' || (summaryRow.status === 'blocked' && summaryRow.started)) countWorking++;
+                                else countBelumMulai++;
+                                return;
+                            }
+
+                            // Legacy/offline fallback when no lightweight summary has been fetched yet.
+                            const k1 = st.id + '_' + examId;
+                            const k2 = String(st.id) + '_' + String(examId);
+                            const isFF = Boolean(forceFinishedMap[k1] || forceFinishedMap[k2] || completedMap[k1] === 'force_finish' || completedMap[k2] === 'force_finish');
+                            const isComp = Boolean(completedMap[k1] || completedMap[k2]) || isFF;
+                            const sess = activeSessions[k1] || activeSessions[k2];
+                            const ans = storedAnswers[k1] || storedAnswers[k2] || (sess && sess.answers);
+                            const isWork = !isComp && Boolean((sess && (sess.status === 'active' || (sess.timeLeft !== undefined && sess.timeLeft > 0) || (sess.answeredCount && sess.answeredCount > 0))) || (ans && Object.keys(ans).length > 0));
+
+                            if (isFF) countForceFinish++;
+                            else if (isComp) countSelesai++;
+                            else if (isWork) countWorking++;
+                            else countBelumMulai++;
+    });
+    return { working: countWorking, selesai: countSelesai, force: countForceFinish, belum: countBelumMulai };
+}
+
+// EVALUASI_LIVE_PATCH_V1: bangun <tr> tabel Evaluasi dari konteks yang
+// sama dengan gambar ulang penuh — dipakai gambar ulang dan tambal per
+// baris, supaya keduanya tidak pernah berbeda tampilan.
+function evaluasiStudentTableRowsHTML(ctx) {
+    const { clsStudents, examId, ex, hasEssay, evaluasiSummaryStudents, grades, forceFinishedMap, completedMap, activeSessions, storedAnswers } = ctx;
+    return clsStudents.map((st, idx) => {
+                                                const key1 = st.id + '_' + examId;
+                                                const key2 = String(st.id) + '_' + String(examId);
+                                                const summaryRow = evaluasiSummaryStudents[String(st.id)] || null;
+
+                                                let gradeObj = (summaryRow && summaryRow.grade) ||
+                                                    (grades && (grades[key1] || grades[key2])) ||
+                                                    (appState.studentExamGrades && (appState.studentExamGrades[key1] || appState.studentExamGrades[key2]));
+
+                                                const isForceFinished = summaryRow
+                                                    ? Boolean(summaryRow.status === 'force_finished' || summaryRow.forceFinished)
+                                                    : Boolean(
+                                                        forceFinishedMap[key1] ||
+                                                        forceFinishedMap[key2] ||
+                                                        completedMap[key1] === 'force_finish' ||
+                                                        completedMap[key2] === 'force_finish' ||
+                                                        (gradeObj && gradeObj.submissionType === 'force_finish')
+                                                    );
+
+                                                const isCompleted = summaryRow
+                                                    ? Boolean(summaryRow.status === 'completed' || summaryRow.status === 'force_finished')
+                                                    : (Boolean(completedMap[key1] || completedMap[key2]) || isForceFinished);
+
+                                                const currentSession = summaryRow
+                                                    ? (summaryRow.status === 'in_progress' ? {
+                                                        status: 'active',
+                                                        answeredCount: Number(summaryRow.answeredCount || 0),
+                                                        totalQuestions: Number(summaryRow.totalQuestions || 0),
+                                                        timeLeft: summaryRow.remainingTime
+                                                    } : null)
+                                                    : (activeSessions[key1] || activeSessions[key2] || null);
+
+                                                // Raw answers/questions are intentionally bypassed when lightweight summary exists.
+                                                // Preview/Koreksi fetch the authoritative attempt on demand via /api/exam/review.
+                                                const studentAnswers = summaryRow
+                                                    ? null
+                                                    : ((storedAnswers && (storedAnswers[key1] || storedAnswers[key2])) ||
+                                                        (currentSession && currentSession.answers) ||
+                                                        null);
+
+                                                const stQuestions = summaryRow ? [] : getExamQuestions(ex, st.id);
+                                                const pgQuestions = stQuestions.filter(q => q.type !== 'esay' && q.type !== 'essay');
+                                                const essayQuestions = stQuestions.filter(q => q.type === 'esay' || q.type === 'essay');
+
+                                                let answeredPGCount = summaryRow ? Number(summaryRow.answeredPGCount || 0) : 0;
+                                                let correctPGCount = summaryRow
+                                                    ? Number(summaryRow.correctPGCount ?? gradeObj?.correctPGCount ?? 0)
+                                                    : 0;
+                                                if (!summaryRow) {
+                                                    pgQuestions.forEach(q => {
+                                                        const userAns = studentAnswers ? (studentAnswers[q.id] !== undefined ? studentAnswers[q.id] : studentAnswers[String(q.id)]) : undefined;
+                                                        if (userAns !== undefined && userAns !== null && String(userAns).trim() !== '') {
+                                                            answeredPGCount++;
+                                                            if (isCorrectAnswer(q, userAns)) correctPGCount++;
+                                                        }
+                                                    });
+                                                }
+
+                                                let answeredEssayCount = summaryRow ? Number(summaryRow.answeredEssayCount || 0) : 0;
+                                                if (!summaryRow) {
+                                                    essayQuestions.forEach(q => {
+                                                        const userAns = studentAnswers ? (studentAnswers[q.id] !== undefined ? studentAnswers[q.id] : studentAnswers[String(q.id)]) : undefined;
+                                                        if (userAns !== undefined && userAns !== null && String(userAns).trim() !== '') answeredEssayCount++;
+                                                    });
+                                                }
+
+                                                const storedAnsweredCount = summaryRow
+                                                    ? Number(summaryRow.answeredCount || 0)
+                                                    : (studentAnswers
+                                                        ? Object.values(studentAnswers).filter(value => value !== undefined && value !== null && String(value).trim() !== '').length
+                                                        : 0);
+                                                const gradeTotalQuestions = gradeObj
+                                                    ? (Number(gradeObj.totalPGCount || 0) + Number(gradeObj.totalEssayCount || 0))
+                                                    : 0;
+
+                                                const totalAnsweredCount = summaryRow
+                                                    ? Number(summaryRow.answeredCount || 0)
+                                                    : ((isCompleted && storedAnsweredCount > 0)
+                                                        ? storedAnsweredCount
+                                                        : ((currentSession && currentSession.answeredCount !== undefined && currentSession.answeredCount > 0)
+                                                            ? currentSession.answeredCount
+                                                            : Math.max(storedAnsweredCount, answeredPGCount + answeredEssayCount)));
+
+                                                const totalQuestionsCount = summaryRow
+                                                    ? Number(summaryRow.totalQuestions || gradeTotalQuestions || 0)
+                                                    : ((currentSession && currentSession.totalQuestions)
+                                                        ? currentSession.totalQuestions
+                                                        : (stQuestions.length || gradeTotalQuestions || storedAnsweredCount));
+
+                                                const isCurrentlyWorking = summaryRow
+                                                    ? Boolean(summaryRow.status === 'in_progress' || (summaryRow.status === 'blocked' && summaryRow.started))
+                                                    : (!isCompleted && Boolean(
+                                                        (currentSession && (currentSession.status === 'active' || (currentSession.timeLeft !== undefined && currentSession.timeLeft > 0) || (currentSession.answeredCount && currentSession.answeredCount > 0))) ||
+                                                        totalAnsweredCount > 0 ||
+                                                        (studentAnswers && Object.keys(studentAnswers).length > 0)
+                                                    ));
+
+                                                const hasPgScore = Boolean(gradeObj && gradeObj.pgScore !== null && gradeObj.pgScore !== undefined);
+
+                                                // Legacy/offline fallback may still derive missing grades locally.
+                                                if (!summaryRow && isCompleted && studentAnswers && !hasPgScore) {
+                                                    const pgScore = pgQuestions.length > 0 ? Math.round((correctPGCount / pgQuestions.length) * 100) : 100;
+                                                    const isGraded = essayQuestions.length === 0;
+                                                    const finalScore = isGraded ? pgScore : null;
+
+                                                    gradeObj = {
+                                                        pgScore,
+                                                        essayScore: 0,
+                                                        finalScore,
+                                                        isGraded,
+                                                        correctPGCount,
+                                                        totalPGCount: pgQuestions.length,
+                                                        totalEssayCount: essayQuestions.length,
+                                                        essayGrades: {},
+                                                        submissionType: isForceFinished ? 'force_finish' : 'normal'
+                                                    };
+
+                                                    if (!appState.studentExamGrades) appState.studentExamGrades = {};
+                                                    appState.studentExamGrades[key1] = gradeObj;
+                                                    appState.studentExamGrades[key2] = gradeObj;
+                                                    if (grades) {
+                                                        grades[key1] = gradeObj;
+                                                        grades[key2] = gradeObj;
+                                                    }
+                                                    safeSetStorage('madrasah_student_exam_grades', appState.studentExamGrades);
+                                                } else if (!summaryRow && isCompleted && gradeObj && !hasEssay && (gradeObj.finalScore === null || gradeObj.finalScore === undefined)) {
+                                                    gradeObj.finalScore = gradeObj.pgScore;
+                                                    gradeObj.isGraded = true;
+                                                    if (!appState.studentExamGrades) appState.studentExamGrades = {};
+                                                    appState.studentExamGrades[key1] = gradeObj;
+                                                    appState.studentExamGrades[key2] = gradeObj;
+                                                    if (grades) {
+                                                        grades[key1] = gradeObj;
+                                                        grades[key2] = gradeObj;
+                                                    }
+                                                    safeSetStorage('madrasah_student_exam_grades', appState.studentExamGrades);
+                                                }
+
+                                                const pgQuestionCount = summaryRow
+                                                    ? Number(summaryRow.totalPGCount ?? gradeObj?.totalPGCount ?? 0)
+                                                    : pgQuestions.length;
+                                                const essayQuestionCount = summaryRow
+                                                    ? Number(summaryRow.totalEssayCount ?? gradeObj?.totalEssayCount ?? 0)
+                                                    : essayQuestions.length;
+                                                const pctAccuracy = pgQuestionCount > 0 ? Math.round((correctPGCount / pgQuestionCount) * 100) : 0;
+                                                const pctProgressTotal = totalQuestionsCount > 0 ? Math.round((totalAnsweredCount / totalQuestionsCount) * 100) : 0;
+
+                                                let statusBadgeHTML = '';
+                                                if (isForceFinished) {
+                                                    statusBadgeHTML = `
+                                                        <div class="flex flex-col items-center justify-center">
+                                                            <span class="text-amber-800 font-bold bg-amber-100 px-2.5 py-1 rounded-xl border border-amber-300 text-[10px] flex items-center justify-center gap-1.5 shadow-xs whitespace-nowrap">
+                                                                <i class="fa-solid fa-flag-checkered text-[9px] text-amber-700"></i>
+                                                                <span>Force Finish</span>
+                                                            </span>
+                                                            <span class="text-[9px] text-amber-700/80 font-medium mt-0.5">Oleh Admin</span>
+                                                        </div>
+                                                    `;
+                                                } else if (isCompleted) {
+                                                    statusBadgeHTML = `
+                                                        <div class="flex flex-col items-center justify-center">
+                                                            <span class="text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-200/80 text-[10px] flex items-center justify-center gap-1.5 shadow-xs whitespace-nowrap">
+                                                                <i class="fa-solid fa-circle-check text-[9px] text-emerald-600"></i>
+                                                                <span>Selesai</span>
+                                                            </span>
+                                                            <span class="text-[9px] text-emerald-600/80 font-medium mt-0.5">${totalAnsweredCount}/${totalQuestionsCount} Soal Terjawab</span>
+                                                        </div>
+                                                    `;
+                                                } else if (isCurrentlyWorking) {
+                                                    statusBadgeHTML = `
+                                                        <div class="flex flex-col items-center justify-center">
+                                                            <span class="text-blue-700 font-bold bg-blue-50 px-2.5 py-1 rounded-xl border border-blue-200/80 text-[10px] flex items-center justify-center gap-1.5 shadow-xs whitespace-nowrap animate-pulse">
+                                                                <i class="fa-solid fa-spinner animate-spin text-[9px] text-blue-600"></i>
+                                                                <span>Sedang Mengerjakan</span>
+                                                            </span>
+                                                            <span class="text-[9px] text-blue-600 font-semibold mt-0.5">
+                                                                ${totalAnsweredCount}/${totalQuestionsCount} Soal (${pctProgressTotal}%)
+                                                            </span>
+                                                        </div>
+                                                    `;
+                                                } else {
+                                                    statusBadgeHTML = `
+                                                        <span class="text-slate-400 font-medium bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-200/60 text-[10px] flex items-center justify-center gap-1.5 whitespace-nowrap">
+                                                            <i class="fa-solid fa-clock text-[9px] text-slate-400"></i>
+                                                            <span>Belum Mulai</span>
+                                                        </span>
+                                                    `;
+                                                }
+
+                                                let pgScoreDisplay = '-';
+                                                if (isCompleted) {
+                                                    const score = (gradeObj && gradeObj.pgScore !== undefined) ? gradeObj.pgScore : (pgQuestionCount > 0 ? Math.round((correctPGCount / pgQuestionCount) * 100) : 100);
+                                                    pgScoreDisplay = `
+                                                        <div class="flex flex-col items-center justify-center">
+                                                            <span class="font-extrabold text-slate-800 text-xs">${score}%</span>
+                                                            <span class="text-[9px] text-slate-400 mt-0.5">${gradeObj?.correctPGCount !== undefined ? gradeObj.correctPGCount : correctPGCount}/${gradeObj?.totalPGCount !== undefined ? gradeObj.totalPGCount : pgQuestionCount} Benar</span>
+                                                        </div>
+                                                    `;
+                                                } else if (isCurrentlyWorking) {
+                                                    pgScoreDisplay = `
+                                                        <div class="flex flex-col items-center justify-center">
+                                                            <span class="font-extrabold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200/80 text-xs shadow-xs">
+                                                                ${pctAccuracy}%
+                                                            </span>
+                                                            <span class="text-[9px] text-slate-500 font-semibold mt-0.5 whitespace-nowrap">
+                                                                ${correctPGCount}/${pgQuestionCount} benar (${answeredPGCount} terjawab)
+                                                            </span>
+                                                        </div>
+                                                    `;
+                                                } else {
+                                                    pgScoreDisplay = `<span class="text-slate-400 italic font-medium text-xs">-</span>`;
+                                                }
+
+                                                let essayScoreDisplay = '-';
+                                                if (!hasEssay) {
+                                                    essayScoreDisplay = `<span class="text-slate-400 italic text-[10px]">Tanpa Esai</span>`;
+                                                } else if (isCompleted) {
+                                                    if (gradeObj && gradeObj.isGraded) {
+                                                        essayScoreDisplay = `
+                                                            <div class="flex flex-col items-center justify-center">
+                                                                <span class="font-extrabold text-slate-800 text-xs">${gradeObj.essayScore}%</span>
+                                                                <span class="text-[9px] text-emerald-600 font-medium mt-0.5">Sudah Koreksi</span>
+                                                            </div>
+                                                        `;
+                                                    } else if (gradeObj && gradeObj.pgScore !== undefined) {
+                                                        essayScoreDisplay = '<span class="text-rose-600 font-bold bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200 text-[10px]">Belum Koreksi</span>';
+                                                    } else {
+                                                        essayScoreDisplay = `<span class="text-slate-400 italic font-medium text-xs">-</span>`;
+                                                    }
+                                                } else if (isCurrentlyWorking) {
+                                                    essayScoreDisplay = `
+                                                        <div class="flex flex-col items-center justify-center">
+                                                            <span class="text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200/80 text-[10px] font-semibold">
+                                                                ${answeredEssayCount}/${essayQuestionCount} Terjawab
+                                                            </span>
+                                                            <span class="text-[9px] text-slate-400 mt-0.5">Sedang Berjalan</span>
+                                                        </div>
+                                                    `;
+                                                } else {
+                                                    essayScoreDisplay = `<span class="text-slate-400 italic font-medium text-xs">-</span>`;
+                                                }
+
+                                                let finalScoreDisplay = '<span class="text-slate-400 italic font-medium">-</span>';
+                                                if (isCompleted) {
+                                                    const fScore = (gradeObj && gradeObj.finalScore !== null && gradeObj.finalScore !== undefined) ? gradeObj.finalScore : ((gradeObj && gradeObj.pgScore !== undefined) ? gradeObj.pgScore : null);
+                                                    if (fScore !== null && fScore !== undefined) {
+                                                        finalScoreDisplay = `
+                                                            <div class="flex flex-col items-center justify-center">
+                                                                <span class="w-9 h-9 rounded-full ${isForceFinished ? 'bg-amber-600' : 'bg-emerald-600'} text-white font-black text-xs flex items-center justify-center shadow-xs mx-auto">
+                                                                    ${fScore}
+                                                                </span>
+                                                                <span class="text-[9px] ${isForceFinished ? 'text-amber-700' : 'text-emerald-700'} font-bold mt-0.5">
+                                                                    ${isForceFinished ? 'Force Finish' : 'Final'}
+                                                                </span>
+                                                            </div>
+                                                        `;
+                                                    } else {
+                                                        finalScoreDisplay = `
+                                                            <div class="flex flex-col items-center justify-center">
+                                                                <span class="text-amber-700 font-semibold bg-amber-50 px-2 py-1 rounded-xl text-[10px] border border-amber-200/80 inline-block whitespace-nowrap">
+                                                                    Pending Koreksi
+                                                                </span>
+                                                            </div>
+                                                        `;
+                                                    }
+                                                } else if (isCurrentlyWorking) {
+                                                    finalScoreDisplay = `
+                                                        <div class="flex flex-col items-center justify-center">
+                                                            <span class="w-9 h-9 rounded-full bg-blue-600 text-white font-black text-xs flex items-center justify-center shadow-xs mx-auto">
+                                                                ${pctAccuracy}
+                                                            </span>
+                                                            <span class="text-[9px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200/80 mt-1 inline-block whitespace-nowrap">
+                                                                Nilai Sementara
+                                                            </span>
+                                                        </div>
+                                                    `;
+                                                } else {
+                                                    finalScoreDisplay = `<span class="text-slate-400 italic font-medium">-</span>`;
+                                                }
+
+                                                let actionButtonsHTML = '';
+                                                if (isCompleted) {
+                                                    let koreksiBtn = '';
+                                                    if (hasEssay) {
+                                                        if (gradeObj && gradeObj.isGraded) {
+                                                            koreksiBtn = `
+                                                                <button type="button" onclick="openKoreksiModal('${st.id}')" class="w-28 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-[10px] flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer">
+                                                                    <i class="fa-solid fa-circle-check text-xs"></i><span>Koreksi Ulang</span>
+                                                                </button>
+                                                            `;
+                                                        } else {
+                                                            const escapedName = String(st.name || '').replace(/'/g, "\\'");
+                                                            koreksiBtn = `
+                                                                <button type="button" onclick="clickKoreksiBelum('${st.id}', '${escapedName}')" class="w-28 px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-[10px] flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer">
+                                                                    <i class="fa-solid fa-pen-to-square text-xs"></i><span>Koreksi</span>
+                                                                </button>
+                                                            `;
+                                                        }
+                                                    }
+                                                    actionButtonsHTML = `
+                                                        <div class="flex flex-col gap-1.5 items-center justify-center">
+                                                            ${koreksiBtn}
+                                                            <button type="button" onclick="resetStudentExam('${st.id}')" class="w-28 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-[10px] flex items-center justify-center gap-1.5 transition cursor-pointer border border-slate-200">
+                                                                <i class="fa-solid fa-rotate-left text-xs text-slate-500"></i><span>Ulang Ujian</span>
+                                                            </button>
+                                                            <button type="button" onclick="reopenStudentExam('${st.id}')" class="w-28 px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold rounded-xl text-[10px] flex items-center justify-center gap-1.5 transition cursor-pointer border border-amber-200" title="Buka kembali ujian dengan tambahan waktu, jawaban tersimpan tetap ada">
+                                                                <i class="fa-solid fa-clock-rotate-left text-xs"></i><span>Buka Kembali</span>
+                                                            </button>
+                                                        </div>
+                                                    `;
+                                                } else if (isCurrentlyWorking) {
+                                                    actionButtonsHTML = `
+                                                        <div class="flex flex-col gap-1.5 items-center justify-center">
+                                                            <button type="button" onclick="confirmAdminForceSubmitExam('${st.id}', '${examId}')" class="w-28 px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-[10px] flex items-center justify-center gap-1 shadow-sm transition cursor-pointer" title="Selesaikan ujian secara paksa dengan jawaban asli siswa saat ini">
+                                                                <i class="fa-solid fa-flag-checkered text-[9px]"></i><span>Force Finish</span>
+                                                            </button>
+                                                            <button type="button" onclick="resetStudentExam('${st.id}')" class="w-28 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-[10px] flex items-center justify-center gap-1.5 transition cursor-pointer border border-slate-200">
+                                                                <i class="fa-solid fa-rotate-left text-xs text-slate-500"></i><span>Reset Status</span>
+                                                            </button>
+                                                        </div>
+                                                    `;
+                                                } else {
+                                                    actionButtonsHTML = `
+                                                        <div class="flex flex-col gap-1.5 items-center justify-center">
+                                                            <span class="text-slate-400 italic text-[10px] mb-0.5">Belum Ujian</span>
+                                                            <button type="button" onclick="resetStudentExam('${st.id}')" class="w-28 px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-[10px] flex items-center justify-center gap-1 transition cursor-pointer border border-slate-200">
+                                                                <i class="fa-solid fa-rotate-left"></i><span>Reset Status</span>
+                                                            </button>
+                                                        </div>
+                                                    `;
+                                                }
+
+                                                return `
+                                                    <tr class="hover:bg-slate-50/60 transition" data-evaluasi-student-id="${st.id}">
+                                                        <td class="px-3 py-4 text-center">
+                                                            <input type="checkbox" class="evaluasi-student-checkbox w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" data-student-id="${st.id}" onchange="evaluasiToggleStudent('${st.id}', this.checked)" ${evaluasiGetSelection().has(String(st.id)) ? 'checked' : ''}>
+                                                        </td>
+                                                        <td class="px-4 py-4 text-center font-bold text-slate-400">${idx + 1}</td>
+                                                        <td class="px-4 py-4">
+                                                            <div class="flex items-center space-x-2.5">
+                                                                <div class="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-xs shrink-0 overflow-hidden">
+                                                                    ${st.photo ? `<img src="${window.getPhotoHtmlSrc ? window.getPhotoHtmlSrc(st.photo) : ''}" class="w-full h-full rounded-xl object-cover" referrerPolicy="no-referrer">` : st.name.charAt(0)}
+                                                                </div>
+                                                                <div>
+                                                                    <p class="font-bold text-slate-800 leading-none">${st.name}</p>
+                                                                    <p class="text-[10px] text-slate-400 mt-1">${st.nis ? `NIS: ${st.nis}` : 'Siswa Terdaftar'}</p>
+                                                                </div>
+                                                            </div>
+                                                        </td>
+                                                        <td class="px-4 py-4 text-center font-mono font-bold text-slate-500">${st.nis || '-'}</td>
+                                                        <td class="px-4 py-4 text-center">${statusBadgeHTML}</td>
+                                                        <td class="px-4 py-4 text-center">${pgScoreDisplay}</td>
+                                                        <td class="px-4 py-4 text-center">${essayScoreDisplay}</td>
+                                                        <td class="px-4 py-4 text-center bg-emerald-50/10 font-bold">${finalScoreDisplay}</td>
+                                                        <td class="px-4 py-4 text-center">
+                                                            <div class="flex flex-col items-center gap-1.5">
+                                                                ${actionButtonsHTML}
+                                                                <button type="button" onclick="openPreviewJawabanEvaluasi('${st.id}')" class="w-28 px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl text-[10px] flex items-center justify-center gap-1.5 transition cursor-pointer border border-indigo-200" title="Preview jawaban siswa tanpa mengubah nilai">
+                                                                    <i class="fa-solid fa-eye"></i><span>Preview Jawaban</span>
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                `;
+
+    }).join('');
+}
+
+// EVALUASI_LIVE_PATCH_V1: susun ulang konteks tabel dari appState persis
+// seperti yang dilakukan gambar ulang penuh (siswa kelas itu, ujian itu,
+// ringkasan server bila cocok, peta lokal + localStorage).
+function evaluasiBuildLiveCtx() {
+    const classId = String(appState.evaluasiSelectedClassId || '');
+    const examId = String(appState.evaluasiSelectedExamId || '');
+    if (!classId || !examId) return null;
+    const ex = (appState.exams || []).find(e => String(e.id) === String(examId));
+    if (!ex) return null;
+    const clsStudents = (appState.students || []).filter(st => String(st.classId) === String(classId));
+    const grades = JSON.parse(localStorage.getItem('madrasah_student_exam_grades')) || {};
+    const completedMap = appState.completedExams || JSON.parse(localStorage.getItem('madrasah_completed_exams') || '{}') || {};
+    const forceFinishedMap = appState.forceFinishedExams || JSON.parse(localStorage.getItem('madrasah_force_finished_exams') || '{}') || {};
+    const activeSessions = appState.activeExamSessions || JSON.parse(localStorage.getItem('madrasah_active_exam_sessions') || '{}') || {};
+    const storedAnswers = appState.studentExamAnswers || JSON.parse(localStorage.getItem('madrasah_student_exam_answers') || '{}') || {};
+    const evaluasiSummary = appState.evaluasiMonitorSummary &&
+        String(appState.evaluasiMonitorSummary.examId) === String(examId)
+            ? appState.evaluasiMonitorSummary
+            : null;
+    const evaluasiSummaryStudents = evaluasiSummary?.studentsById || {};
+    const questions = getExamQuestions(ex);
+    const hasEssay = questions.some(q => q.type === 'esay' || q.type === 'essay');
+    return { clsStudents, examId, ex, hasEssay, evaluasiSummaryStudents, grades, forceFinishedMap, completedMap, activeSessions, storedAnswers };
+}
+
+// EVALUASI_LIVE_PATCH_V1: tambal tabel Evaluasi di tempat setelah polling
+// — hanya baris yang isinya berubah yang disentuh (innerHTML-nya diganti),
+// baris yang sama dibiarkan, baris baru disisipkan, baris hilang dihapus,
+// angka ringkasan diperbarui bila berubah. Scroll, fokus, centang, dan
+// saringan cari TIDAK disentuh, jadi halaman tidak loncat. Kembalikan true
+// bila berhasil ditambal, false bila gambar ulang penuh yang harus jalan
+// (tabel belum ada, mode LKPD, ujian/kelas berubah, atau ada galat).
+function evaluasiPatchLiveRows() {
+    try {
+        const table = document.getElementById('evaluasi-student-table');
+        if (!table) return false;
+        if (appState.evaluasiMode === 'lkpd') return false;
+        const examId = String(appState.evaluasiSelectedExamId || '');
+        const classId = String(appState.evaluasiSelectedClassId || '');
+        if (!examId || !classId) return false;
+        if (String(table.getAttribute('data-eval-exam-id') || '') !== examId) return false;
+        if (String(table.getAttribute('data-eval-class-id') || '') !== classId) return false;
+        const tbody = table.querySelector('tbody');
+        if (!tbody) return false;
+        const ctx = evaluasiBuildLiveCtx();
+        if (!ctx) return false;
+
+        // Angka ringkasan (hanya bila berubah).
+        const counts = evaluasiSummaryCounts(ctx);
+        const countTargets = { working: counts.working, selesai: counts.selesai, force: counts.force, belum: counts.belum };
+        Object.keys(countTargets).forEach(k => {
+            const el = document.querySelector('[data-eval-count="' + k + '"]');
+            if (el && el.textContent !== String(countTargets[k])) el.textContent = String(countTargets[k]);
+        });
+
+        // Baris: bangun HTML baru dari builder yang sama dengan gambar ulang,
+        // lalu rekonsiliasi per baris (cocokkan data-evaluasi-student-id).
+        const tmp = document.createElement('tbody');
+        tmp.innerHTML = evaluasiStudentTableRowsHTML(ctx);
+        const newRows = Array.from(tmp.querySelectorAll('tr[data-evaluasi-student-id]'));
+        const liveById = new Map();
+        Array.from(tbody.querySelectorAll('tr[data-evaluasi-student-id]')).forEach(r => {
+            liveById.set(r.getAttribute('data-evaluasi-student-id'), r);
+        });
+        const seen = new Set();
+        for (let i = 0; i < newRows.length; i++) {
+            const nr = newRows[i];
+            const id = nr.getAttribute('data-evaluasi-student-id');
+            seen.add(id);
+            let lr = liveById.get(id);
+            if (!lr) {
+                // Baris baru: sisipkan di posisi yang benar.
+                tbody.insertBefore(nr, tbody.children[i] || null);
+                continue;
+            }
+            // Pindah ke posisi yang benar bila urutan berubah.
+            const atRightPlace = tbody.children[i] === lr;
+            if (!atRightPlace) tbody.insertBefore(lr, tbody.children[i] || null);
+            // Sentuh hanya bila isinya berubah.
+            if (lr.innerHTML !== nr.innerHTML) lr.innerHTML = nr.innerHTML;
+        }
+        liveById.forEach((lr, id) => {
+            if (!seen.has(id)) lr.remove();
+        });
+
+        // Saringan cari tetap berlaku untuk baris baru; centang Pilih Semua
+        // ikut diperbarui (keduanya tidak menggerakkan scroll).
+        const searchInput = document.getElementById('eval-search-student-input');
+        if (searchInput && searchInput.value.trim()) {
+            if (typeof filterEvaluasiStudentTable === 'function') filterEvaluasiStudentTable();
+        } else if (typeof evaluasiUpdateBulkControls === 'function') {
+            evaluasiUpdateBulkControls();
+        }
+        return true;
+    } catch (e) {
+        console.warn('Patch Evaluasi gagal, gambar ulang penuh:', e);
+        return false;
+    }
+}
 
 function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = null) {
     // SCROLL_PRESERVE_V1: ingat posisi scroll agar update otomatis tidak melempar tampilan ke atas.
@@ -2556,36 +3077,12 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                         let questions = getExamQuestions(ex);
                         const hasEssay = questions.some(q => q.type === 'esay' || q.type === 'essay');
 
-                        // Calculate summary counts from the lightweight server summary when available.
-                        let countWorking = 0;
-                        let countSelesai = 0;
-                        let countForceFinish = 0;
-                        let countBelumMulai = 0;
+                        // EVALUASI_LIVE_PATCH_V1: konteks baris tabel dipakai bersama
+                        // oleh gambar ulang penuh dan tambal per baris.
+                        const evaluasiTableCtx = { clsStudents, examId, ex, hasEssay, evaluasiSummaryStudents, grades, forceFinishedMap, completedMap, activeSessions, storedAnswers };
+                        const { working: countWorking, selesai: countSelesai, force: countForceFinish, belum: countBelumMulai } = evaluasiSummaryCounts(evaluasiTableCtx);
 
-                        clsStudents.forEach(st => {
-                            const summaryRow = evaluasiSummaryStudents[String(st.id)] || null;
-                            if (summaryRow) {
-                                if (summaryRow.status === 'force_finished' || summaryRow.forceFinished) countForceFinish++;
-                                else if (summaryRow.status === 'completed') countSelesai++;
-                                else if (summaryRow.status === 'in_progress' || (summaryRow.status === 'blocked' && summaryRow.started)) countWorking++;
-                                else countBelumMulai++;
-                                return;
-                            }
 
-                            // Legacy/offline fallback when no lightweight summary has been fetched yet.
-                            const k1 = st.id + '_' + examId;
-                            const k2 = String(st.id) + '_' + String(examId);
-                            const isFF = Boolean(forceFinishedMap[k1] || forceFinishedMap[k2] || completedMap[k1] === 'force_finish' || completedMap[k2] === 'force_finish');
-                            const isComp = Boolean(completedMap[k1] || completedMap[k2]) || isFF;
-                            const sess = activeSessions[k1] || activeSessions[k2];
-                            const ans = storedAnswers[k1] || storedAnswers[k2] || (sess && sess.answers);
-                            const isWork = !isComp && Boolean((sess && (sess.status === 'active' || (sess.timeLeft !== undefined && sess.timeLeft > 0) || (sess.answeredCount && sess.answeredCount > 0))) || (ans && Object.keys(ans).length > 0));
-
-                            if (isFF) countForceFinish++;
-                            else if (isComp) countSelesai++;
-                            else if (isWork) countWorking++;
-                            else countBelumMulai++;
-                        });
 
                         return `
                             <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden space-y-6 p-6">
@@ -2679,7 +3176,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                     <div class="bg-blue-50/60 border border-blue-200/80 rounded-2xl p-3.5 flex items-center justify-between">
                                         <div>
                                             <p class="text-[10px] font-semibold text-blue-600 uppercase tracking-wider">Sedang Mengerjakan</p>
-                                            <p class="text-xl font-extrabold text-blue-800 mt-0.5">${countWorking} <span class="text-xs font-normal text-blue-600">siswa</span></p>
+                                            <p class="text-xl font-extrabold text-blue-800 mt-0.5"><span data-eval-count="working">${countWorking}</span> <span class="text-xs font-normal text-blue-600">siswa</span></p>
                                         </div>
                                         <div class="w-9 h-9 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center text-sm shadow-xs">
                                             <i class="fa-solid fa-spinner animate-spin"></i>
@@ -2688,7 +3185,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                     <div class="bg-emerald-50/60 border border-emerald-200/80 rounded-2xl p-3.5 flex items-center justify-between">
                                         <div>
                                             <p class="text-[10px] font-semibold text-emerald-600 uppercase tracking-wider">Selesai (Normal)</p>
-                                            <p class="text-xl font-extrabold text-emerald-800 mt-0.5">${countSelesai} <span class="text-xs font-normal text-emerald-600">siswa</span></p>
+                                            <p class="text-xl font-extrabold text-emerald-800 mt-0.5"><span data-eval-count="selesai">${countSelesai}</span> <span class="text-xs font-normal text-emerald-600">siswa</span></p>
                                         </div>
                                         <div class="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center text-sm shadow-xs">
                                             <i class="fa-solid fa-circle-check"></i>
@@ -2697,7 +3194,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                     <div class="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-3.5 flex items-center justify-between">
                                         <div>
                                             <p class="text-[10px] font-semibold text-amber-700 uppercase tracking-wider">Force Finish (Admin)</p>
-                                            <p class="text-xl font-extrabold text-amber-800 mt-0.5">${countForceFinish} <span class="text-xs font-normal text-amber-700">siswa</span></p>
+                                            <p class="text-xl font-extrabold text-amber-800 mt-0.5"><span data-eval-count="force">${countForceFinish}</span> <span class="text-xs font-normal text-amber-700">siswa</span></p>
                                         </div>
                                         <div class="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center text-sm shadow-xs">
                                             <i class="fa-solid fa-flag-checkered"></i>
@@ -2706,7 +3203,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                     <div class="bg-slate-50 border border-slate-200/80 rounded-2xl p-3.5 flex items-center justify-between">
                                         <div>
                                             <p class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Belum Mulai</p>
-                                            <p class="text-xl font-extrabold text-slate-700 mt-0.5">${countBelumMulai} <span class="text-xs font-normal text-slate-500">siswa</span></p>
+                                            <p class="text-xl font-extrabold text-slate-700 mt-0.5"><span data-eval-count="belum">${countBelumMulai}</span> <span class="text-xs font-normal text-slate-500">siswa</span></p>
                                         </div>
                                         <div class="w-9 h-9 rounded-xl bg-slate-200/80 text-slate-600 flex items-center justify-center text-sm shadow-xs">
                                             <i class="fa-solid fa-clock"></i>
@@ -2716,7 +3213,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
 
                                 <!-- Student List Table -->
                                 <div class="overflow-x-auto">
-                                    <table id="evaluasi-student-table" class="w-full text-xs text-left text-slate-600">
+                                    <table id="evaluasi-student-table" data-eval-exam-id="${examId}" data-eval-class-id="${classId}" class="w-full text-xs text-left text-slate-600">
                                         <thead class="text-[10px] uppercase tracking-wider text-slate-400 bg-slate-50/60 border-b">
                                             <tr>
                                                 <th class="px-3 py-3.5 font-bold text-center w-10">
@@ -2733,371 +3230,8 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                             </tr>
                                         </thead>
                                         <tbody class="divide-y divide-slate-100">
-                                            ${clsStudents.map((st, idx) => {
-                                                const key1 = st.id + '_' + examId;
-                                                const key2 = String(st.id) + '_' + String(examId);
-                                                const summaryRow = evaluasiSummaryStudents[String(st.id)] || null;
+                        ${evaluasiStudentTableRowsHTML(evaluasiTableCtx)}
 
-                                                let gradeObj = (summaryRow && summaryRow.grade) ||
-                                                    (grades && (grades[key1] || grades[key2])) ||
-                                                    (appState.studentExamGrades && (appState.studentExamGrades[key1] || appState.studentExamGrades[key2]));
-
-                                                const isForceFinished = summaryRow
-                                                    ? Boolean(summaryRow.status === 'force_finished' || summaryRow.forceFinished)
-                                                    : Boolean(
-                                                        forceFinishedMap[key1] ||
-                                                        forceFinishedMap[key2] ||
-                                                        completedMap[key1] === 'force_finish' ||
-                                                        completedMap[key2] === 'force_finish' ||
-                                                        (gradeObj && gradeObj.submissionType === 'force_finish')
-                                                    );
-
-                                                const isCompleted = summaryRow
-                                                    ? Boolean(summaryRow.status === 'completed' || summaryRow.status === 'force_finished')
-                                                    : (Boolean(completedMap[key1] || completedMap[key2]) || isForceFinished);
-
-                                                const currentSession = summaryRow
-                                                    ? (summaryRow.status === 'in_progress' ? {
-                                                        status: 'active',
-                                                        answeredCount: Number(summaryRow.answeredCount || 0),
-                                                        totalQuestions: Number(summaryRow.totalQuestions || 0),
-                                                        timeLeft: summaryRow.remainingTime
-                                                    } : null)
-                                                    : (activeSessions[key1] || activeSessions[key2] || null);
-
-                                                // Raw answers/questions are intentionally bypassed when lightweight summary exists.
-                                                // Preview/Koreksi fetch the authoritative attempt on demand via /api/exam/review.
-                                                const studentAnswers = summaryRow
-                                                    ? null
-                                                    : ((storedAnswers && (storedAnswers[key1] || storedAnswers[key2])) ||
-                                                        (currentSession && currentSession.answers) ||
-                                                        null);
-
-                                                const stQuestions = summaryRow ? [] : getExamQuestions(ex, st.id);
-                                                const pgQuestions = stQuestions.filter(q => q.type !== 'esay' && q.type !== 'essay');
-                                                const essayQuestions = stQuestions.filter(q => q.type === 'esay' || q.type === 'essay');
-
-                                                let answeredPGCount = summaryRow ? Number(summaryRow.answeredPGCount || 0) : 0;
-                                                let correctPGCount = summaryRow
-                                                    ? Number(summaryRow.correctPGCount ?? gradeObj?.correctPGCount ?? 0)
-                                                    : 0;
-                                                if (!summaryRow) {
-                                                    pgQuestions.forEach(q => {
-                                                        const userAns = studentAnswers ? (studentAnswers[q.id] !== undefined ? studentAnswers[q.id] : studentAnswers[String(q.id)]) : undefined;
-                                                        if (userAns !== undefined && userAns !== null && String(userAns).trim() !== '') {
-                                                            answeredPGCount++;
-                                                            if (isCorrectAnswer(q, userAns)) correctPGCount++;
-                                                        }
-                                                    });
-                                                }
-
-                                                let answeredEssayCount = summaryRow ? Number(summaryRow.answeredEssayCount || 0) : 0;
-                                                if (!summaryRow) {
-                                                    essayQuestions.forEach(q => {
-                                                        const userAns = studentAnswers ? (studentAnswers[q.id] !== undefined ? studentAnswers[q.id] : studentAnswers[String(q.id)]) : undefined;
-                                                        if (userAns !== undefined && userAns !== null && String(userAns).trim() !== '') answeredEssayCount++;
-                                                    });
-                                                }
-
-                                                const storedAnsweredCount = summaryRow
-                                                    ? Number(summaryRow.answeredCount || 0)
-                                                    : (studentAnswers
-                                                        ? Object.values(studentAnswers).filter(value => value !== undefined && value !== null && String(value).trim() !== '').length
-                                                        : 0);
-                                                const gradeTotalQuestions = gradeObj
-                                                    ? (Number(gradeObj.totalPGCount || 0) + Number(gradeObj.totalEssayCount || 0))
-                                                    : 0;
-
-                                                const totalAnsweredCount = summaryRow
-                                                    ? Number(summaryRow.answeredCount || 0)
-                                                    : ((isCompleted && storedAnsweredCount > 0)
-                                                        ? storedAnsweredCount
-                                                        : ((currentSession && currentSession.answeredCount !== undefined && currentSession.answeredCount > 0)
-                                                            ? currentSession.answeredCount
-                                                            : Math.max(storedAnsweredCount, answeredPGCount + answeredEssayCount)));
-
-                                                const totalQuestionsCount = summaryRow
-                                                    ? Number(summaryRow.totalQuestions || gradeTotalQuestions || 0)
-                                                    : ((currentSession && currentSession.totalQuestions)
-                                                        ? currentSession.totalQuestions
-                                                        : (stQuestions.length || gradeTotalQuestions || storedAnsweredCount));
-
-                                                const isCurrentlyWorking = summaryRow
-                                                    ? Boolean(summaryRow.status === 'in_progress' || (summaryRow.status === 'blocked' && summaryRow.started))
-                                                    : (!isCompleted && Boolean(
-                                                        (currentSession && (currentSession.status === 'active' || (currentSession.timeLeft !== undefined && currentSession.timeLeft > 0) || (currentSession.answeredCount && currentSession.answeredCount > 0))) ||
-                                                        totalAnsweredCount > 0 ||
-                                                        (studentAnswers && Object.keys(studentAnswers).length > 0)
-                                                    ));
-
-                                                const hasPgScore = Boolean(gradeObj && gradeObj.pgScore !== null && gradeObj.pgScore !== undefined);
-
-                                                // Legacy/offline fallback may still derive missing grades locally.
-                                                if (!summaryRow && isCompleted && studentAnswers && !hasPgScore) {
-                                                    const pgScore = pgQuestions.length > 0 ? Math.round((correctPGCount / pgQuestions.length) * 100) : 100;
-                                                    const isGraded = essayQuestions.length === 0;
-                                                    const finalScore = isGraded ? pgScore : null;
-
-                                                    gradeObj = {
-                                                        pgScore,
-                                                        essayScore: 0,
-                                                        finalScore,
-                                                        isGraded,
-                                                        correctPGCount,
-                                                        totalPGCount: pgQuestions.length,
-                                                        totalEssayCount: essayQuestions.length,
-                                                        essayGrades: {},
-                                                        submissionType: isForceFinished ? 'force_finish' : 'normal'
-                                                    };
-
-                                                    if (!appState.studentExamGrades) appState.studentExamGrades = {};
-                                                    appState.studentExamGrades[key1] = gradeObj;
-                                                    appState.studentExamGrades[key2] = gradeObj;
-                                                    if (grades) {
-                                                        grades[key1] = gradeObj;
-                                                        grades[key2] = gradeObj;
-                                                    }
-                                                    safeSetStorage('madrasah_student_exam_grades', appState.studentExamGrades);
-                                                } else if (!summaryRow && isCompleted && gradeObj && !hasEssay && (gradeObj.finalScore === null || gradeObj.finalScore === undefined)) {
-                                                    gradeObj.finalScore = gradeObj.pgScore;
-                                                    gradeObj.isGraded = true;
-                                                    if (!appState.studentExamGrades) appState.studentExamGrades = {};
-                                                    appState.studentExamGrades[key1] = gradeObj;
-                                                    appState.studentExamGrades[key2] = gradeObj;
-                                                    if (grades) {
-                                                        grades[key1] = gradeObj;
-                                                        grades[key2] = gradeObj;
-                                                    }
-                                                    safeSetStorage('madrasah_student_exam_grades', appState.studentExamGrades);
-                                                }
-
-                                                const pgQuestionCount = summaryRow
-                                                    ? Number(summaryRow.totalPGCount ?? gradeObj?.totalPGCount ?? 0)
-                                                    : pgQuestions.length;
-                                                const essayQuestionCount = summaryRow
-                                                    ? Number(summaryRow.totalEssayCount ?? gradeObj?.totalEssayCount ?? 0)
-                                                    : essayQuestions.length;
-                                                const pctAccuracy = pgQuestionCount > 0 ? Math.round((correctPGCount / pgQuestionCount) * 100) : 0;
-                                                const pctProgressTotal = totalQuestionsCount > 0 ? Math.round((totalAnsweredCount / totalQuestionsCount) * 100) : 0;
-
-                                                let statusBadgeHTML = '';
-                                                if (isForceFinished) {
-                                                    statusBadgeHTML = `
-                                                        <div class="flex flex-col items-center justify-center">
-                                                            <span class="text-amber-800 font-bold bg-amber-100 px-2.5 py-1 rounded-xl border border-amber-300 text-[10px] flex items-center justify-center gap-1.5 shadow-xs whitespace-nowrap">
-                                                                <i class="fa-solid fa-flag-checkered text-[9px] text-amber-700"></i>
-                                                                <span>Force Finish</span>
-                                                            </span>
-                                                            <span class="text-[9px] text-amber-700/80 font-medium mt-0.5">Oleh Admin</span>
-                                                        </div>
-                                                    `;
-                                                } else if (isCompleted) {
-                                                    statusBadgeHTML = `
-                                                        <div class="flex flex-col items-center justify-center">
-                                                            <span class="text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-200/80 text-[10px] flex items-center justify-center gap-1.5 shadow-xs whitespace-nowrap">
-                                                                <i class="fa-solid fa-circle-check text-[9px] text-emerald-600"></i>
-                                                                <span>Selesai</span>
-                                                            </span>
-                                                            <span class="text-[9px] text-emerald-600/80 font-medium mt-0.5">${totalAnsweredCount}/${totalQuestionsCount} Soal Terjawab</span>
-                                                        </div>
-                                                    `;
-                                                } else if (isCurrentlyWorking) {
-                                                    statusBadgeHTML = `
-                                                        <div class="flex flex-col items-center justify-center">
-                                                            <span class="text-blue-700 font-bold bg-blue-50 px-2.5 py-1 rounded-xl border border-blue-200/80 text-[10px] flex items-center justify-center gap-1.5 shadow-xs whitespace-nowrap animate-pulse">
-                                                                <i class="fa-solid fa-spinner animate-spin text-[9px] text-blue-600"></i>
-                                                                <span>Sedang Mengerjakan</span>
-                                                            </span>
-                                                            <span class="text-[9px] text-blue-600 font-semibold mt-0.5">
-                                                                ${totalAnsweredCount}/${totalQuestionsCount} Soal (${pctProgressTotal}%)
-                                                            </span>
-                                                        </div>
-                                                    `;
-                                                } else {
-                                                    statusBadgeHTML = `
-                                                        <span class="text-slate-400 font-medium bg-slate-50 px-2.5 py-1 rounded-xl border border-slate-200/60 text-[10px] flex items-center justify-center gap-1.5 whitespace-nowrap">
-                                                            <i class="fa-solid fa-clock text-[9px] text-slate-400"></i>
-                                                            <span>Belum Mulai</span>
-                                                        </span>
-                                                    `;
-                                                }
-
-                                                let pgScoreDisplay = '-';
-                                                if (isCompleted) {
-                                                    const score = (gradeObj && gradeObj.pgScore !== undefined) ? gradeObj.pgScore : (pgQuestionCount > 0 ? Math.round((correctPGCount / pgQuestionCount) * 100) : 100);
-                                                    pgScoreDisplay = `
-                                                        <div class="flex flex-col items-center justify-center">
-                                                            <span class="font-extrabold text-slate-800 text-xs">${score}%</span>
-                                                            <span class="text-[9px] text-slate-400 mt-0.5">${gradeObj?.correctPGCount !== undefined ? gradeObj.correctPGCount : correctPGCount}/${gradeObj?.totalPGCount !== undefined ? gradeObj.totalPGCount : pgQuestionCount} Benar</span>
-                                                        </div>
-                                                    `;
-                                                } else if (isCurrentlyWorking) {
-                                                    pgScoreDisplay = `
-                                                        <div class="flex flex-col items-center justify-center">
-                                                            <span class="font-extrabold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200/80 text-xs shadow-xs">
-                                                                ${pctAccuracy}%
-                                                            </span>
-                                                            <span class="text-[9px] text-slate-500 font-semibold mt-0.5 whitespace-nowrap">
-                                                                ${correctPGCount}/${pgQuestionCount} benar (${answeredPGCount} terjawab)
-                                                            </span>
-                                                        </div>
-                                                    `;
-                                                } else {
-                                                    pgScoreDisplay = `<span class="text-slate-400 italic font-medium text-xs">-</span>`;
-                                                }
-
-                                                let essayScoreDisplay = '-';
-                                                if (!hasEssay) {
-                                                    essayScoreDisplay = `<span class="text-slate-400 italic text-[10px]">Tanpa Esai</span>`;
-                                                } else if (isCompleted) {
-                                                    if (gradeObj && gradeObj.isGraded) {
-                                                        essayScoreDisplay = `
-                                                            <div class="flex flex-col items-center justify-center">
-                                                                <span class="font-extrabold text-slate-800 text-xs">${gradeObj.essayScore}%</span>
-                                                                <span class="text-[9px] text-emerald-600 font-medium mt-0.5">Sudah Koreksi</span>
-                                                            </div>
-                                                        `;
-                                                    } else if (gradeObj && gradeObj.pgScore !== undefined) {
-                                                        essayScoreDisplay = '<span class="text-rose-600 font-bold bg-rose-50 px-2.5 py-0.5 rounded-full border border-rose-200 text-[10px]">Belum Koreksi</span>';
-                                                    } else {
-                                                        essayScoreDisplay = `<span class="text-slate-400 italic font-medium text-xs">-</span>`;
-                                                    }
-                                                } else if (isCurrentlyWorking) {
-                                                    essayScoreDisplay = `
-                                                        <div class="flex flex-col items-center justify-center">
-                                                            <span class="text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200/80 text-[10px] font-semibold">
-                                                                ${answeredEssayCount}/${essayQuestionCount} Terjawab
-                                                            </span>
-                                                            <span class="text-[9px] text-slate-400 mt-0.5">Sedang Berjalan</span>
-                                                        </div>
-                                                    `;
-                                                } else {
-                                                    essayScoreDisplay = `<span class="text-slate-400 italic font-medium text-xs">-</span>`;
-                                                }
-
-                                                let finalScoreDisplay = '<span class="text-slate-400 italic font-medium">-</span>';
-                                                if (isCompleted) {
-                                                    const fScore = (gradeObj && gradeObj.finalScore !== null && gradeObj.finalScore !== undefined) ? gradeObj.finalScore : ((gradeObj && gradeObj.pgScore !== undefined) ? gradeObj.pgScore : null);
-                                                    if (fScore !== null && fScore !== undefined) {
-                                                        finalScoreDisplay = `
-                                                            <div class="flex flex-col items-center justify-center">
-                                                                <span class="w-9 h-9 rounded-full ${isForceFinished ? 'bg-amber-600' : 'bg-emerald-600'} text-white font-black text-xs flex items-center justify-center shadow-xs mx-auto">
-                                                                    ${fScore}
-                                                                </span>
-                                                                <span class="text-[9px] ${isForceFinished ? 'text-amber-700' : 'text-emerald-700'} font-bold mt-0.5">
-                                                                    ${isForceFinished ? 'Force Finish' : 'Final'}
-                                                                </span>
-                                                            </div>
-                                                        `;
-                                                    } else {
-                                                        finalScoreDisplay = `
-                                                            <div class="flex flex-col items-center justify-center">
-                                                                <span class="text-amber-700 font-semibold bg-amber-50 px-2 py-1 rounded-xl text-[10px] border border-amber-200/80 inline-block whitespace-nowrap">
-                                                                    Pending Koreksi
-                                                                </span>
-                                                            </div>
-                                                        `;
-                                                    }
-                                                } else if (isCurrentlyWorking) {
-                                                    finalScoreDisplay = `
-                                                        <div class="flex flex-col items-center justify-center">
-                                                            <span class="w-9 h-9 rounded-full bg-blue-600 text-white font-black text-xs flex items-center justify-center shadow-xs mx-auto">
-                                                                ${pctAccuracy}
-                                                            </span>
-                                                            <span class="text-[9px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200/80 mt-1 inline-block whitespace-nowrap">
-                                                                Nilai Sementara
-                                                            </span>
-                                                        </div>
-                                                    `;
-                                                } else {
-                                                    finalScoreDisplay = `<span class="text-slate-400 italic font-medium">-</span>`;
-                                                }
-
-                                                let actionButtonsHTML = '';
-                                                if (isCompleted) {
-                                                    let koreksiBtn = '';
-                                                    if (hasEssay) {
-                                                        if (gradeObj && gradeObj.isGraded) {
-                                                            koreksiBtn = `
-                                                                <button type="button" onclick="openKoreksiModal('${st.id}')" class="w-28 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-[10px] flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer">
-                                                                    <i class="fa-solid fa-circle-check text-xs"></i><span>Koreksi Ulang</span>
-                                                                </button>
-                                                            `;
-                                                        } else {
-                                                            const escapedName = String(st.name || '').replace(/'/g, "\\'");
-                                                            koreksiBtn = `
-                                                                <button type="button" onclick="clickKoreksiBelum('${st.id}', '${escapedName}')" class="w-28 px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-[10px] flex items-center justify-center gap-1.5 shadow-xs transition cursor-pointer">
-                                                                    <i class="fa-solid fa-pen-to-square text-xs"></i><span>Koreksi</span>
-                                                                </button>
-                                                            `;
-                                                        }
-                                                    }
-                                                    actionButtonsHTML = `
-                                                        <div class="flex flex-col gap-1.5 items-center justify-center">
-                                                            ${koreksiBtn}
-                                                            <button type="button" onclick="resetStudentExam('${st.id}')" class="w-28 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-[10px] flex items-center justify-center gap-1.5 transition cursor-pointer border border-slate-200">
-                                                                <i class="fa-solid fa-rotate-left text-xs text-slate-500"></i><span>Ulang Ujian</span>
-                                                            </button>
-                                                            <button type="button" onclick="reopenStudentExam('${st.id}')" class="w-28 px-2.5 py-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold rounded-xl text-[10px] flex items-center justify-center gap-1.5 transition cursor-pointer border border-amber-200" title="Buka kembali ujian dengan tambahan waktu, jawaban tersimpan tetap ada">
-                                                                <i class="fa-solid fa-clock-rotate-left text-xs"></i><span>Buka Kembali</span>
-                                                            </button>
-                                                        </div>
-                                                    `;
-                                                } else if (isCurrentlyWorking) {
-                                                    actionButtonsHTML = `
-                                                        <div class="flex flex-col gap-1.5 items-center justify-center">
-                                                            <button type="button" onclick="confirmAdminForceSubmitExam('${st.id}', '${examId}')" class="w-28 px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-[10px] flex items-center justify-center gap-1 shadow-sm transition cursor-pointer" title="Selesaikan ujian secara paksa dengan jawaban asli siswa saat ini">
-                                                                <i class="fa-solid fa-flag-checkered text-[9px]"></i><span>Force Finish</span>
-                                                            </button>
-                                                            <button type="button" onclick="resetStudentExam('${st.id}')" class="w-28 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-[10px] flex items-center justify-center gap-1.5 transition cursor-pointer border border-slate-200">
-                                                                <i class="fa-solid fa-rotate-left text-xs text-slate-500"></i><span>Reset Status</span>
-                                                            </button>
-                                                        </div>
-                                                    `;
-                                                } else {
-                                                    actionButtonsHTML = `
-                                                        <div class="flex flex-col gap-1.5 items-center justify-center">
-                                                            <span class="text-slate-400 italic text-[10px] mb-0.5">Belum Ujian</span>
-                                                            <button type="button" onclick="resetStudentExam('${st.id}')" class="w-28 px-2 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-xl text-[10px] flex items-center justify-center gap-1 transition cursor-pointer border border-slate-200">
-                                                                <i class="fa-solid fa-rotate-left"></i><span>Reset Status</span>
-                                                            </button>
-                                                        </div>
-                                                    `;
-                                                }
-
-                                                return `
-                                                    <tr class="hover:bg-slate-50/60 transition" data-evaluasi-student-id="${st.id}">
-                                                        <td class="px-3 py-4 text-center">
-                                                            <input type="checkbox" class="evaluasi-student-checkbox w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer" data-student-id="${st.id}" onchange="evaluasiToggleStudent('${st.id}', this.checked)" ${evaluasiGetSelection().has(String(st.id)) ? 'checked' : ''}>
-                                                        </td>
-                                                        <td class="px-4 py-4 text-center font-bold text-slate-400">${idx + 1}</td>
-                                                        <td class="px-4 py-4">
-                                                            <div class="flex items-center space-x-2.5">
-                                                                <div class="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center font-bold text-slate-500 text-xs shrink-0 overflow-hidden">
-                                                                    ${st.photo ? `<img src="${window.getPhotoHtmlSrc ? window.getPhotoHtmlSrc(st.photo) : ''}" class="w-full h-full rounded-xl object-cover" referrerPolicy="no-referrer">` : st.name.charAt(0)}
-                                                                </div>
-                                                                <div>
-                                                                    <p class="font-bold text-slate-800 leading-none">${st.name}</p>
-                                                                    <p class="text-[10px] text-slate-400 mt-1">${st.nis ? `NIS: ${st.nis}` : 'Siswa Terdaftar'}</p>
-                                                                </div>
-                                                            </div>
-                                                        </td>
-                                                        <td class="px-4 py-4 text-center font-mono font-bold text-slate-500">${st.nis || '-'}</td>
-                                                        <td class="px-4 py-4 text-center">${statusBadgeHTML}</td>
-                                                        <td class="px-4 py-4 text-center">${pgScoreDisplay}</td>
-                                                        <td class="px-4 py-4 text-center">${essayScoreDisplay}</td>
-                                                        <td class="px-4 py-4 text-center bg-emerald-50/10 font-bold">${finalScoreDisplay}</td>
-                                                        <td class="px-4 py-4 text-center">
-                                                            <div class="flex flex-col items-center gap-1.5">
-                                                                ${actionButtonsHTML}
-                                                                <button type="button" onclick="openPreviewJawabanEvaluasi('${st.id}')" class="w-28 px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-xl text-[10px] flex items-center justify-center gap-1.5 transition cursor-pointer border border-indigo-200" title="Preview jawaban siswa tanpa mengubah nilai">
-                                                                    <i class="fa-solid fa-eye"></i><span>Preview Jawaban</span>
-                                                                </button>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                `;
-                                            }).join('')}
                                         </tbody>
                                     </table>
                                 </div>
