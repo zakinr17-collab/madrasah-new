@@ -1148,6 +1148,29 @@ window.applyEvaluasiExamFilter = applyEvaluasiExamFilter;
 // EVALUASI_LIVE_PATCH_V1: hitung ringkasan status kelas dari sumber yang
 // sama dengan gambar ulang penuh (ringkasan server bila ada, bila tidak
 // peta lokal) — dipakai gambar ulang dan tambal per baris.
+// EVAL_SCORE_COLUMNS_V1: kolom nilai menyesuaikan isi jadwal — ujian PG
+// saja hanya menampilkan Nilai PG, ujian esai saja hanya Nilai Esai,
+// campuran menampilkan keduanya. Bila soal tidak bisa dibaca dari bank
+// (bank belum termuat), tampilkan keduanya seperti dulu (aman).
+function evaluasiScoreColumns(ex) {
+    const qs = getExamQuestions(ex);
+    const hasPg = qs.some(q => q.type !== 'esay' && q.type !== 'essay');
+    const hasEssay = qs.some(q => q.type === 'esay' || q.type === 'essay');
+    const showPg = hasPg || !hasEssay;
+    const showEssay = hasEssay || !hasPg;
+    const weightPg = ex && ex.weightPg !== undefined ? ex.weightPg : 50;
+    const weightEssay = ex && ex.weightEssay !== undefined ? ex.weightEssay : 50;
+    return {
+        showPg,
+        showEssay,
+        // PG saja: nilai akhir = nilai PG (kasus khusus di penghitung nilai),
+        // jadi bobot efektif PG 100%. Esai saja: tidak ada normalisasi di
+        // penghitung nilai, jadi bobot esai tetap ikut yang diisi di jadwal.
+        weightPg: (showPg && !showEssay) ? 100 : weightPg,
+        weightEssay,
+    };
+}
+
 function evaluasiSummaryCounts(ctx) {
     const { clsStudents, evaluasiSummaryStudents, examId, forceFinishedMap, completedMap, activeSessions, storedAnswers } = ctx;
     let countWorking = 0;
@@ -1186,6 +1209,7 @@ function evaluasiSummaryCounts(ctx) {
 // baris, supaya keduanya tidak pernah berbeda tampilan.
 function evaluasiStudentTableRowsHTML(ctx) {
     const { clsStudents, examId, ex, hasEssay, evaluasiSummaryStudents, grades, forceFinishedMap, completedMap, activeSessions, storedAnswers } = ctx;
+    const evalCols = evaluasiScoreColumns(ex);
     return clsStudents.map((st, idx) => {
                                                 const key1 = st.id + '_' + examId;
                                                 const key2 = String(st.id) + '_' + String(examId);
@@ -1537,8 +1561,8 @@ function evaluasiStudentTableRowsHTML(ctx) {
                                                         </td>
                                                         <td class="px-4 py-4 text-center font-mono font-bold text-slate-500">${st.nis || '-'}</td>
                                                         <td class="px-4 py-4 text-center">${statusBadgeHTML}</td>
-                                                        <td class="px-4 py-4 text-center">${pgScoreDisplay}</td>
-                                                        <td class="px-4 py-4 text-center">${essayScoreDisplay}</td>
+                                                        ${evalCols.showPg ? `<td class="px-4 py-4 text-center">${pgScoreDisplay}</td>` : ''}
+                                                        ${evalCols.showEssay ? `<td class="px-4 py-4 text-center">${essayScoreDisplay}</td>` : ''}
                                                         <td class="px-4 py-4 text-center bg-emerald-50/10 font-bold">${finalScoreDisplay}</td>
                                                         <td class="px-4 py-4 text-center">
                                                             <div class="flex flex-col items-center gap-1.5">
@@ -3081,6 +3105,7 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                         // Check if exam has essay questions once per exam, never once per student.
                         let questions = getExamQuestions(ex);
                         const hasEssay = questions.some(q => q.type === 'esay' || q.type === 'essay');
+                        const evalCols = evaluasiScoreColumns(ex);
 
                         // EVALUASI_LIVE_PATCH_V1: konteks baris tabel dipakai bersama
                         // oleh gambar ulang penuh dan tambal per baris.
@@ -3219,8 +3244,8 @@ function renderAssessmentModule(container, activeSubTab = 'jadwal', examId = nul
                                                 <th class="px-4 py-3.5 font-bold">Nama Siswa</th>
                                                 <th class="px-4 py-3.5 font-bold text-center w-28">NIS</th>
                                                 <th class="px-4 py-3.5 font-bold text-center w-36">Status</th>
-                                                <th class="px-4 py-3.5 font-bold text-center w-36">Nilai PG (${ex.weightPg !== undefined ? ex.weightPg : 50}%)</th>
-                                                <th class="px-4 py-3.5 font-bold text-center w-32">Nilai Esay (${ex.weightEssay !== undefined ? ex.weightEssay : 50}%)</th>
+                                                ${evalCols.showPg ? `<th class="px-4 py-3.5 font-bold text-center w-36">Nilai PG (${evalCols.weightPg}%)</th>` : ''}
+                                                ${evalCols.showEssay ? `<th class="px-4 py-3.5 font-bold text-center w-32">Nilai Esay (${evalCols.weightEssay}%)</th>` : ''}
                                                 <th class="px-4 py-3.5 font-bold text-center w-28 bg-emerald-50/40 text-emerald-800">Nilai Akhir</th>
                                                 <th class="px-4 py-3.5 font-bold text-center w-32">Aksi</th>
                                             </tr>
@@ -10338,6 +10363,7 @@ function generateReportHTML() {
     `;
 
     if (type === 'nilai') {
+        const evalCols = evaluasiScoreColumns(ex);
         const clsStudents = appState.students.filter(st => String(st.classId) === String(classId));
         const grades = JSON.parse(localStorage.getItem('madrasah_student_exam_grades')) || {};
         const completedMap = appState.completedExams || JSON.parse(localStorage.getItem('madrasah_completed_exams') || '{}') || {};
@@ -10369,8 +10395,8 @@ function generateReportHTML() {
                     <td style="border: 1px solid #d1d5db; padding: 10px; text-align: center; font-family: monospace; color: #374151;">${idx + 1}</td>
                     <td style="border: 1px solid #d1d5db; padding: 10px; font-weight: 600; color: #111827;">${st.name}</td>
                     <td style="border: 1px solid #d1d5db; padding: 10px; text-align: center; font-family: monospace; color: #374151;">${st.nis || '-'}</td>
-                    <td style="border: 1px solid #d1d5db; padding: 10px; text-align: center; color: #374151;">${pgVal !== '-' ? pgVal + '%' : '-'}</td>
-                    <td style="border: 1px solid #d1d5db; padding: 10px; text-align: center; color: #374151;">${essayVal !== '-' && gradeObj.isGraded ? essayVal + '%' : essayVal}</td>
+                    ${evalCols.showPg ? `<td style="border: 1px solid #d1d5db; padding: 10px; text-align: center; color: #374151;">${pgVal !== '-' ? pgVal + '%' : '-'}</td>` : ''}
+                    ${evalCols.showEssay ? `<td style="border: 1px solid #d1d5db; padding: 10px; text-align: center; color: #374151;">${essayVal !== '-' && gradeObj.isGraded ? essayVal + '%' : essayVal}</td>` : ''}
                     <td style="border: 1px solid #d1d5db; padding: 10px; text-align: center; font-weight: bold; color: ${isFF ? '#d97706' : '#047857'}; background-color: ${isFF ? 'rgba(254, 243, 199, 0.4)' : 'rgba(236, 253, 245, 0.4)'};">${finalVal}</td>
                 </tr>
             `;
@@ -10402,8 +10428,8 @@ function generateReportHTML() {
                             <th style="border: 1px solid #d1d5db; padding: 10px; text-align: center; width: 48px; color: #374151;">No</th>
                             <th style="border: 1px solid #d1d5db; padding: 10px; text-align: left; color: #374151;">Nama Lengkap Siswa</th>
                             <th style="border: 1px solid #d1d5db; padding: 10px; text-align: center; width: 112px; color: #374151;">NIS</th>
-                            <th style="border: 1px solid #d1d5db; padding: 10px; text-align: center; width: 96px; color: #374151;">Nilai PG (${ex.weightPg || 50}%)</th>
-                            <th style="border: 1px solid #d1d5db; padding: 10px; text-align: center; width: 112px; color: #374151;">Nilai Esay (${ex.weightEssay || 50}%)</th>
+                            ${evalCols.showPg ? `<th style="border: 1px solid #d1d5db; padding: 10px; text-align: center; width: 96px; color: #374151;">Nilai PG (${evalCols.weightPg}%)</th>` : ''}
+                            ${evalCols.showEssay ? `<th style="border: 1px solid #d1d5db; padding: 10px; text-align: center; width: 112px; color: #374151;">Nilai Esay (${evalCols.weightEssay}%)</th>` : ''}
                             <th style="border: 1px solid #d1d5db; padding: 10px; text-align: center; width: 96px; background-color: #ecfdf5; color: #047857;">Nilai Akhir</th>
                         </tr>
                     </thead>
@@ -11055,6 +11081,8 @@ function exportNilaiExcelEvaluasi() {
         return;
     }
 
+    const evalCols = evaluasiScoreColumns(ex);
+
     const clsStudents = (appState.students || []).filter(st => String(st.classId || st.class_id) === String(classId));
     const grades = JSON.parse(localStorage.getItem('madrasah_student_exam_grades')) || {};
     const completedMap = appState.completedExams || JSON.parse(localStorage.getItem('madrasah_completed_exams') || '{}') || {};
@@ -11090,8 +11118,8 @@ function exportNilaiExcelEvaluasi() {
             'Kelas': cls.name,
             'Mata Pelajaran': ex.subject || '-',
             'Judul Ujian': ex.title || '-',
-            [`Nilai PG (${ex.weightPg || 50}%)`]: pgVal,
-            [`Nilai Essay (${ex.weightEssay || 50}%)`]: essayVal,
+            ...(evalCols.showPg ? { [`Nilai PG (${evalCols.weightPg}%)`]: pgVal } : {}),
+            ...(evalCols.showEssay ? { [`Nilai Essay (${evalCols.weightEssay}%)`]: essayVal } : {}),
             'Nilai Akhir': finalVal
         };
         if (includeKet) {
@@ -11109,7 +11137,10 @@ function exportNilaiExcelEvaluasi() {
         
         const max_width = data.reduce((w, r) => Math.max(w, String(r['Nama Siswa'] || '').length), 10);
         worksheet['!cols'] = [
-            { wch: 5 }, { wch: 12 }, { wch: Math.max(max_width, 22) }, { wch: 12 }, { wch: 18 }, { wch: 22 }, { wch: 14 }, { wch: 14 }, { wch: 12 },
+            { wch: 5 }, { wch: 12 }, { wch: Math.max(max_width, 22) }, { wch: 12 }, { wch: 18 }, { wch: 22 },
+            ...(evalCols.showPg ? [{ wch: 14 }] : []),
+            ...(evalCols.showEssay ? [{ wch: 14 }] : []),
+            { wch: 12 },
             ...(data.length && data[0]['Keterangan'] !== undefined ? [{ wch: 20 }] : [])
         ];
 
@@ -11117,9 +11148,19 @@ function exportNilaiExcelEvaluasi() {
         showToast('File Excel Nilai Evaluasi berhasil diunduh!', 'success');
     } else {
         const ketOn = data.length && data[0]['Keterangan'] !== undefined;
-        let csvContent = "data:text/csv;charset=utf-8,No,NIS,Nama Siswa,Kelas,Mata Pelajaran,Judul Ujian,Nilai PG,Nilai Essay,Nilai Akhir" + (ketOn ? ",Keterangan" : "") + "\n";
+        const csvCols = ['No', 'NIS', 'Nama Siswa', 'Kelas', 'Mata Pelajaran', 'Judul Ujian'];
+        if (evalCols.showPg) csvCols.push('Nilai PG');
+        if (evalCols.showEssay) csvCols.push('Nilai Essay');
+        csvCols.push('Nilai Akhir');
+        if (ketOn) csvCols.push('Keterangan');
+        let csvContent = "data:text/csv;charset=utf-8," + csvCols.join(',') + "\n";
         data.forEach(r => {
-            csvContent += `${r['No']},"${r['NIS']}","${r['Nama Siswa']}","${r['Kelas']}","${r['Mata Pelajaran']}","${r['Judul Ujian']}","${r[`Nilai PG (${ex.weightPg || 50}%)`]}","${r[`Nilai Essay (${ex.weightEssay || 50}%)`]}","${r['Nilai Akhir']}"${ketOn ? `,"${r['Keterangan'] || ''}"` : ""}\n`;
+            const cells = [r['No'], `"${r['NIS']}"`, `"${r['Nama Siswa']}"`, `"${r['Kelas']}"`, `"${r['Mata Pelajaran']}"`, `"${r['Judul Ujian']}"`];
+            if (evalCols.showPg) cells.push(`"${r[`Nilai PG (${evalCols.weightPg}%)`]}"`);
+            if (evalCols.showEssay) cells.push(`"${r[`Nilai Essay (${evalCols.weightEssay}%)`]}"`);
+            cells.push(`"${r['Nilai Akhir']}"`);
+            if (ketOn) cells.push(`"${r['Keterangan'] || ''}"`);
+            csvContent += cells.join(',') + "\n";
         });
         const encodedUri = encodeURI(csvContent);
         const link = document.createElement("a");
