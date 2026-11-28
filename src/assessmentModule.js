@@ -4627,6 +4627,12 @@ async function renderStudentCBTList(container, isRefresh = false) {
 
         const schedInfo = getExamScheduleInfo(ex);
 
+        // STUDENT_LIST_HIDE_FUTURE_V1: jadwal yang waktunya belum tiba tidak
+        // tampil sama sekali di daftar siswa (bukan cuma tombol dikunci).
+        // Ujian yang sudah dikerjakan (isDone) atau sedang berjalan
+        // (hasActiveSession) tetap tampil.
+        if (!isDone && !hasActiveSession && schedInfo.status === 'not_started') return;
+
         const grades = appState.studentExamGrades || JSON.parse(localStorage.getItem('madrasah_student_exam_grades') || '{}') || {};
         const gr = grades[key1] || grades[key2];
         const scoreText = gr ? (gr.finalScore !== null && gr.finalScore !== undefined ? `Nilai: ${gr.finalScore}` : 'Nilai: Sedang Dikoreksi') : 'Selesai';
